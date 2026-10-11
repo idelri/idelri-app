@@ -2336,7 +2336,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
 
               {/* ── Grid de timeline ── */}
               <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gridTemplateRows: '56px 1fr', height: 'calc(100vh - 220px)', overflow: 'hidden' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '110px 1fr', gridTemplateRows: '56px 1fr', height: 'calc(100vh - 320px)', overflow: 'hidden' }}>
 
                   {/* ── ZONA A — esquina superior izquierda ── */}
                   <div style={{ gridColumn: 1, gridRow: 1, background: 'var(--bg)', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', zIndex: 30 }} />
@@ -2421,7 +2421,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                         <div style={{ height: alturaPlanificacion, borderBottom: '1px solid var(--border)', background: '#fffef0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                           {/* Fila 1: selector gráfica principal + ticks */}
                           <div style={{ height: rowH, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
-                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 4px 4px 5px', overflow: 'hidden' }}>
+                            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 4px 4px 5px', overflowY: 'auto', overflowX: 'hidden' }}>
                               <span style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 500, display: 'block', marginBottom: 3 }}>Carga</span>
                               {VARS_OPT.map(op => (
                                 <button key={op.key} onClick={() => setVarCarga(op.key)}
