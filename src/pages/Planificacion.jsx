@@ -2420,7 +2420,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                       return (
                         <div style={{ height: alturaPlanificacion, borderBottom: '1px solid var(--border)', background: '#fffef0', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                           {/* Fila 1: selector gráfica principal + ticks */}
-                          <div style={{ height: rowH, display: 'flex', flexDirection: 'row', overflow: 'hidden' }}>
+                          <div style={{ height: rowH, display: 'flex', flexDirection: 'row', overflowX: 'hidden' }}>
                             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', padding: '4px 4px 4px 5px', overflowY: 'auto', overflowX: 'hidden' }}>
                               <span style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 500, display: 'block', marginBottom: 3 }}>Carga</span>
                               {VARS_OPT.map(op => (
@@ -2439,7 +2439,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                                   + 2ª gráfica
                                 </button>
                               ) : (
-                                <button onClick={() => { setVar2Carga(null); setAlturaPlanificacion(106) }}
+                                <button onClick={(e) => { e.stopPropagation(); setVar2Carga(null); setAlturaPlanificacion(106) }}
                                   style={{ display: 'block', width: '100%', marginTop: 3, padding: '2px 4px', fontSize: 9, borderRadius: 4, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', textAlign: 'left' }}>
                                   × 2ª gráfica
                                 </button>
