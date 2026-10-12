@@ -2434,7 +2434,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                                 </button>
                               ))}
                               {var2Carga === null ? (
-                                <button onClick={() => { setVar2Carga(VARS_OPT.find(v => v.key !== varCarga)?.key || 'rpe'); setAlturaPlanificacion(196) }}
+                                <button onClick={() => { setVar2Carga(VARS_OPT.find(v => v.key !== varCarga)?.key || 'rpe'); setAlturaPlanificacion(240) }}
                                   style={{ display: 'block', width: '100%', marginTop: 3, padding: '2px 4px', fontSize: 9, borderRadius: 4, border: '1px dashed var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer', textAlign: 'left' }}>
                                   + 2ª gráfica
                                 </button>
