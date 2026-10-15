@@ -1252,21 +1252,25 @@ export default function ClientePortal({ token }) {
     const fechaIni = modalRegistrar?.fecha ? format(modalRegistrar.fecha, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')
     const [tipo, setTipo] = useState(TIPOS_ACTIVIDAD[0])
     const [titulo, setTitulo] = useState('')
+    const [descripcion, setDescripcion] = useState('')
     const [fecha, setFecha] = useState(fechaIni)
     const [duracion, setDuracion] = useState('')
+    const [tituloError, setTituloError] = useState(false)
     const [guardando, setGuardando] = useState(false)
 
     async function guardarSesionManual(feedbackData) {
+      if (!titulo.trim()) { setTituloError(true); return }
       setGuardando(true)
       const estado = feedbackData?.completion?.status || 'completed'
       const duracionReal = feedbackData?.duration?.minutes || (duracion ? parseInt(duracion) : null)
       const { data, error } = await supabase.rpc('registrar_sesion_manual_cliente', {
         p_token:         token,
-        p_titulo:        titulo || tipo.placeholder,
+        p_titulo:        titulo.trim(),
         p_fecha:         fecha,
         p_duracion_min:  duracionReal,
         p_icono:         tipo.emoji,
         p_estado_manual: estado,
+        p_descripcion:   descripcion.trim() || null,
         p_feedback_data: feedbackData || null,
       })
       setGuardando(false)
@@ -1317,9 +1321,19 @@ export default function ClientePortal({ token }) {
 
             {/* Título */}
             <div style={{ marginBottom: 12 }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 5 }}>Título</div>
-              <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={tipo.placeholder}
-                style={{ width: '100%', padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontFamily: T.font, color: T.ink, background: T.surface, outline: 'none', boxSizing: 'border-box' }} />
+              <div style={{ fontFamily: T.mono, fontSize: 9, color: tituloError ? '#c0392b' : T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 5 }}>
+                Título <span style={{ color: '#c0392b' }}>*</span>
+              </div>
+              <input value={titulo} onChange={e => { setTitulo(e.target.value); if (e.target.value.trim()) setTituloError(false) }} placeholder={tipo.placeholder}
+                style={{ width: '100%', padding: '9px 12px', border: `1px solid ${tituloError ? '#c0392b' : T.border}`, borderRadius: 9, fontSize: 13, fontFamily: T.font, color: T.ink, background: T.surface, outline: 'none', boxSizing: 'border-box' }} />
+              {tituloError && <div style={{ fontSize: 11, color: '#c0392b', marginTop: 4 }}>El título es obligatorio</div>}
+            </div>
+
+            {/* Descripción */}
+            <div style={{ marginBottom: 12 }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 5 }}>Descripción (opcional)</div>
+              <textarea value={descripcion} onChange={e => setDescripcion(e.target.value)} placeholder="Descripción o comentarios sobre la sesión..." rows={3}
+                style={{ width: '100%', padding: '8px 10px', border: `1px solid ${T.border}`, borderRadius: 8, background: T.surface, fontSize: 13, fontFamily: T.font, color: T.ink, resize: 'vertical', outline: 'none', boxSizing: 'border-box' }} />
             </div>
 
             {/* Fecha + duración estimada */}
