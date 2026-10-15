@@ -209,7 +209,8 @@ export default function ClientePortal({ token }) {
   const [stravaConectando, setStravaConectando] = useState(false)
   const [stravaConectado, setStravaConectado] = useState(false)
   const [stravaDesconectando, setStravaDesconectando] = useState(false)
-  const [stravaConfirmDesc, setStravaConfirmDesc] = useState(false) // modal confirmación
+  const [stravaConfirmDesc, setStravaConfirmDesc] = useState(false)
+  const [modalRegistrar, setModalRegistrar] = useState(null) // null | { fecha: Date }
 
   useEffect(() => { cargar() }, [token])
 
@@ -781,13 +782,19 @@ export default function ClientePortal({ token }) {
 
                   if (sesDia.length === 0 && notasDia.length === 0) {
                     return (
-                      <div key={`day-${idx}`} style={{ display: 'flex', alignItems: 'center', gap: 10, background: T.surface, borderRadius: 10, border: `1px solid ${T.border}`, padding: '7px 12px', opacity: hoyDia ? 1 : 0.6 }}>
-                        <div style={{ width: 32, height: 32, borderRadius: 7, background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>😴</div>
-                        <div>
-                          <div style={{ fontSize: 11, fontWeight: hoyDia ? 600 : 400, color: hoyDia ? T.ink : T.ink2 }}>{nombreDia}{hoyDia && <span style={{ marginLeft: 6, fontSize: 9, background: colNav, color: '#fff', padding: '1px 6px', borderRadius: 8, fontFamily: T.mono }}>hoy</span>}</div>
-                          <div style={{ fontSize: 10, color: T.ink3 }}>Descanso</div>
+                      <div key={`day-${idx}`} style={{ background: T.surface, borderRadius: 10, border: `1px solid ${T.border}`, overflow: 'hidden', opacity: hoyDia ? 1 : 0.75 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 12px' }}>
+                          <div style={{ width: 32, height: 32, borderRadius: 7, background: T.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>😴</div>
+                          <div>
+                            <div style={{ fontSize: 11, fontWeight: hoyDia ? 600 : 400, color: hoyDia ? T.ink : T.ink2 }}>{nombreDia}{hoyDia && <span style={{ marginLeft: 6, fontSize: 9, background: colNav, color: '#fff', padding: '1px 6px', borderRadius: 8, fontFamily: T.mono }}>hoy</span>}</div>
+                            <div style={{ fontSize: 10, color: T.ink3 }}>Descanso</div>
+                          </div>
+                          <div style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 9, color: T.ink3 }}>{fechaStr}</div>
                         </div>
-                        <div style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 9, color: T.ink3 }}>{fechaStr}</div>
+                        <button onClick={() => setModalRegistrar({ fecha: dia })}
+                          style={{ width: '100%', padding: '6px', border: 'none', borderTop: `1px dashed ${T.border2}`, background: 'transparent', color: T.ink3, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: T.font }}>
+                          + registrar sesión
+                        </button>
                       </div>
                     )
                   }
@@ -829,7 +836,7 @@ export default function ClientePortal({ token }) {
                             <div style={{ flex: 1, minWidth: 0 }}>
                               <div style={{ fontSize: 12, fontWeight: 500, color: T.ink }}>{item.titulo}</div>
                               <div style={{ fontFamily: T.mono, fontSize: 10, color: T.ink3, marginTop: 1 }}>
-                                {item.duracion_min ? `${item.duracion_min} min` : ''}{item.duracion_min && item.tipo_sesion ? ' · ' : ''}{item.tipo_sesion === 'opcional' ? 'Opcional' : item.tipo_sesion === 'flexible' ? 'Flexible' : item.tipo_sesion === 'programada' ? 'Programada' : ''}
+                                {item.duracion_min ? `${item.duracion_min} min` : ''}{item.duracion_min && item.tipo_sesion ? ' · ' : ''}{item.tipo_sesion === 'opcional' ? 'Opcional' : item.tipo_sesion === 'flexible' ? 'Flexible' : item.tipo_sesion === 'programada' ? 'Programada' : item.tipo_sesion === 'manual_cliente' ? 'Registrada por mí' : ''}
                               </div>
                               {item.completada_el && item.fecha && item.completada_el !== item.fecha && <div style={{ fontSize: 9, color: T.ink3, marginTop: 1 }}>Prevista: {format(parseISO(item.fecha), "EEE d MMM", { locale: es })}</div>}
                             </div>
@@ -843,6 +850,10 @@ export default function ClientePortal({ token }) {
                           </div>
                         )
                       })}
+                      <button onClick={() => setModalRegistrar({ fecha: dia })}
+                        style={{ width: '100%', padding: '6px', border: 'none', borderTop: `1px dashed ${T.border2}`, background: 'transparent', color: T.ink3, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: T.font }}>
+                        + registrar sesión
+                      </button>
                     </div>
                   )
                 })
@@ -1224,6 +1235,154 @@ export default function ClientePortal({ token }) {
     )
   }
 
+  /* ---- MODAL REGISTRAR SESIÓN MANUAL ---- */
+  const TIPOS_ACTIVIDAD = [
+    { emoji: '💪', label: 'Fuerza',     placeholder: 'Entrenamiento de fuerza' },
+    { emoji: '🏃', label: 'Correr',     placeholder: 'Salida a correr' },
+    { emoji: '🚴', label: 'Bici',       placeholder: 'Salida en bici' },
+    { emoji: '🤸', label: 'Movilidad',  placeholder: 'Sesión de movilidad' },
+    { emoji: '⚽', label: 'Fútbol',     placeholder: 'Partido / entreno fútbol' },
+    { emoji: '🎾', label: 'Pádel',      placeholder: 'Partido de pádel' },
+    { emoji: '🏊', label: 'Nadar',      placeholder: 'Sesión de natación' },
+    { emoji: '🚶', label: 'Caminar',    placeholder: 'Caminata' },
+    { emoji: '💆', label: 'Otro',       placeholder: 'Describe la sesión' },
+  ]
+  function ModalRegistrar() {
+    const fechaIni = modalRegistrar?.fecha ? format(modalRegistrar.fecha, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')
+    const [tipo, setTipo] = useState(TIPOS_ACTIVIDAD[0])
+    const [titulo, setTitulo] = useState('')
+    const [fecha, setFecha] = useState(fechaIni)
+    const [duracion, setDuracion] = useState('')
+    const [estado, setEstado] = useState('completed')
+    const [sensaciones, setSensaciones] = useState(3)
+    const [nota, setNota] = useState('')
+    const [guardando, setGuardando] = useState(false)
+
+    async function guardar() {
+      setGuardando(true)
+      const { data, error } = await supabase.rpc('registrar_sesion_manual_cliente', {
+        p_token:         token,
+        p_titulo:        titulo || tipo.placeholder,
+        p_fecha:         fecha,
+        p_duracion_min:  duracion ? parseInt(duracion) : null,
+        p_icono:         tipo.emoji,
+        p_estado_manual: estado,
+        p_sensaciones:   sensaciones,
+        p_nota_cliente:  nota || null,
+      })
+      setGuardando(false)
+      if (error || data?.error) { alert('Error al guardar: ' + (error?.message || data?.error)); return }
+      // Añadir sesión al estado local sin recargar
+      const estadoEfectivo = estado === 'completed' ? 'completed' : estado === 'partial' ? 'partial' : estado === 'missed' ? 'missed' : 'realizada'
+      const nuevaSesion = {
+        id: data.sesion_id,
+        titulo: titulo || tipo.placeholder,
+        fecha,
+        duracion_min: duracion ? parseInt(duracion) : null,
+        icono: tipo.emoji,
+        estado_manual: estado,
+        estado_efectivo: estadoEfectivo,
+        completada_el: estado !== 'missed' ? fecha : null,
+        token_publico: null,
+        tipo_sesion: 'manual_cliente',
+        sesion_feedback: sensaciones || nota ? [{ submitted_at: new Date().toISOString() }] : null,
+      }
+      setSesiones(prev => [...prev, nuevaSesion])
+      setModalRegistrar(null)
+    }
+
+    const ESTADOS = [
+      { value: 'completed', label: '✓ Completada' },
+      { value: 'partial',   label: '◐ Parcial' },
+      { value: 'missed',    label: '✕ No realizada' },
+    ]
+
+    return (
+      <div onClick={() => setModalRegistrar(null)}
+        style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 200, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
+        <div onClick={e => e.stopPropagation()}
+          style={{ background: T.surface, borderRadius: '18px 18px 0 0', padding: '20px 20px 36px', width: '100%', maxWidth: 520, maxHeight: '92vh', overflowY: 'auto' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: T.ink }}>Registrar sesión</div>
+            <button onClick={() => setModalRegistrar(null)} style={{ background: 'none', border: 'none', fontSize: 18, color: T.ink3, cursor: 'pointer', lineHeight: 1 }}>×</button>
+          </div>
+
+          {/* Tipo */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 7 }}>Tipo</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {TIPOS_ACTIVIDAD.map(t => (
+                <button key={t.emoji} onClick={() => setTipo(t)}
+                  style={{ padding: '5px 10px', borderRadius: 20, border: `1.5px solid ${tipo.emoji === t.emoji ? colA : T.border}`, background: tipo.emoji === t.emoji ? colA + '15' : 'transparent', cursor: 'pointer', fontSize: 12, color: tipo.emoji === t.emoji ? colA : T.ink2, fontFamily: T.font, fontWeight: tipo.emoji === t.emoji ? 600 : 400 }}>
+                  {t.emoji} {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Título */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 5 }}>Título</div>
+            <input value={titulo} onChange={e => setTitulo(e.target.value)} placeholder={tipo.placeholder}
+              style={{ width: '100%', padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontFamily: T.font, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+
+          {/* Fecha + duración */}
+          <div style={{ display: 'flex', gap: 10, marginBottom: 14 }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 5 }}>Fecha</div>
+              <input type="date" value={fecha} onChange={e => setFecha(e.target.value)}
+                style={{ width: '100%', padding: '9px 10px', border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontFamily: T.font, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div style={{ width: 110 }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 5 }}>Duración (min)</div>
+              <input type="number" min="1" max="480" value={duracion} onChange={e => setDuracion(e.target.value)} placeholder="—"
+                style={{ width: '100%', padding: '9px 10px', border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontFamily: T.font, color: T.ink, background: T.bg, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+          </div>
+
+          {/* Estado */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 7 }}>Cómo fue</div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {ESTADOS.map(e => (
+                <button key={e.value} onClick={() => setEstado(e.value)}
+                  style={{ flex: 1, padding: '7px 4px', borderRadius: 9, border: `1.5px solid ${estado === e.value ? colA : T.border}`, background: estado === e.value ? colA + '15' : 'transparent', cursor: 'pointer', fontSize: 11, color: estado === e.value ? colA : T.ink2, fontFamily: T.font, fontWeight: estado === e.value ? 600 : 400, textAlign: 'center' }}>
+                  {e.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Sensaciones */}
+          <div style={{ marginBottom: 12 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 7 }}>Sensaciones</div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {[1,2,3,4,5].map(n => (
+                <button key={n} onClick={() => setSensaciones(n)}
+                  style={{ flex: 1, padding: '8px 0', borderRadius: 9, border: `1.5px solid ${sensaciones === n ? colA : T.border}`, background: sensaciones === n ? colA + '15' : 'transparent', cursor: 'pointer', fontSize: 18, lineHeight: 1 }}>
+                  {['😞','😕','😐','😊','🔥'][n-1]}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Nota libre */}
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 5 }}>Nota (opcional)</div>
+            <textarea value={nota} onChange={e => setNota(e.target.value)} placeholder="¿Cómo te has sentido? ¿Algo a destacar?" rows={3}
+              style={{ width: '100%', padding: '9px 12px', border: `1px solid ${T.border}`, borderRadius: 9, fontSize: 13, fontFamily: T.font, color: T.ink, background: T.bg, outline: 'none', resize: 'none', boxSizing: 'border-box' }} />
+          </div>
+
+          <button onClick={guardar} disabled={guardando}
+            style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: guardando ? T.bg2 : colA, color: guardando ? T.ink3 : '#fff', fontSize: 14, fontWeight: 700, fontFamily: T.font, cursor: guardando ? 'default' : 'pointer' }}>
+            {guardando ? 'Guardando…' : 'Guardar sesión'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   /* ---- RENDER PRINCIPAL ---- */
   return (
     <div style={{ minHeight: '100vh', background: T.bg, fontFamily: T.font, color: T.ink }}>
@@ -1291,6 +1450,8 @@ export default function ClientePortal({ token }) {
         {tab === 'calendario' && portalConfig.mostrar_calendario && <TabCalendario />}
         {tab === 'plan'       && portalConfig.mostrar_plan       && <TabPlan />}
       </div>
+
+      {modalRegistrar && <ModalRegistrar />}
 
       {/* ── Conexión Strava ────────────────────────────────────────────── */}
       <div style={{
