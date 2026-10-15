@@ -295,6 +295,7 @@ export default function Sesiones({ clienteInicial, sesionInicialId, fechaNuevaSe
   const [bibFiltros, setBibFiltros] = useState({}) // { [campo]: subvariable | null } — campos activos
   const [guardadoOk, setGuardadoOk] = useState(false)
   const [mediaPreview, setMediaPreview] = useState(null) // { tipo, ytid, url, x, y }
+  const [inputInlineBloque, setInputInlineBloque] = useState(null) // id del bloque con input abierto
   const mediaPreviewTimeout = useRef(null)
 const [modalDuplicar, setModalDuplicar] = useState(null)
   const [fechaDuplicar, setFechaDuplicar] = useState('')
@@ -1887,21 +1888,59 @@ async function guardarSesion() {
 
                 const varsDefMetodo = VARS_DEFAULT_METODO[b.metodo || 'individual'] || VARS_DEFAULT_METODO.individual
                 const addButtons = (
-                  <div style={{ display: 'flex', borderTop: '0.5px solid var(--border)' }}>
-                    <button onClick={() => abrirCrearEjercicio(b.id, varsDefMetodo)}
-                      onMouseEnter={ev => ev.currentTarget.style.background = 'var(--surface2, #f8f9fa)'}
-                      onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
-                      style={{ flex: 1, padding: '6px 0', border: 'none', borderRight: '0.5px solid var(--border)', background: 'transparent', color: 'var(--text3)', fontSize: 11, fontFamily: "'Inter', system-ui, sans-serif", cursor: 'pointer' }}>
-                      + ejercicio
-                    </button>
-                    <button onClick={() => abrirBiblioteca(b.id, varsDefMetodo)}
-                      onMouseEnter={ev => ev.currentTarget.style.background = 'var(--surface2, #f8f9fa)'}
-                      onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
-                      title="Añadir desde biblioteca"
-                      style={{ flex: 1, padding: '6px 0', border: 'none', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer' }}>
-                      📚 biblioteca
-                    </button>
-                  </div>
+                  <>
+                    {inputInlineBloque === b.id && (
+                      <input
+                        type="text"
+                        autoFocus
+                        placeholder="Nombre del ejercicio..."
+                        onKeyDown={async (e) => {
+                          if (e.key === 'Enter' && e.target.value.trim()) {
+                            const nombre = e.target.value.trim()
+                            e.target.value = ''
+                            const { data } = await supabase
+                              .from('sesion_ejercicios')
+                              .insert({
+                                bloque_id: b.id,
+                                nombre,
+                                orden: ejercicios[b.id]?.length || 0,
+                                variables_activas: varsDefMetodo,
+                              })
+                              .select()
+                              .single()
+                            if (data) {
+                              setEjercicios(ej => ({ ...ej, [b.id]: [...(ej[b.id] || []), data] }))
+                              setDirty(true)
+                            }
+                          }
+                          if (e.key === 'Escape') setInputInlineBloque(null)
+                        }}
+                        onBlur={() => setInputInlineBloque(null)}
+                        style={{ width: '100%', padding: '7px 10px', border: 'none', borderTop: '0.5px solid var(--border)', borderBottom: '0.5px solid var(--border)', background: 'var(--surface2, #f8f9fa)', fontSize: 12, fontFamily: 'inherit', outline: 'none', color: 'var(--text)', boxSizing: 'border-box' }}
+                      />
+                    )}
+                    <div style={{ display: 'flex', borderTop: '0.5px solid var(--border)' }}>
+                      <button onClick={() => abrirCrearEjercicio(b.id, varsDefMetodo)}
+                        onMouseEnter={ev => ev.currentTarget.style.background = 'var(--surface2, #f8f9fa)'}
+                        onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
+                        style={{ flex: 1, padding: '6px 0', border: 'none', borderRight: '0.5px solid var(--border)', background: 'transparent', color: 'var(--text3)', fontSize: 11, fontFamily: "'Inter', system-ui, sans-serif", cursor: 'pointer' }}>
+                        + ejercicio
+                      </button>
+                      <button onClick={() => setInputInlineBloque(b.id)}
+                        onMouseEnter={ev => ev.currentTarget.style.background = 'var(--surface2, #f8f9fa)'}
+                        onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
+                        style={{ flex: 1, padding: '6px 0', border: 'none', borderRight: '0.5px solid var(--border)', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer' }}>
+                        ✏ escribir
+                      </button>
+                      <button onClick={() => abrirBiblioteca(b.id, varsDefMetodo)}
+                        onMouseEnter={ev => ev.currentTarget.style.background = 'var(--surface2, #f8f9fa)'}
+                        onMouseLeave={ev => ev.currentTarget.style.background = 'transparent'}
+                        title="Añadir desde biblioteca"
+                        style={{ flex: 1, padding: '6px 0', border: 'none', background: 'transparent', color: 'var(--text3)', fontSize: 11, cursor: 'pointer' }}>
+                        📚 biblioteca
+                      </button>
+                    </div>
+                  </>
                 )
 
                 const saveDescanso = async v => {
