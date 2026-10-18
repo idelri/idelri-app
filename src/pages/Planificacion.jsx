@@ -276,6 +276,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   const [savingPack, setSavingPack] = useState(false)
   const [packsAbiertos, setPacksAbiertos] = useState(new Set())
   const [arrastrando, setArrastrando] = useState(null)
+  const [modoDrag, setModoDrag] = useState('mover') // 'mover' | 'copiar'
   const [dropPackId, setDropPackId] = useState(null)
   const [semanaSeleccionada, setSemanaSeleccionada] = useState(null)
   const [notasSemanaText, setNotasSemanaText] = useState('')
@@ -2195,7 +2196,21 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                 onEliminar={item => eliminarItem(item._tipo === 'sesion' ? 'sesion' : item._tipo === 'competicion' ? 'comp' : item._tipo === 'control' ? 'control' : 'nota', item.id)}
                 arrastrando={arrastrando}
                 setArrastrando={setArrastrando}
-                onMoverSesion={async (item, fechaDestino) => {
+                modoDrag={modoDrag}
+                setModoDrag={setModoDrag}
+                onMoverSesion={async (item, fechaDestino, modo) => {
+                  const modoEfectivo = modo || modoDrag
+                  // Copiar: clonar la sesión en el día destino, la original queda intacta
+                  if (modoEfectivo === 'copiar' && item._tipo === 'sesion') {
+                    const { error } = await clonarSesion(supabase, item.id, {
+                      clienteDestino: clienteSeleccionado,
+                      fecha: fechaDestino,
+                    })
+                    if (error) { alert('Error al copiar sesión: ' + error.message); return }
+                    cargarPlanificacion()
+                    return
+                  }
+                  // Mover (comportamiento original)
                   if (item._tipo === 'sesion' && item.pack_id) {
                     await sacarDePack(item, fechaDestino)
                     return

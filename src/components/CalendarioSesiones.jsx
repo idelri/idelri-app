@@ -76,6 +76,8 @@ export default function CalendarioSesiones({
   feedbacksMap = {},
   // 5.6D: array de semanas del plan (con fecha_inicio_semana, numero_cliente, bloque_id)
   semanasAll = [],
+  // Drag & drop mode: 'mover' | 'copiar'
+  modoDrag = 'mover', setModoDrag,
 }) {
   const [vista, setVista] = useState('mes')
   const [cursor, setCursor] = useState(new Date())
@@ -280,7 +282,34 @@ export default function CalendarioSesiones({
             {onPegarSemanaOtroCliente && <button className="btn btn-ghost btn-sm" onClick={onPegarSemanaOtroCliente}>→ Otro cliente</button>}
           </>
         )}
-        <div className="flex gap-1" style={{ marginLeft: 'auto' }}>
+        <div className="flex gap-1" style={{ marginLeft: 'auto', alignItems: 'center' }}>
+          {setModoDrag && (
+            <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg2)', borderRadius: 8, padding: '2px', gap: 2, marginRight: 6 }}>
+              {[
+                { key: 'mover', label: '✂️ Mover', title: 'Mover: la sesión se quita del día original' },
+                { key: 'copiar', label: '📋 Copiar', title: 'Copiar: la sesión queda en ambos días' },
+              ].map(opt => (
+                <button
+                  key={opt.key}
+                  title={opt.title}
+                  onClick={() => setModoDrag(opt.key)}
+                  style={{
+                    padding: '3px 10px',
+                    fontSize: 11,
+                    fontWeight: modoDrag === opt.key ? 700 : 400,
+                    borderRadius: 6,
+                    border: 'none',
+                    cursor: 'pointer',
+                    background: modoDrag === opt.key ? 'var(--accent)' : 'transparent',
+                    color: modoDrag === opt.key ? '#fff' : 'var(--text3)',
+                    transition: 'background 0.15s, color 0.15s',
+                    whiteSpace: 'nowrap',
+                  }}>
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
           {['mes', 'semana'].map(v => (
             <button key={v} className="btn btn-ghost btn-sm" style={vista === v ? { background: 'var(--bg2)', fontWeight: 600 } : {}} onClick={() => setVista(v)}>
               {v.charAt(0).toUpperCase() + v.slice(1)}
@@ -365,7 +394,7 @@ export default function CalendarioSesiones({
                   return (
                     <div key={i}
                       onDragOver={e => e.preventDefault()}
-                      onDrop={e => { e.preventDefault(); console.log('[drop-dia]', key, 'arrastrando:', arrastrando?.id ?? 'NULL'); if (arrastrando) { onMoverSesion(arrastrando, key); setArrastrando(null) } }}
+                      onDrop={e => { e.preventDefault(); console.log('[drop-dia]', key, 'arrastrando:', arrastrando?.id ?? 'NULL', 'modo:', modoDrag); if (arrastrando) { onMoverSesion(arrastrando, key, modoDrag); setArrastrando(null) } }}
                       onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, fecha: key }) }}
                       style={{ background: packDia ? '#f0f9ff' : 'var(--bg)', minHeight: vista === 'mes' ? 80 : 140, padding: '4px', boxSizing: 'border-box', borderTop: colorLinea ? `2px solid ${colorLinea}` : '2px solid transparent', display: 'flex', flexDirection: 'column', gap: 3, opacity: esMesActual ? 1 : 0.35 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
