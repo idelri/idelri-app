@@ -2198,28 +2198,28 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                 setArrastrando={setArrastrando}
                 modoDrag={modoDrag}
                 setModoDrag={setModoDrag}
-                onMoverSesion={async (item, fechaDestino, modo) => {
+                onMoverSesion={async (itemOrItems, fechaDestino, modo) => {
                   const modoEfectivo = modo || modoDrag
-                  // Copiar: clonar la sesión en el día destino, la original queda intacta
-                  if (modoEfectivo === 'copiar' && item._tipo === 'sesion') {
-                    const { error } = await clonarSesion(supabase, item.id, {
-                      clienteDestino: clienteSeleccionado,
-                      fecha: fechaDestino,
-                    })
-                    if (error) { alert('Error al copiar sesión: ' + error.message); return }
-                    cargarPlanificacion()
-                    return
-                  }
-                  // Mover (comportamiento original)
-                  if (item._tipo === 'sesion' && item.pack_id) {
-                    await sacarDePack(item, fechaDestino)
-                    return
-                  }
-                  const tabla = item._tipo === 'sesion' ? 'sesiones' : item._tipo === 'competicion' ? 'competiciones' : item._tipo === 'control' ? 'controles' : 'sesion_notas'
-                  const payload = item._tipo === 'sesion'
-                    ? { fecha: fechaDestino, completada_el: fechaDestino, fecha_editada_por_entrenadora: true }
-                    : { fecha: fechaDestino }
-                  await supabase.from(tabla).update(payload).eq('id', item.id)
+                  const items = Array.isArray(itemOrItems) ? itemOrItems : [itemOrItems]
+                  await Promise.all(items.map(async item => {
+                    if (modoEfectivo === 'copiar' && item._tipo === 'sesion') {
+                      const { error } = await clonarSesion(supabase, item.id, {
+                        clienteDestino: clienteSeleccionado,
+                        fecha: fechaDestino,
+                      })
+                      if (error) console.error('Error al copiar sesión:', item.id, error.message)
+                      return
+                    }
+                    if (item._tipo === 'sesion' && item.pack_id) {
+                      await sacarDePack(item, fechaDestino)
+                      return
+                    }
+                    const tabla = item._tipo === 'sesion' ? 'sesiones' : item._tipo === 'competicion' ? 'competiciones' : item._tipo === 'control' ? 'controles' : 'sesion_notas'
+                    const payload = item._tipo === 'sesion'
+                      ? { fecha: fechaDestino, completada_el: fechaDestino, fecha_editada_por_entrenadora: true }
+                      : { fecha: fechaDestino }
+                    await supabase.from(tabla).update(payload).eq('id', item.id)
+                  }))
                   cargarPlanificacion()
                 }}
                 clipboard={clipboardSesion}

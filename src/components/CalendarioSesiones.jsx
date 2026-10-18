@@ -84,6 +84,7 @@ export default function CalendarioSesiones({
   const [arrastandoInterno, setArrastrandoInterno] = useState(null)
   const arrastrando = arrastandoExterno !== undefined ? arrastandoExterno : arrastandoInterno
   const setArrastrando = setArrastrandoExterno || setArrastrandoInterno
+  const [seleccionados, setSeleccionados] = useState(new Set()) // ids seleccionados con Cmd/Ctrl
   const [menu, setMenu] = useState(null)
   const [tooltip, setTooltip] = useState(null) // { x, y, sesionId, data }
   const [fbTooltip, setFbTooltip] = useState(null) // { x, y, sesion, fb }
@@ -91,6 +92,7 @@ export default function CalendarioSesiones({
   const [localOrder, setLocalOrder] = useState({}) // { fecha: id[] } orden optimista
   const dragWithinRef = useRef(null) // { itemId, fecha } — síncrono, evita stale closure
   const fbTooltipTimer = useRef(null)
+  const itemsMapRef = useRef({}) // id→item para recuperar objetos al soltar selección múltiple
 
   function mostrarFbTooltip(e, sesion, fb) {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -265,7 +267,7 @@ export default function CalendarioSesiones({
   function cerrarMenu() { setMenu(null) }
 
   return (
-    <div onClick={cerrarMenu}>
+    <div onClick={e => { cerrarMenu(); if (!e.metaKey && !e.ctrlKey) setSeleccionados(new Set()) }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <button className="btn btn-ghost btn-sm" onClick={navPrev}>‹</button>
         <span style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize', minWidth: 160, textAlign: 'center' }}>{titulo}</span>
@@ -283,6 +285,11 @@ export default function CalendarioSesiones({
           </>
         )}
         <div className="flex gap-1" style={{ marginLeft: 'auto', alignItems: 'center' }}>
+          {seleccionados.size > 0 && (
+            <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: 'var(--accent)', color: '#fff', whiteSpace: 'nowrap' }}>
+              {seleccionados.size} seleccionada{seleccionados.size > 1 ? 's' : ''}
+            </span>
+          )}
           {setModoDrag && (
             <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg2)', borderRadius: 8, padding: '2px', gap: 2, marginRight: 6 }}>
               {[
@@ -394,7 +401,18 @@ export default function CalendarioSesiones({
                   return (
                     <div key={i}
                       onDragOver={e => e.preventDefault()}
-                      onDrop={e => { e.preventDefault(); console.log('[drop-dia]', key, 'arrastrando:', arrastrando?.id ?? 'NULL', 'modo:', modoDrag); if (arrastrando) { onMoverSesion(arrastrando, key, modoDrag); setArrastrando(null) } }}
+                      onDrop={e => {
+                        e.preventDefault()
+                        if (!arrastrando) return
+                        if (seleccionados.has(arrastrando.id) && seleccionados.size > 1) {
+                          const items = [...seleccionados].map(id => itemsMapRef.current[id]).filter(Boolean)
+                          onMoverSesion(items, key, modoDrag)
+                          setSeleccionados(new Set())
+                        } else {
+                          onMoverSesion(arrastrando, key, modoDrag)
+                        }
+                        setArrastrando(null)
+                      }}
                       onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, fecha: key }) }}
                       style={{ background: packDia ? '#f0f9ff' : 'var(--bg)', minHeight: vista === 'mes' ? 80 : 140, padding: '4px', boxSizing: 'border-box', borderTop: colorLinea ? `2px solid ${colorLinea}` : '2px solid transparent', display: 'flex', flexDirection: 'column', gap: 3, opacity: esMesActual ? 1 : 0.35 }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -420,17 +438,18 @@ export default function CalendarioSesiones({
                         const lineStyle = { height: 2, background: '#2d6a4f', borderRadius: 1, flexShrink: 0, pointerEvents: 'none' }
                         const els = []
                         if (isDragTarget && dragOver.pos === 'before') els.push(<div key={`lb-${item.id}`} style={lineStyle} />)
+                        itemsMapRef.current[item.id] = item
+                        const estaSeleccionado = seleccionados.has(item.id)
                         els.push(
                           <div key={item.id}
                             draggable={true}
                             onDragStart={() => {
-                              console.log('[dragStart]', item.id, item.titulo || item.texto)
                               const sortable = item._tipo === 'sesion' || item._tipo === 'nota'
                               const dw = sortable ? { itemId: item.id, fecha: key } : null
                               dragWithinRef.current = dw
                               setArrastrando(item); ocultarTooltip()
                             }}
-                            onDragEnd={() => { console.log('[dragEnd]', item.id); dragWithinRef.current = null; setArrastrando(null); setDragOver(null) }}
+                            onDragEnd={() => { dragWithinRef.current = null; setArrastrando(null); setDragOver(null) }}
                             onDragOver={e => {
                               e.preventDefault()
                               const dw = dragWithinRef.current
@@ -446,14 +465,26 @@ export default function CalendarioSesiones({
                               const dw = dragWithinRef.current
                               const sortable = item._tipo === 'sesion' || item._tipo === 'nota'
                               if (sortable && dw && dw.fecha === key && dw.itemId !== item.id) {
-                                // Reordenar dentro del mismo día: parar propagación
                                 e.stopPropagation()
                                 reordenarEnDia(key, dw.itemId, item.id, dragOver?.pos || 'after')
                                 dragWithinRef.current = null; setArrastrando(null); setDragOver(null)
                               }
-                              // Si es distinto día: dejar que el evento suba al contenedor del día
                             }}
-                            onClick={() => { if (item._tipo === 'sesion') onAbrirSesion(item); else if (item._tipo === 'nota' && onAbrirNota) onAbrirNota(item) }}
+                            onClick={e => {
+                              if ((e.metaKey || e.ctrlKey) && item._tipo === 'sesion') {
+                                e.stopPropagation()
+                                setSeleccionados(prev => {
+                                  const next = new Set(prev)
+                                  if (next.has(item.id)) next.delete(item.id)
+                                  else next.add(item.id)
+                                  return next
+                                })
+                                return
+                              }
+                              setSeleccionados(new Set())
+                              if (item._tipo === 'sesion') onAbrirSesion(item)
+                              else if (item._tipo === 'nota' && onAbrirNota) onAbrirNota(item)
+                            }}
                             onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, fecha: key, item }) }}
                             onMouseEnter={e => {
                               const fb = item._tipo === 'sesion' ? feedbacksMap[item.id] : null
@@ -461,7 +492,7 @@ export default function CalendarioSesiones({
                               else if (item._tipo === 'sesion' || item._tipo === 'nota') mostrarTooltip(e, item)
                             }}
                             onMouseLeave={() => { ocultarTooltip(); ocultarFbTooltip() }}
-                            style={{ fontSize: 10, fontWeight: 500, padding: '2px 5px', borderRadius: 5, ...tipoEstilo, cursor: 'grab', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', position: 'relative', opacity: dragWithinRef.current?.itemId === item.id ? 0.4 : 1, userSelect: 'none' }}>
+                            style={{ fontSize: 10, fontWeight: 500, padding: '2px 5px', borderRadius: 5, ...tipoEstilo, cursor: 'grab', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 4, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', position: 'relative', opacity: dragWithinRef.current?.itemId === item.id ? 0.4 : 1, userSelect: 'none', outline: estaSeleccionado ? '2px solid var(--accent)' : 'none', outlineOffset: '1px' }}>
                             <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0, flex: 1 }} title={item._prevista ? `Prevista: ${item._prevista}` : undefined}>{icono} {texto}{item._prevista ? <span style={{ opacity: 0.6, marginLeft: 2 }}>↩</span> : null}</span>
                             <span style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
                               {item._tipo === 'sesion' && (
