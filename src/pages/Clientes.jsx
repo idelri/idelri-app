@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { MODALIDADES_SERVICIO, labelModalidad } from '../lib/servicio'
 import { format } from 'date-fns'
 import { Plus, X, Pencil } from 'lucide-react'
 import PortalClienteModal from '../components/PortalClienteModal'
@@ -8,10 +9,10 @@ import { ResumenCuestionario, RespuestasCompletas } from '../components/Cuestion
 
 const EMPTY_CLIENTE = {
   nombre: '', email: '', telefono: '', estado: 'activo',
-  fecha_inicio: '', objetivo: '', tipo_cliente: 'estandar', perfil_planificacion: 'resistencia'
+  fecha_inicio: '', objetivo: '', perfil_planificacion: 'resistencia'
 }
 const EMPTY_SERVICIO = {
-  modalidad: 'online',
+  modalidad: 'online', condiciones: '',
   deporte: '', deporte_complementario: '', dispositivo: ''
 }
 
@@ -108,12 +109,12 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
     setForm({
       nombre: c.nombre || '', email: c.email || '', telefono: c.telefono || '',
       estado: c.estado || 'activo', fecha_inicio: c.fecha_inicio || '', objetivo: c.objetivo || '',
-      tipo_cliente: c.tipo_cliente || 'estandar',
       perfil_planificacion: c.perfil_planificacion || 'resistencia'
     })
     const s = c.servicios?.[0]
     setServicio(s ? {
       modalidad: s.modalidad || 'online',
+      condiciones: s.condiciones || '',
       deporte: s.deporte || '',
       deporte_complementario: s.deporte_complementario || '',
       dispositivo: s.dispositivo || ''
@@ -130,7 +131,6 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
       telefono: form.telefono || null,
       estado: form.estado,
       fecha_inicio: form.fecha_inicio || null,
-      tipo_cliente: form.tipo_cliente || 'estandar',
       perfil_planificacion: form.perfil_planificacion || 'resistencia',
     }
     let clienteId
@@ -144,6 +144,7 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
     if (clienteId) {
       const datosServicio = {
         modalidad: servicio.modalidad,
+        condiciones: servicio.condiciones?.trim() || null,
         deporte: servicio.deporte || null,
         deporte_complementario: servicio.deporte_complementario || null,
         dispositivo: servicio.dispositivo || null,
@@ -191,7 +192,7 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
   }
 
   function getModalidadBadge(modalidad) {
-    const cfg = { online: { label: 'Online', color: 'var(--info)', bg: 'var(--info-light)' }, hibrido: { label: 'Híbrido', color: 'var(--accent)', bg: 'var(--accent-light)' } }
+    const cfg = { online: { label: 'Online', color: 'var(--info)', bg: 'var(--info-light)' }, hibrido: { label: 'Híbrido', color: 'var(--accent)', bg: 'var(--accent-light)' }, presencial: { label: 'Presencial', color: 'var(--warning, #b45309)', bg: 'var(--warning-light, #fef3c7)' } }
     return cfg[modalidad] || { label: modalidad, color: 'var(--text3)', bg: 'var(--bg2)' }
   }
 
@@ -304,9 +305,6 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
                           {nombrePreferido && nombrePreferido.toLowerCase() !== c.nombre.split(' ')[0].toLowerCase() && (
                             <div style={{ fontSize: 11.5, color: 'var(--text3)', lineHeight: 1.2 }}>"{nombrePreferido}"</div>
                           )}
-                          {c.tipo_cliente === 'familia_gratis' && (
-                            <span style={{ fontSize: 10, color: 'var(--text3)', background: 'var(--bg2)', padding: '1px 5px', borderRadius: 4 }}>Gratis</span>
-                          )}
                         </div>
                       </div>
                     </td>
@@ -418,7 +416,7 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
                 {/* Actividad + modalidad */}
                 {(actividad || s?.modalidad) && (
                   <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>
-                    {[actividad, s?.modalidad && (s.modalidad === 'online' ? 'Online' : 'Híbrido')].filter(Boolean).join(' · ')}
+                    {[actividad, labelModalidad(s?.modalidad)].filter(Boolean).join(' · ')}
                   </div>
                 )}
 
@@ -529,13 +527,6 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
                 </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Tipo de cliente</label>
-                <select className="form-select" value={form.tipo_cliente} onChange={e => setForm(f => ({ ...f, tipo_cliente: e.target.value }))}>
-                  <option value="estandar">Estándar</option>
-                  <option value="familia_gratis">Familia / Gratis</option>
-                </select>
-              </div>
-              <div className="form-group">
                 <label className="form-label">Perfil de planificación</label>
                 <select className="form-select" value={form.perfil_planificacion} onChange={e => setForm(f => ({ ...f, perfil_planificacion: e.target.value }))}>
                   <option value="resistencia">Resistencia</option>
@@ -565,8 +556,7 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
               <div className="form-group">
                 <label className="form-label">Modalidad</label>
                 <select className="form-select" value={servicio.modalidad} onChange={e => setServicio(s => ({ ...s, modalidad: e.target.value }))}>
-                  <option value="online">Online</option>
-                  <option value="hibrido">Híbrido</option>
+                  {MODALIDADES_SERVICIO.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
                 </select>
               </div>
               <div className="form-group">
@@ -583,6 +573,12 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
                 <label className="form-label">Dispositivo / wearable</label>
                 <input className="form-input" value={servicio.dispositivo || ''} onChange={e => setServicio(s => ({ ...s, dispositivo: e.target.value }))} placeholder="Garmin, Apple Watch..." />
               </div>
+            </div>
+            <div className="form-group">
+              <label className="form-label">Servicio y tarifa <span style={{ color: 'var(--text3)', fontWeight: 400 }}>· solo lo ves tú</span></label>
+              <textarea className="form-input" rows={2} style={{ resize: 'vertical' }}
+                value={servicio.condiciones || ''} onChange={e => setServicio(s => ({ ...s, condiciones: e.target.value }))}
+                placeholder="Ej: Online mensual + 1 sesión presencial al mes · 120 €/mes" />
             </div>
 
             <div className="modal-footer">
