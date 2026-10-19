@@ -432,6 +432,11 @@ export default function CalendarioSesiones({
                         } else {
                           onMoverSesion(arrastrando, key, modoDrag)
                         }
+                        // Limpiar el estado de arrastre aquí: la sesión se mueve al
+                        // instante y su elemento original desaparece, así que su
+                        // onDragEnd ya no llega (y se quedaría semitransparente).
+                        dragWithinRef.current = null
+                        setDragOver(null)
                         setArrastrando(null)
                       }}
                       onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, fecha: key }) }}
