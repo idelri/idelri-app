@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { MODALIDADES_SERVICIO, labelModalidad } from '../lib/servicio'
 import { format, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import Avatar from '../components/Avatar'
@@ -80,7 +81,7 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
       supabase.from('clientes').select('*').eq('id', clienteId).single(),
       supabase.from('cliente_perfil').select('*').eq('cliente_id', clienteId).maybeSingle(),
       supabase.from('cliente_objetivos').select('*').eq('cliente_id', clienteId).order('created_at', { ascending: false }),
-      supabase.from('servicios').select('*').eq('cliente_id', clienteId),
+      supabase.from('servicios').select('*').eq('cliente_id', clienteId).order('created_at', { ascending: false }),
       supabase.from('planificaciones')
         .select('id, nombre, fecha_inicio, fecha_fin, bloques(id, nombre, fase, carga, fecha_inicio, semanas, orden)')
         .eq('cliente_id', clienteId)
@@ -145,9 +146,16 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
       email:                formEdit.email || null,
       telefono:             formEdit.telefono || null,
       fecha_inicio:         formEdit.fecha_inicio || null,
-      tipo_cliente:         formEdit.tipo_cliente || 'estandar',
       perfil_planificacion: formEdit.perfil_planificacion || 'resistencia',
     }).eq('id', clienteId)
+    // Servicio (modalidad + servicio y tarifa, solo visible para la entrenadora)
+    const datosServicio = {
+      modalidad:   formEdit.modalidad || 'online',
+      condiciones: formEdit.condiciones?.trim() || null,
+    }
+    const servicioActual = servicios[0]
+    if (servicioActual) await supabase.from('servicios').update(datosServicio).eq('id', servicioActual.id)
+    else await supabase.from('servicios').insert({ ...datosServicio, cliente_id: clienteId })
     setSavingEdit(false)
     setModalEditar(false)
     cargar()
@@ -182,7 +190,7 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
 
   const actividad      = servicio?.deporte || perfil?.deportes_actuales?.[0] || null
   const modalidad      = servicio?.modalidad
-  const modalidadLabel = modalidad === 'online' ? 'Online' : modalidad === 'hibrido' ? 'Híbrido' : null
+  const modalidadLabel = labelModalidad(modalidad)
 
   const primerNombre = cliente.nombre.split(' ')[0]
   const nombrePref   = perfil?.nombre_preferido
@@ -271,8 +279,9 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
                     email:                cliente.email || '',
                     telefono:             cliente.telefono || '',
                     fecha_inicio:         cliente.fecha_inicio || '',
-                    tipo_cliente:         cliente.tipo_cliente || 'estandar',
                     perfil_planificacion: cliente.perfil_planificacion || 'resistencia',
+                    modalidad:            servicios[0]?.modalidad || 'online',
+                    condiciones:          servicios[0]?.condiciones || '',
                   })
                   setMenuMas(false)
                   setModalEditar(true)
@@ -353,10 +362,16 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
           <CampoEdit label="Teléfono" value={formEdit.telefono} onChange={v => setFormEdit(p => ({ ...p, telefono: v }))} />
           <CampoEdit label="Fecha inicio" value={formEdit.fecha_inicio} onChange={v => setFormEdit(p => ({ ...p, fecha_inicio: v }))} type="date" />
           <div style={{ display: 'flex', gap: 10 }}>
-            <CampoSelect label="Tipo" value={formEdit.tipo_cliente} onChange={v => setFormEdit(p => ({ ...p, tipo_cliente: v }))}
-              options={[{ value: 'estandar', label: 'Estándar' }, { value: 'familia', label: 'Familia' }, { value: 'gratis', label: 'Gratis' }]} />
+            <CampoSelect label="Modalidad" value={formEdit.modalidad} onChange={v => setFormEdit(p => ({ ...p, modalidad: v }))}
+              options={MODALIDADES_SERVICIO} />
             <CampoSelect label="Perfil" value={formEdit.perfil_planificacion} onChange={v => setFormEdit(p => ({ ...p, perfil_planificacion: v }))}
               options={[{ value: 'resistencia', label: 'Resistencia' }, { value: 'fuerza_salud', label: 'Fuerza y salud' }]} />
+          </div>
+          <div>
+            <label style={{ display: 'block', fontSize: 12, color: 'var(--text3)', marginBottom: 4 }}>Servicio y tarifa · solo lo ves tú</label>
+            <textarea value={formEdit.condiciones || ''} onChange={e => setFormEdit(p => ({ ...p, condiciones: e.target.value }))} rows={2}
+              placeholder="Ej: Online mensual + 1 sesión presencial al mes · 120 €/mes"
+              style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: 13.5, fontFamily: 'var(--font)', resize: 'vertical' }} />
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 8 }}>
             <button className="btn btn-ghost btn-sm" onClick={() => setModalEditar(false)}>Cancelar</button>
@@ -543,7 +558,8 @@ function TabResumen({ cliente, perfil, objetivoActivo, planActivo, servicio, com
         <SeccionResumen titulo="Información clave">
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
             {servicio?.deporte            && <FilaMini label="Deporte"    value={servicio.deporte} />}
-            {servicio?.modalidad          && <FilaMini label="Modalidad"  value={servicio.modalidad === 'online' ? 'Online' : 'Híbrido'} />}
+            {servicio?.modalidad          && <FilaMini label="Modalidad"  value={labelModalidad(servicio.modalidad)} />}
+            {servicio?.condiciones        && <FilaMini label="Servicio y tarifa" value={servicio.condiciones} />}
             {cliente.perfil_planificacion && <FilaMini label="Perfil"     value={cliente.perfil_planificacion === 'fuerza_salud' ? 'Fuerza y salud' : 'Resistencia'} />}
           </div>
         </SeccionResumen>

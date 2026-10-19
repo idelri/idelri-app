@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react'
 import logoIDR from './assets/logo-idr.png'
 import { supabase } from './lib/supabase'
 import { exportarTodo } from './lib/export'
-import { useGenerarPagosMensuales } from './hooks/useGenerarPagosMensuales'
 import Dashboard from './pages/Dashboard'
 import Clientes from './pages/Clientes'
 import ClienteFicha from './pages/ClienteFicha'
@@ -100,8 +99,6 @@ export default function App() {
     const { data: listener } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
     return () => listener.subscription.unsubscribe()
   }, [])
-
-  useGenerarPagosMensuales()
 
   useEffect(() => { if (page !== 'clientes') setClienteFichaId(null) }, [page])
 
