@@ -28,20 +28,17 @@ function downloadCSV(content, filename) {
 export async function exportarTodo() {
   const fecha = new Date().toISOString().slice(0, 10)
 
-  const [{ data: clientes }, { data: servicios }, { data: pagos }, { data: tareas }] =
+  const [{ data: clientes }, { data: servicios }, { data: tareas }] =
     await Promise.all([
       supabase.from('clientes').select('*').order('nombre'),
       supabase.from('servicios').select('*'),
-      supabase.from('pagos').select('*, clientes(nombre)').order('mes_facturado', { ascending: false }),
       supabase.from('tareas').select('*, clientes(nombre)').order('created_at', { ascending: false }),
     ])
 
   // Aplanar los joins para el CSV
-  const pagosFlat = (pagos || []).map(p => ({ ...p, cliente_nombre: p.clientes?.nombre, clientes: undefined }))
   const tareasFlat = (tareas || []).map(t => ({ ...t, cliente_nombre: t.clientes?.nombre, clientes: undefined }))
 
   downloadCSV(toCSV(clientes || []), `clientes_${fecha}.csv`)
   setTimeout(() => downloadCSV(toCSV(servicios || []), `servicios_${fecha}.csv`), 300)
-  setTimeout(() => downloadCSV(toCSV(pagosFlat), `pagos_${fecha}.csv`), 600)
-  setTimeout(() => downloadCSV(toCSV(tareasFlat), `tareas_${fecha}.csv`), 900)
+  setTimeout(() => downloadCSV(toCSV(tareasFlat), `tareas_${fecha}.csv`), 600)
 }

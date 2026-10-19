@@ -11,7 +11,7 @@ const EMPTY_CLIENTE = {
   fecha_inicio: '', objetivo: '', tipo_cliente: 'estandar', perfil_planificacion: 'resistencia'
 }
 const EMPTY_SERVICIO = {
-  modalidad: 'online', tarifa_mensual: '', tarifa_sesion: '',
+  modalidad: 'online',
   deporte: '', deporte_complementario: '', dispositivo: ''
 }
 
@@ -114,8 +114,6 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
     const s = c.servicios?.[0]
     setServicio(s ? {
       modalidad: s.modalidad || 'online',
-      tarifa_mensual: s.tarifa_mensual || '',
-      tarifa_sesion: s.tarifa_sesion || '',
       deporte: s.deporte || '',
       deporte_complementario: s.deporte_complementario || '',
       dispositivo: s.dispositivo || ''
@@ -146,8 +144,6 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
     if (clienteId) {
       const datosServicio = {
         modalidad: servicio.modalidad,
-        tarifa_mensual: parseFloat(servicio.tarifa_mensual) || 0,
-        tarifa_sesion: servicio.tarifa_sesion ? parseFloat(servicio.tarifa_sesion) : null,
         deporte: servicio.deporte || null,
         deporte_complementario: servicio.deporte_complementario || null,
         dispositivo: servicio.dispositivo || null,
@@ -564,7 +560,7 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
               </div>
             </div>
 
-            <p style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '20px 0 14px' }}>Servicio y tarifa</p>
+            <p style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '0.5px', margin: '20px 0 14px' }}>Servicio</p>
             <div className="form-row">
               <div className="form-group">
                 <label className="form-label">Modalidad</label>
@@ -572,16 +568,6 @@ export default function Clientes({ setPage, setClientePlanificacion, onAbrirFich
                   <option value="online">Online</option>
                   <option value="hibrido">Híbrido</option>
                 </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Tarifa mensual (€)</label>
-                <input className="form-input" type="number" value={servicio.tarifa_mensual} onChange={e => setServicio(s => ({ ...s, tarifa_mensual: e.target.value }))} />
-              </div>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Tarifa sesión (€) — opcional</label>
-                <input className="form-input" type="number" value={servicio.tarifa_sesion} onChange={e => setServicio(s => ({ ...s, tarifa_sesion: e.target.value }))} placeholder="Solo si es híbrido" />
               </div>
               <div className="form-group">
                 <label className="form-label">Actividad principal</label>
