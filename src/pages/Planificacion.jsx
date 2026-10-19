@@ -351,6 +351,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   const tlZonaDRef  = useRef(null)
   const cargaIdRef        = useRef(0)     // descarta respuestas de cargas antiguas
   const clienteCargadoRef = useRef(null)  // cliente ya cargado → recargas silenciosas
+  const cargaEnCursoRef   = useRef(false) // hay una carga sin terminar
 
   // ── Modal unificado ──
   const [modalTipo,      setModalTipo]      = useState(null)
@@ -379,9 +380,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   const semanasPorFecha = useMemo(() => Object.fromEntries(semanasAll.map(s => [s.fecha_inicio_semana, s])), [semanasAll])
   function estadoSesion(s) {
     return calcEstadoSesion(s, feedbackPorSesion, packPorId)
-  }
-  function colorEstado(s) {
-    return colorDeEstado(estadoSesion(s))
   }
   function iconoEstado(s) {
     const e = estadoSesion(s)
@@ -450,18 +448,11 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     const clienteId = clienteSeleccionado
     if (!clienteId) return
     const cargaId = ++cargaIdRef.current
+    cargaEnCursoRef.current = true
     const silencioso = clienteCargadoRef.current === clienteId
     if (!silencioso) setLoading(true)
 
-    const [
-      { data: planes },
-      { data: sess },
-      { data: fbs },
-      { data: comps },
-      { data: ctrls },
-      { data: nts },
-      { data: pks },
-    ] = await Promise.all([
+    const resultados1 = await Promise.all([
       supabase.from('planificaciones').select('*').eq('cliente_id', clienteId).order('created_at', { ascending: false }),
       supabase.from('sesiones').select('*').eq('cliente_id', clienteId).order('fecha', { ascending: true, nullsFirst: false }).order('orden', { ascending: true }),
       supabase.from('sesion_feedback').select('sesion_id, submitted_at, data, sesiones!inner(cliente_id)').eq('sesiones.cliente_id', clienteId),
@@ -470,7 +461,12 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
       supabase.from('sesion_notas').select('*').eq('cliente_id', clienteId).order('fecha').order('orden', { ascending: true }),
       supabase.from('packs_flexibles').select('*').eq('cliente_id', clienteId).order('fecha_inicio'),
     ])
+    const [
+      { data: planes }, { data: sess }, { data: fbs }, { data: comps },
+      { data: ctrls }, { data: nts }, { data: pks },
+    ] = resultados1
     if (cargaId !== cargaIdRef.current) return
+    resultados1.forEach((r, i) => { if (r.error) console.error('cargarPlanificacion — consulta', i, r.error) })
 
     const plan = planes?.[0] || null
     let bls = [], subs = [], semsAll = []
@@ -481,6 +477,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         supabase.from('semanas').select('*').eq('planificacion_id', plan.id).order('fecha_inicio_semana', { ascending: true }),
       ])
       if (cargaId !== cargaIdRef.current) return
+      ;[r1, r2, r3].forEach((r, i) => { if (r.error) console.error('cargarPlanificacion — plan', i, r.error) })
       bls = r1.data || []
       subs = (r2.data || []).map(({ bloques: _b, ...s }) => s)
       semsAll = r3.data || []
@@ -502,6 +499,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     setNotas(nts || [])
     setPacks(pks || [])
     clienteCargadoRef.current = clienteId
+    cargaEnCursoRef.current = false
     setLoading(false)
 
     // 5.6D: asegurar horizonte de semanas (idempotente). Si inserta semanas
@@ -663,9 +661,11 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   }
 
   async function moverAPack(sesion, packId) {
+    const descartada = descartarRecargasEnCurso()
     setSesiones(ss => ss.map(x => x.id === sesion.id ? { ...x, pack_id: packId, fecha: null } : x))
     const { error } = await supabase.from('sesiones').update({ pack_id: packId, fecha: null }).eq('id', sesion.id)
     if (error) { alert('No se pudo mover la sesión al pack: ' + error.message); cargarPlanificacion() }
+    else recargarSiHacia(descartada)
   }
 
   async function copiarPackAOtroCliente() {
@@ -679,10 +679,8 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     // Copia completa de cada sesión (en paralelo) y la asigna al pack nuevo
     const packSesiones = sesiones.filter(s => s.pack_id === pack.id)
     const resultados = await Promise.all(packSesiones.map(async s => {
-      const { data: nueva, error } = await clonarSesion(supabase, s.id, { clienteDestino: cliente_id, fecha: null })
-      if (error || !nueva) return error || new Error('sin datos')
-      const { error: errPack } = await supabase.from('sesiones').update({ pack_id: nuevoPack.id }).eq('id', nueva.id)
-      return errPack
+      const { error } = await clonarSesion(supabase, s.id, { clienteDestino: cliente_id, fecha: null, packId: nuevoPack.id })
+      return error
     }))
     const fallo = resultados.find(Boolean)
     if (fallo) alert('Algunas sesiones no se pudieron copiar: ' + fallo.message)
@@ -691,17 +689,23 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     alert(`Pack "${pack.nombre}" copiado a ${nombreDestino}`)
   }
 
-  async function sacarDePack(sesion, fecha) {
-    setSesiones(ss => ss.map(x => x.id === sesion.id ? { ...x, pack_id: null, fecha } : x))
-    const { error } = await supabase.from('sesiones').update({ pack_id: null, fecha }).eq('id', sesion.id)
-    if (error) { alert('No se pudo sacar la sesión del pack: ' + error.message); cargarPlanificacion() }
-  }
-
   // ─────────────────────────────────────────────────────────────────────────
   // CALENDARIO: MOVER / COPIAR / PEGAR (al instante)
   // La pantalla se actualiza primero y se guarda en segundo plano. Si algo
   // falla, se avisa y se recargan los datos reales.
   // ─────────────────────────────────────────────────────────────────────────
+
+  // Si hay una recarga en curso, se descarta: si llegara después de un cambio
+  // hecho en pantalla, devolvería el elemento a su sitio antiguo. Devuelve
+  // true si se descartó alguna; en ese caso hay que recargar al terminar de
+  // guardar (ver recargarSiHacia) para no perder lo que traía.
+  function descartarRecargasEnCurso() {
+    if (clienteCargadoRef.current !== clienteSeleccionado || !cargaEnCursoRef.current) return false
+    cargaIdRef.current++
+    cargaEnCursoRef.current = false
+    return true
+  }
+  function recargarSiHacia(descartada) { if (descartada) cargarPlanificacion() }
 
   const TABLA_POR_TIPO = { sesion: 'sesiones', competicion: 'competiciones', control: 'controles', nota: 'sesion_notas' }
   const SETTER_POR_TIPO = { sesion: setSesiones, competicion: setCompeticiones, control: setControles, nota: setNotas }
@@ -747,9 +751,12 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     const modoEfectivo = modo || modoDrag
     const items = Array.isArray(itemOrItems) ? itemOrItems : [itemOrItems]
 
+    const descartada = descartarRecargasEnCurso()
+
     if (modoEfectivo === 'copiar') {
       const errores = (await Promise.all(items.map(it => copiarItem(it, fechaDestino)))).filter(Boolean)
       if (errores.length) { alert('Error al copiar: ' + errores[0].message); cargarPlanificacion() }
+      else recargarSiHacia(descartada)
       return
     }
 
@@ -771,11 +778,14 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     }))
     const fallo = resultados.find(r => r.error)
     if (fallo) { alert('No se pudo mover: ' + fallo.error.message); cargarPlanificacion() }
+    else recargarSiHacia(descartada)
   }
 
   async function pegarItemCalendario(item, fecha) {
+    const descartada = descartarRecargasEnCurso()
     const error = await copiarItem(item, fecha)
     if (error) { alert('Error al copiar: ' + error.message); cargarPlanificacion() }
+    else recargarSiHacia(descartada)
   }
 
   async function guardarModal() {
@@ -1053,7 +1063,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     const tablas = { bloque: 'bloques', subbloque: 'subbloques', sesion: 'sesiones', comp: 'competiciones', control: 'controles', nota: 'sesion_notas' }
     // Elementos del calendario: desaparecen al instante
     const setters = { sesion: setSesiones, comp: setCompeticiones, control: setControles, nota: setNotas }
-    if (setters[tipo]) setters[tipo](xs => xs.filter(x => x.id !== id))
+    if (setters[tipo]) { descartarRecargasEnCurso(); setters[tipo](xs => xs.filter(x => x.id !== id)) } // se recarga abajo
     if (!tipoArg) closeModal()
     const { error } = await supabase.from(tablas[tipo]).delete().eq('id', id)
     if (error) alert('No se pudo eliminar: ' + error.message)
