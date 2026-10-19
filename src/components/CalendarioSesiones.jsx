@@ -125,29 +125,50 @@ export default function CalendarioSesiones({
   }
   const tooltipTimer = useRef(null)
 
+  // Contenido del tooltip cacheado por sesión: solo se pide a la base de datos
+  // la primera vez que pasas el ratón por cada sesión.
+  const tooltipCache = useRef(new Map())
+  const tooltipPeticion = useRef(0)
+
+  async function cargarContenidoTooltip(sesion) {
+    const cache = tooltipCache.current
+    if (cache.has(sesion.id)) return cache.get(sesion.id)
+    let contenido
+    if (sesion.tipo_editor === 'carrera') {
+      const [{ data: fases }, { data: grupos }] = await Promise.all([
+        supabase.from('sesion_fases').select('nombre, descripcion, orden, grupo_id').eq('sesion_id', sesion.id).order('orden'),
+        supabase.from('sesion_fase_grupos').select('id, repeticiones, orden').eq('sesion_id', sesion.id).order('orden'),
+      ])
+      contenido = { fases: fases || [], grupos: grupos || [], bloques: [] }
+    } else {
+      const { data: bloques } = await supabase.from('sesion_bloques').select('id, nombre, color, sesion_ejercicios(nombre, orden)').eq('sesion_id', sesion.id).order('orden')
+      contenido = { bloques: bloques || [], fases: [] }
+    }
+    cache.set(sesion.id, contenido)
+    return contenido
+  }
+
   async function mostrarTooltip(e, sesion) {
     const rect = e.currentTarget.getBoundingClientRect()
     const x = rect.right + 8
     const y = rect.top
     clearTimeout(tooltipTimer.current)
+    const peticion = ++tooltipPeticion.current
     tooltipTimer.current = setTimeout(async () => {
       if (sesion._tipo === 'nota') {
         setTooltip({ x, y, sesion, bloques: [], fases: [] })
-      } else if (sesion.tipo_editor === 'carrera') {
-        const [{ data: fases }, { data: grupos }] = await Promise.all([
-          supabase.from('sesion_fases').select('nombre, descripcion, orden, grupo_id').eq('sesion_id', sesion.id).order('orden'),
-          supabase.from('sesion_fase_grupos').select('id, repeticiones, orden').eq('sesion_id', sesion.id).order('orden'),
-        ])
-        setTooltip({ x, y, sesion, fases: fases || [], grupos: grupos || [], bloques: [] })
-      } else {
-        const { data: bloques } = await supabase.from('sesion_bloques').select('id, nombre, color, sesion_ejercicios(nombre, orden)').eq('sesion_id', sesion.id).order('orden')
-        setTooltip({ x, y, sesion, bloques: bloques || [], fases: [] })
+        return
       }
+      const contenido = await cargarContenidoTooltip(sesion)
+      // Si el ratón ya se ha ido (o ha pasado a otra sesión), no mostrar
+      if (peticion !== tooltipPeticion.current) return
+      setTooltip({ x, y, sesion, ...contenido })
     }, 300)
   }
 
   function ocultarTooltip() {
     clearTimeout(tooltipTimer.current)
+    tooltipPeticion.current++
     setTooltip(null)
   }
 
@@ -411,6 +432,11 @@ export default function CalendarioSesiones({
                         } else {
                           onMoverSesion(arrastrando, key, modoDrag)
                         }
+                        // Limpiar el estado de arrastre aquí: la sesión se mueve al
+                        // instante y su elemento original desaparece, así que su
+                        // onDragEnd ya no llega (y se quedaría semitransparente).
+                        dragWithinRef.current = null
+                        setDragOver(null)
                         setArrastrando(null)
                       }}
                       onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, fecha: key }) }}
