@@ -2,143 +2,13 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { clonarSesion } from '../lib/clonarSesion'
-import { SECCIONES_CLASIFICACION, CAMPOS_CLASIFICACION, PATRON_MOVIMIENTO, derivarComplejos, COMPLEJOS, estadoGrupo, toggleGrupo, toggleEstructura, labelDeId, colorDeId, idsHojaDeEstructura, labelDePatronId, colorDePatronId, patronesRecomendadosActivos } from '../lib/taxonomia'
 import { format, parseISO } from 'date-fns'
 import EmojiPicker from '../components/EmojiPicker'
 import ModalComentarioEntrenadora from '../components/ModalComentarioEntrenadora'
 import { es } from 'date-fns/locale'
-import { Plus, X, Trash2, Copy, Check, Play, ChevronDown, ChevronUp } from 'lucide-react'
+import { Plus, X, Trash2, Copy, Play } from 'lucide-react'
 
 const COLORES = ['#E29A2E', '#4C82E8', '#2FAE76', '#8B6CE0', '#34AEB8', '#DD6F97']
-// ── COMPLEX SELECTOR (replicado de Biblioteca.jsx) ───────────────────────────
-function ComplexSelector({ estructura_anatomica, onChange }) {
-  const [expandidos, setExpandidos] = useState(new Set())
-  function toggleExpandido(id) {
-    setExpandidos(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
-  }
-  function handleToggleGrupo(grupo) {
-    const nextEst = toggleGrupo(grupo, estructura_anatomica)
-    onChange({ estructura_anatomica: nextEst, complejo_articular: derivarComplejos(nextEst) })
-  }
-  function handleToggleHijo(hijo, grupo) {
-    const nextEst = toggleEstructura(hijo.id, grupo, estructura_anatomica)
-    onChange({ estructura_anatomica: nextEst, complejo_articular: derivarComplejos(nextEst) })
-  }
-  return (
-    <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-        {COMPLEJOS.map(c => {
-          const tieneSeleccion = estructura_anatomica.some(id => id.startsWith(c.id + ':'))
-          const activo = expandidos.has(c.id)
-          const nHojas = idsHojaDeEstructura(estructura_anatomica.filter(id => id.startsWith(c.id + ':'))).length
-          return (
-            <button key={c.id} type="button" onClick={() => toggleExpandido(c.id)}
-              style={{ fontSize: 12, padding: '5px 11px', borderRadius: 20, border: `1.5px solid ${tieneSeleccion ? c.color : activo ? c.color + '80' : 'var(--border)'}`, background: activo ? c.color + '18' : tieneSeleccion ? c.color + '10' : 'transparent', color: tieneSeleccion || activo ? c.color : 'var(--text2)', cursor: 'pointer', fontWeight: tieneSeleccion ? 600 : 400, display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.1s' }}>
-              <span>{c.emoji}</span><span>{c.label}</span>
-              {nHojas > 0 && <span style={{ fontSize: 9, background: c.color, color: '#fff', borderRadius: 10, padding: '1px 5px', fontWeight: 700 }}>{nHojas}</span>}
-            </button>
-          )
-        })}
-      </div>
-      {COMPLEJOS.filter(c => expandidos.has(c.id)).map(complejo => (
-        <div key={complejo.id} style={{ border: `1.5px solid ${complejo.color}44`, borderRadius: 10, padding: '12px 14px', background: complejo.color + '08', marginBottom: 8 }}>
-          <div style={{ fontWeight: 700, fontSize: 11, color: complejo.color, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{complejo.emoji} {complejo.label}</div>
-          {complejo.grupos.map(grupo => {
-            const estado = estadoGrupo(grupo, estructura_anatomica)
-            return (
-              <div key={grupo.id} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                  <button type="button" onClick={() => handleToggleGrupo(grupo)}
-                    style={{ width: 15, height: 15, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${estado === 'empty' ? 'var(--border)' : complejo.color}`, background: estado === 'full' ? complejo.color : estado === 'partial' ? complejo.color + '44' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {estado === 'full' && <span style={{ color: '#fff', fontSize: 8, lineHeight: 1 }}>✓</span>}
-                    {estado === 'partial' && <span style={{ color: complejo.color, fontSize: 10, lineHeight: 1 }}>−</span>}
-                  </button>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{grupo.label}</span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 23 }}>
-                  {grupo.children.map(hijo => {
-                    const sel = estructura_anatomica.includes(hijo.id)
-                    return (
-                      <button key={hijo.id} type="button" onClick={() => handleToggleHijo(hijo, grupo)}
-                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${sel ? complejo.color : 'var(--border)'}`, background: sel ? complejo.color + '22' : 'transparent', color: sel ? complejo.color : 'var(--text2)', cursor: 'pointer', fontWeight: sel ? 600 : 400, transition: 'all 0.1s' }}>
-                        {hijo.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── PATRON SELECTOR (replicado de Biblioteca.jsx) ────────────────────────────
-function PatronSelector({ value = [], onChange, complejosSeleccionados = [], estructurasSeleccionadas = [] }) {
-  const [todosAbierto, setTodosAbierto] = useState(false)
-  const recomSet = new Set(patronesRecomendadosActivos(complejosSeleccionados, estructurasSeleccionadas))
-  const bloquesRec = PATRON_MOVIMIENTO
-    .map(b => ({ ...b, grupos: b.grupos.map(g => ({ ...g, children: g.children.filter(c => recomSet.has(c.id)) })).filter(g => g.children.length > 0) }))
-    .filter(b => b.grupos.length > 0)
-
-  function renderGrupo(grupo, color) {
-    const estado = estadoGrupo(grupo, value)
-    return (
-      <div key={grupo.id} style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-          <button type="button" onClick={() => onChange(toggleGrupo(grupo, value))}
-            style={{ width: 15, height: 15, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${estado === 'empty' ? 'var(--border)' : color}`, background: estado === 'full' ? color : estado === 'partial' ? color + '44' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            {estado === 'full' && <span style={{ color: '#fff', fontSize: 8, lineHeight: 1 }}>✓</span>}
-            {estado === 'partial' && <span style={{ color, fontSize: 10, lineHeight: 1 }}>−</span>}
-          </button>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{grupo.label}</span>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 23 }}>
-          {grupo.children.map(hijo => {
-            const sel = value.includes(hijo.id)
-            return (
-              <button key={hijo.id} type="button" onClick={() => onChange(toggleEstructura(hijo.id, grupo, value))}
-                style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${sel ? color : 'var(--border)'}`, background: sel ? color + '22' : 'transparent', color: sel ? color : 'var(--text2)', cursor: 'pointer', fontWeight: sel ? 600 : 400, transition: 'all 0.1s' }}>
-                {hijo.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      {bloquesRec.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>💡 Sugeridos según anatomía</div>
-          {bloquesRec.map(bloque => (
-            <div key={bloque.id}>
-              {bloquesRec.length > 1 && <div style={{ fontSize: 10, color: bloque.color, fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{bloque.label}</div>}
-              {bloque.grupos.map(grupo => renderGrupo(grupo, bloque.color))}
-            </div>
-          ))}
-        </div>
-      )}
-      <div>
-        <button type="button" onClick={() => setTodosAbierto(o => !o)}
-          style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, marginBottom: todosAbierto ? 10 : 0 }}>
-          {todosAbierto ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          Todos los patrones
-        </button>
-        {todosAbierto && PATRON_MOVIMIENTO.map(bloque => (
-          <div key={bloque.id} style={{ marginBottom: 16 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: bloque.color, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>{bloque.label}</div>
-            {bloque.grupos.map(grupo => renderGrupo(grupo, bloque.color))}
-          </div>
-        ))}
-      </div>
-    </div>
-  )
-}
 
 const BORG_RPE = {
   1:  { label: 'Muy, muy leve',     desc: 'Esfuerzo casi inapreciable. Conversación completamente fluida.' },
@@ -261,7 +131,7 @@ export default function Sesiones({ clienteInicial, sesionInicialId, fechaNuevaSe
   const sesionInicialCargada = useRef(false)
   const [bloques, setBloques] = useState([])
 
-  const FORM_CREAR_EJ_EMPTY = { nombre: '', descripcion: '', notas: '', ejecucion_tipo: '', media_tipo: 'youtube', media_url: '', video_url: '', complejo_articular: [], estructura_anatomica: [], familia: [], patron_movimiento: [], posicion_ejercicio: [], plano_movimiento: [], tipo_contraccion: [], material: [] }
+  const FORM_CREAR_EJ_EMPTY = { nombre: '', descripcion: '', notas: '', ejecucion_tipo: '', media_tipo: 'youtube', media_url: '', video_url: '' }
   const [modalCrearEj, setModalCrearEj] = useState(null) // { bloqueId, variablesDefault }
   const [formCrearEj, setFormCrearEj] = useState(FORM_CREAR_EJ_EMPTY)
   const [guardandoCrearEj, setGuardandoCrearEj] = useState(false)
@@ -292,7 +162,6 @@ export default function Sesiones({ clienteInicial, sesionInicialId, fechaNuevaSe
   const [panelBiblioteca, setPanelBiblioteca] = useState(false)
   const [guardandoEnBib, setGuardandoEnBib] = useState(false)
   const [busquedaBiblioteca, setBusquedaBiblioteca] = useState('')
-  const [bibFiltros, setBibFiltros] = useState({}) // { [campo]: subvariable | null } — campos activos
   const [guardadoOk, setGuardadoOk] = useState(false)
   const [mediaPreview, setMediaPreview] = useState(null) // { tipo, ytid, url, x, y }
   const [inputInlineBloque, setInputInlineBloque] = useState(null) // id del bloque con input abierto
@@ -867,7 +736,6 @@ async function guardarSesion() {
   async function abrirBiblioteca(bloqueId, variablesDefault = []) {
     setModalBiblioteca({ bloqueId, variablesDefault })
     setBusquedaBiblioteca('')
-    setBibFiltros({})
     if (!biblioteca) {
       const { data } = await supabase.from('ejercicios_biblioteca').select('*').order('nombre')
       setBiblioteca(data || [])
@@ -906,21 +774,13 @@ async function guardarSesion() {
     setErrorCrearEj(null)
     const { bloqueId } = modalCrearEj
 
-    const camposTags = {}
-    for (const campo of CAMPOS_CLASIFICACION) {
-      const val = formCrearEj[campo]
-      if (val && val.length > 0) camposTags[campo] = val
-    }
-
     const insertBib = {
       nombre: formCrearEj.nombre.trim(),
       ...(formCrearEj.descripcion ? { descripcion: formCrearEj.descripcion } : {}),
       ...(formCrearEj.notas ? { notas: formCrearEj.notas } : {}),
-      ...(formCrearEj.ejecucion_tipo ? { ejecucion_tipo: formCrearEj.ejecucion_tipo } : {}),
       ...(formCrearEj.media_tipo ? { media_tipo: formCrearEj.media_tipo } : {}),
       ...(formCrearEj.media_url ? { media_url: formCrearEj.media_url } : {}),
       ...(formCrearEj.video_url ? { video_url: formCrearEj.video_url } : {}),
-      ...camposTags,
     }
 
     const { data: bib, error: bibError } = await supabase
@@ -2772,26 +2632,12 @@ async function guardarSesion() {
       )}
 
       {modalBiblioteca && (() => {
-        const BIB_VARS = SECCIONES_CLASIFICACION.filter(s => s.tipo !== 'complejos')
-
-        const hayFiltrosBib = Object.keys(bibFiltros).length > 0
-
-        // AND entre variables: ejercicio debe cumplir todas las variables activas
-        const bibFiltrada = !biblioteca ? [] : biblioteca.filter(item => {
-          if (busquedaBiblioteca && !item.nombre.toLowerCase().includes(busquedaBiblioteca.toLowerCase())) return false
-          for (const [campo, sub] of Object.entries(bibFiltros)) {
-            if (!sub) continue // variable activa pero sin subvariable seleccionada: no filtra por sub
-            const vals = item[campo] || []
-            if (!vals.includes(sub)) return false
-          }
-          return true
-        })
-
-        const varsActivas = BIB_VARS.filter(v => v.campo in bibFiltros)
+        const textoBib = busquedaBiblioteca.toLowerCase()
+        const bibFiltrada = !biblioteca ? [] : biblioteca.filter(item => !textoBib || item.nombre.toLowerCase().includes(textoBib))
 
         return (
           <div className="modal-backdrop" onClick={() => setModalBiblioteca(null)}>
-            <div className="modal" style={{ maxWidth: 860, width: '95vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal" style={{ maxWidth: 640, width: '95vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <span className="modal-title">📚 Biblioteca de ejercicios</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => setModalBiblioteca(null)}>✕</button>
@@ -2802,95 +2648,13 @@ async function guardarSesion() {
                 <input className="form-input" autoFocus placeholder="Buscar ejercicio..." value={busquedaBiblioteca} onChange={e => setBusquedaBiblioteca(e.target.value)} />
               </div>
 
-              {/* Variables principales — selección múltiple */}
-              <div style={{ display: 'flex', gap: 6, marginBottom: 8, flexWrap: 'wrap', alignItems: 'center' }}>
-                {BIB_VARS.map(v => {
-                  const activa = v.campo in bibFiltros
-                  return (
-                    <button key={v.campo} type="button"
-                      onClick={() => setBibFiltros(f => {
-                        const next = { ...f }
-                        if (activa) delete next[v.campo]
-                        else next[v.campo] = null
-                        return next
-                      })}
-                      style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: `1.5px solid ${activa ? v.color : 'var(--border)'}`, background: activa ? v.color + '22' : 'transparent', color: activa ? v.color : 'var(--text2)', cursor: 'pointer', fontWeight: activa ? 700 : 400, transition: 'all 0.1s' }}>
-                      {v.label}{activa && bibFiltros[v.campo] ? ` · ${bibFiltros[v.campo].split('/')[0].trim()}` : ''}
-                    </button>
-                  )
-                })}
-                {hayFiltrosBib && (
-                  <button type="button" onClick={() => setBibFiltros({})}
-                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 20, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--text3)', cursor: 'pointer' }}>
-                    ✕ Limpiar
-                  </button>
-                )}
-              </div>
-
-              {/* Layout dos columnas cuando hay filtros activos, una columna si no */}
-              <div style={{ display: 'flex', gap: 12, flex: 1, minHeight: 0 }}>
-
-                {/* Columna izquierda: subvariables (solo si hay filtros activos) */}
-                {varsActivas.length > 0 && (
-                  <div style={{ width: 280, flexShrink: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 8, paddingRight: 4 }}>
-                    {varsActivas.map(v => {
-                      const getLabel = v.tipo === 'patron' ? labelDePatronId : (v.labelFn || (id => id))
-                      const allItems = v.tipo === 'patron'
-                        ? PATRON_MOVIMIENTO.flatMap(b => b.grupos.flatMap(g => g.children.map(c => c.id)))
-                        : v.tipo === 'chips'
-                          ? v.items
-                          : v.grupos.flatMap(g => g.items)
-                      return (
-                        <div key={v.campo} style={{ padding: '8px 10px', background: v.color + '0a', borderRadius: 8, border: `1px solid ${v.color}33` }}>
-                          <div style={{ fontSize: 10, fontWeight: 700, color: v.color, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>{v.label}</div>
-                          {(v.tipo === 'chips' || v.tipo === 'patron') ? (
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                              {allItems.map(item => {
-                                const activo = bibFiltros[v.campo] === item
-                                return (
-                                  <button key={item} type="button"
-                                    onClick={() => setBibFiltros(f => ({ ...f, [v.campo]: activo ? null : item }))}
-                                    style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1.5px solid ${activo ? v.color : 'var(--border)'}`, background: activo ? v.color : 'transparent', color: activo ? '#fff' : 'var(--text2)', cursor: 'pointer', fontWeight: activo ? 600 : 400, transition: 'all 0.1s' }}>
-                                    {getLabel(item)}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                          ) : v.grupos.map(({ grupo, items }) => (
-                            <div key={grupo} style={{ marginBottom: grupo ? 6 : 0 }}>
-                              {grupo && <div style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', fontWeight: 600, marginBottom: 3 }}>{grupo}</div>}
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                                {items.map(item => {
-                                  const activo = bibFiltros[v.campo] === item
-                                  return (
-                                    <button key={item} type="button"
-                                      onClick={() => setBibFiltros(f => ({ ...f, [v.campo]: activo ? null : item }))}
-                                      style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1.5px solid ${activo ? v.color : 'var(--border)'}`, background: activo ? v.color : 'transparent', color: activo ? '#fff' : 'var(--text2)', cursor: 'pointer', fontWeight: activo ? 600 : 400, transition: 'all 0.1s' }}>
-                                      {item}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-
-                {/* Columna derecha: lista de ejercicios */}
-                <div style={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
-                  {varsActivas.length > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 4 }}>
-                      {bibFiltrada.length} ejercicio{bibFiltrada.length !== 1 ? 's' : ''}
-                    </div>
-                  )}
-                  {!biblioteca ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 20 }}>Cargando...</div>
-                  ) : bibFiltrada.length === 0 ? (
-                    <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 20 }}>Sin resultados</div>
-                  ) : bibFiltrada.map(item => {
+              {/* Lista de ejercicios */}
+              <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                {!biblioteca ? (
+                  <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 20 }}>Cargando...</div>
+                ) : bibFiltrada.length === 0 ? (
+                  <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 20 }}>Sin resultados</div>
+                ) : bibFiltrada.map(item => {
                   const ytid = item.media_tipo === 'youtube' && item.media_url ? item.media_url.match(/(?:youtu\.be\/|v=|embed\/)([A-Za-z0-9_-]{11})/)?.[1] : null
                   const thumb = ytid ? `https://img.youtube.com/vi/${ytid}/hqdefault.jpg` : (item.media_url && item.media_tipo !== 'youtube' ? item.media_url : null)
                   return (
@@ -2899,29 +2663,18 @@ async function guardarSesion() {
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg2)'; e.currentTarget.style.borderColor = 'var(--border)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent' }}>
                       {thumb
-                        ? <img src={thumb} alt="" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 5, flexShrink: 0 }} />
+                        ? <img src={thumb} alt="" loading="lazy" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 5, flexShrink: 0 }} />
                         : <div style={{ width: 48, height: 36, borderRadius: 5, background: 'var(--bg2)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>💪</div>
                       }
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{item.nombre}</div>
                         {item.descripcion && <div style={{ fontSize: 11, color: 'var(--text3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.descripcion}</div>}
-                        {varsActivas.length > 0 && (
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginTop: 3 }}>
-                            {varsActivas.flatMap(v => (item[v.campo] || []).map(tag => {
-                              const label = v.tipo === 'patron' ? labelDePatronId(tag) : v.labelFn ? v.labelFn(tag) : tag
-                              return (
-                                <span key={v.campo + tag} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 20, background: v.color + '18', color: v.color, border: `1px solid ${v.color}33`, fontWeight: 500 }}>{label}</span>
-                              )
-                            }))}
-                          </div>
-                        )}
                       </div>
                       {item.media_tipo && <span style={{ fontSize: 10, color: 'var(--text3)', flexShrink: 0 }}>{item.media_tipo === 'youtube' ? '▶' : '🖼'}</span>}
                     </div>
                   )
                 })}
-              </div>{/* fin columna derecha */}
-              </div>{/* fin dos columnas */}
+              </div>
               <div className="modal-footer" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => {
                   const { bloqueId, variablesDefault } = modalBiblioteca
@@ -2974,9 +2727,6 @@ async function guardarSesion() {
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-light,#e8f5f0)'}
                       onMouseLeave={e => e.currentTarget.style.background = 'var(--bg2)'}>
                       <div style={{ fontWeight: 500 }}>{item.nombre}</div>
-                      {item.patron_movimiento?.length > 0 && (
-                        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2 }}>{item.patron_movimiento.slice(0, 2).join(' · ')}</div>
-                      )}
                     </div>
                   ))}
                 </div>
@@ -3022,59 +2772,9 @@ async function guardarSesion() {
 
       {/* Modal: Crear ejercicio personalizado */}
       {modalCrearEj && (() => {
-        const seccionesFiltradas = SECCIONES_CLASIFICACION.filter(s => s.tipo !== 'complejos')
-        const seccionComplejos = SECCIONES_CLASIFICACION.find(s => s.tipo === 'complejos')
-        const principal = seccionesFiltradas.slice(0, 2)   // familia + patron
-        const caracteristicas = seccionesFiltradas.slice(2) // posicion, plano, contraccion, material
-        const labelFromId = id => id.split(':').pop().replace(/_/g, ' ')
-        const renderListaItems = (seccion) => {
-          const seleccionados = formCrearEj[seccion.campo] || []
-          const getLabel = seccion.tipo === 'patron' ? labelDePatronId : (seccion.labelFn || labelFromId)
-          const allItems = seccion.tipo === 'patron'
-            ? PATRON_MOVIMIENTO.flatMap(b => b.grupos.flatMap(g => g.children.map(c => c.id)))
-            : seccion.tipo === 'chips' ? seccion.items
-            : seccion.grupos.flatMap(g => g.items)
-          const grupos = seccion.tipo === 'grupos' ? seccion.grupos : null
-          const toggle = item => setFormCrearEj(f => {
-            const actual = f[seccion.campo] || []
-            const activo = actual.includes(item)
-            return { ...f, [seccion.campo]: activo ? actual.filter(v => v !== item) : [...actual, item] }
-          })
-          if (grupos) {
-            return grupos.map(({ grupo, items }) => (
-              <div key={grupo} style={{ marginBottom: 6 }}>
-                {grupo && <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{grupo}</div>}
-                {items.map(item => {
-                  const activo = seleccionados.includes(item)
-                  return (
-                    <div key={item} onClick={() => toggle(item)}
-                      style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 6px', borderRadius: 5, cursor: 'pointer', background: activo ? '#f0fdf4' : 'transparent' }}>
-                      <span style={{ width: 13, height: 13, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${activo ? '#2d6a4f' : 'var(--border-strong, #cbd5e1)'}`, background: activo ? '#2d6a4f' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                        {activo && <Check size={8} color="#fff" strokeWidth={3} />}
-                      </span>
-                      <span style={{ fontSize: 11.5, color: activo ? '#065f46' : 'var(--text2)', fontWeight: activo ? 500 : 400 }}>{item}</span>
-                    </div>
-                  )
-                })}
-              </div>
-            ))
-          }
-          return allItems.map(item => {
-            const activo = seleccionados.includes(item)
-            return (
-              <div key={item} onClick={() => toggle(item)}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 6px', borderRadius: 5, cursor: 'pointer', background: activo ? '#f0fdf4' : 'transparent' }}>
-                <span style={{ width: 13, height: 13, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${activo ? '#2d6a4f' : 'var(--border-strong, #cbd5e1)'}`, background: activo ? '#2d6a4f' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {activo && <Check size={8} color="#fff" strokeWidth={3} />}
-                </span>
-                <span style={{ fontSize: 11.5, color: activo ? '#065f46' : 'var(--text2)', fontWeight: activo ? 500 : 400 }}>{getLabel(item)}</span>
-              </div>
-            )
-          })
-        }
         return (
           <div className="modal-backdrop" onClick={() => setModalCrearEj(null)}>
-            <div className="modal" style={{ maxWidth: 'min(96vw, 1100px)', width: '100%', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal" style={{ maxWidth: 'min(96vw, 760px)', width: '100%', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <span className="modal-title">Crear ejercicio personalizado</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => setModalCrearEj(null)}>✕</button>
@@ -3092,63 +2792,7 @@ async function guardarSesion() {
                   <div className="form-group">
                     <label className="form-label">Descripción</label>
                     <textarea className="form-input" placeholder="Descripción del ejercicio" value={formCrearEj.descripcion}
-                      onChange={e => setFormCrearEj(f => ({ ...f, descripcion: e.target.value }))} rows={2} style={{ resize: 'vertical' }} />
-                  </div>
-
-                  {/* Clasificación principal */}
-                  <div style={{ borderLeft: '3px solid #2d6a4f', paddingLeft: 10, marginBottom: 8, marginTop: 4 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text2)' }}>Clasificación principal</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
-                    {/* Complejo articular */}
-                    <div style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                      <div style={{ padding: '6px 10px', background: 'var(--bg2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#1e293b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>1</span>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: seccionComplejos.color }}>{seccionComplejos.label}</span>
-                      </div>
-                      <div style={{ padding: 10, flex: 1 }}>
-                        <ComplexSelector
-                          estructura_anatomica={formCrearEj.estructura_anatomica}
-                          onChange={({ estructura_anatomica, complejo_articular }) =>
-                            setFormCrearEj(f => ({ ...f, estructura_anatomica, complejo_articular }))}
-                        />
-                      </div>
-                    </div>
-                    {/* Familia + Patrón */}
-                    {principal.map((s, i) => (
-                      <div key={s.campo} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ padding: '6px 10px', background: 'var(--bg2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#1e293b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{i + 2}</span>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: s.color }}>{s.label}</span>
-                        </div>
-                        <div style={{ padding: 10, flex: 1 }}>
-                          {s.tipo === 'patron'
-                            ? <PatronSelector
-                                value={formCrearEj.patron_movimiento}
-                                onChange={v => setFormCrearEj(f => ({ ...f, patron_movimiento: v }))}
-                                complejosSeleccionados={formCrearEj.complejo_articular}
-                                estructurasSeleccionadas={formCrearEj.estructura_anatomica}
-                              />
-                            : renderListaItems(s)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Características */}
-                  <div style={{ borderLeft: '3px solid #64748b', paddingLeft: 10, marginBottom: 8 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text2)' }}>Características del ejercicio</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                    {caracteristicas.map((s, i) => (
-                      <div key={s.campo} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ padding: '6px 10px', background: 'var(--bg2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#64748b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{4 + i}</span>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: s.color }}>{s.label}</span>
-                        </div>
-                        <div style={{ padding: 10, flex: 1 }}>{renderListaItems(s)}</div>
-                      </div>
-                    ))}
+                      onChange={e => setFormCrearEj(f => ({ ...f, descripcion: e.target.value }))} rows={8} style={{ resize: 'vertical' }} />
                   </div>
                 </div>
 
@@ -3230,36 +2874,6 @@ async function guardarSesion() {
                     <div className="form-label" style={{ marginBottom: 4 }}>Tipo de ejecución</div>
                     <input className="form-input" placeholder="Ej: Excéntrico lento, pausa..." value={formCrearEj.ejecucion_tipo}
                       onChange={e => setFormCrearEj(f => ({ ...f, ejecucion_tipo: e.target.value }))} style={{ fontSize: 12 }} />
-                  </div>
-
-                  {/* Resumen etiquetas */}
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 8 }}>Resumen</div>
-                    {(() => {
-                      const todasSecciones = [
-                        { label: 'Complejo', color: seccionComplejos.color, vals: formCrearEj.complejo_articular || [], labelFn: labelFromId },
-                        { label: 'Estructura', color: seccionComplejos.color, vals: formCrearEj.estructura_anatomica || [], labelFn: id => labelDeId(id) || labelFromId(id) },
-                        ...seccionesFiltradas.map(s => ({ label: s.label, color: s.color, vals: formCrearEj[s.campo] || [], labelFn: s.tipo === 'patron' ? labelDePatronId : (s.labelFn || labelFromId) })),
-                      ]
-                      const conValores = todasSecciones.filter(s => s.vals.length > 0)
-                      if (!conValores.length) return <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>Sin etiquetas seleccionadas</div>
-                      return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                          {conValores.map(s => (
-                            <div key={s.label}>
-                              <div style={{ fontSize: 9.5, fontWeight: 600, color: s.color, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{s.label}</div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                                {s.vals.map(v => (
-                                  <span key={v} style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 12, background: s.color + '18', color: s.color, border: `1px solid ${s.color}33`, fontWeight: 500 }}>
-                                    {s.labelFn(v)}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    })()}
                   </div>
 
                   {errorCrearEj && <p style={{ color: 'var(--error)', fontSize: 12, marginTop: 8 }}>{errorCrearEj}</p>}
