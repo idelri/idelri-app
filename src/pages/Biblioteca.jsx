@@ -1,13 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import {
-  COMPLEJOS, SECCIONES_CLASIFICACION, CAMPOS_CLASIFICACION,
-  PATRON_MOVIMIENTO,
-  estadoGrupo, toggleGrupo, toggleEstructura, derivarComplejos,
-  labelDeId, colorDeId, idsHojaDeEstructura,
-  labelDePatronId, colorDePatronId, patronesRecomendadosActivos,
-} from '../lib/taxonomia'
-import { Search, Plus, X, Pencil, Trash2, ChevronDown, ChevronUp, LayoutGrid, List, Table2, Check, Filter, Play } from 'lucide-react'
+import { Search, Plus, X, Pencil, Trash2, ChevronDown, ChevronUp, LayoutGrid, List, Table2, Check, Play } from 'lucide-react'
 import BibliotecaSesiones from './BibliotecaSesiones'
 
 function ytId(url) {
@@ -16,517 +9,8 @@ function ytId(url) {
   return m ? m[1] : null
 }
 
-const SORT_OPTIONS = [
-  { value: 'nombre', label: 'Nombre' },
-  { value: 'patron_movimiento', label: 'Patrón' },
-  { value: 'material', label: 'Material' },
-]
-
-const EMPTY_CLASIFICACION = {
-  complejo_articular: [], estructura_anatomica: [],
-  familia: [], patron_movimiento: [], posicion_ejercicio: [],
-  plano_movimiento: [], tipo_contraccion: [], material: [],
-}
-
 const EMPTY = {
   nombre: '', descripcion: '', media_tipo: '', media_url: '', video_url: '', notas: '',
-  ...EMPTY_CLASIFICACION,
-}
-
-// ── COMPLEX SELECTOR ─────────────────────────────────────────────────────────
-function ComplexSelector({ estructura_anatomica, onChange }) {
-  const [expandidos, setExpandidos] = useState(new Set())
-
-  function toggleExpandido(id) {
-    setExpandidos(prev => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next })
-  }
-  function handleToggleGrupo(grupo) {
-    const nextEst = toggleGrupo(grupo, estructura_anatomica)
-    onChange({ estructura_anatomica: nextEst, complejo_articular: derivarComplejos(nextEst) })
-  }
-  function handleToggleHijo(hijo, grupo) {
-    const nextEst = toggleEstructura(hijo.id, grupo, estructura_anatomica)
-    onChange({ estructura_anatomica: nextEst, complejo_articular: derivarComplejos(nextEst) })
-  }
-
-  return (
-    <div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
-        {COMPLEJOS.map(c => {
-          const tieneSeleccion = estructura_anatomica.some(id => id.startsWith(c.id + ':'))
-          const activo = expandidos.has(c.id)
-          const nHojas = idsHojaDeEstructura(estructura_anatomica.filter(id => id.startsWith(c.id + ':'))).length
-          return (
-            <button key={c.id} type="button" onClick={() => toggleExpandido(c.id)}
-              style={{ fontSize: 12, padding: '5px 11px', borderRadius: 20, border: `1.5px solid ${tieneSeleccion ? c.color : activo ? c.color + '80' : 'var(--border)'}`, background: activo ? c.color + '18' : tieneSeleccion ? c.color + '10' : 'transparent', color: tieneSeleccion || activo ? c.color : 'var(--text2)', cursor: 'pointer', fontWeight: tieneSeleccion ? 600 : 400, display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.1s' }}>
-              <span>{c.emoji}</span><span>{c.label}</span>
-              {nHojas > 0 && <span style={{ fontSize: 9, background: c.color, color: '#fff', borderRadius: 10, padding: '1px 5px', fontWeight: 700 }}>{nHojas}</span>}
-            </button>
-          )
-        })}
-      </div>
-
-      {COMPLEJOS.filter(c => expandidos.has(c.id)).map(complejo => (
-        <div key={complejo.id} style={{ border: `1.5px solid ${complejo.color}44`, borderRadius: 10, padding: '12px 14px', background: complejo.color + '08', marginBottom: 8 }}>
-          <div style={{ fontWeight: 700, fontSize: 11, color: complejo.color, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            {complejo.emoji} {complejo.label}
-          </div>
-          {complejo.grupos.map(grupo => {
-            const estado = estadoGrupo(grupo, estructura_anatomica)
-            return (
-              <div key={grupo.id} style={{ marginBottom: 10 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                  <button type="button" onClick={() => handleToggleGrupo(grupo)}
-                    style={{ width: 15, height: 15, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${estado === 'empty' ? 'var(--border)' : complejo.color}`, background: estado === 'full' ? complejo.color : estado === 'partial' ? complejo.color + '44' : 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    {estado === 'full' && <span style={{ color: '#fff', fontSize: 8, lineHeight: 1 }}>✓</span>}
-                    {estado === 'partial' && <span style={{ color: complejo.color, fontSize: 10, lineHeight: 1 }}>−</span>}
-                  </button>
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{grupo.label}</span>
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 23 }}>
-                  {grupo.children.map(hijo => {
-                    const sel = estructura_anatomica.includes(hijo.id)
-                    return (
-                      <button key={hijo.id} type="button" onClick={() => handleToggleHijo(hijo, grupo)}
-                        style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${sel ? complejo.color : 'var(--border)'}`, background: sel ? complejo.color + '22' : 'transparent', color: sel ? complejo.color : 'var(--text2)', cursor: 'pointer', fontWeight: sel ? 600 : 400, transition: 'all 0.1s' }}>
-                        {hijo.label}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── PATRON SELECTOR ──────────────────────────────────────────────────────────
-function PatronSelector({ value = [], onChange, complejosSeleccionados = [], estructurasSeleccionadas = [] }) {
-  const [todosAbierto, setTodosAbierto] = useState(false)
-
-  const recomSet = new Set(patronesRecomendadosActivos(complejosSeleccionados, estructurasSeleccionadas))
-
-  // Grupos que contienen al menos un hijo recomendado
-  const bloquesRec = PATRON_MOVIMIENTO
-    .map(bloque => ({
-      ...bloque,
-      grupos: bloque.grupos.filter(g => g.children.some(c => recomSet.has(c.id))),
-    }))
-    .filter(b => b.grupos.length > 0)
-
-  function renderGrupo(grupo, color) {
-    const estado = estadoGrupo(grupo, value)
-    return (
-      <div key={grupo.id} style={{ marginBottom: 10 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-          <button type="button" onClick={() => onChange(toggleGrupo(grupo, value))}
-            style={{
-              width: 15, height: 15, borderRadius: 3, flexShrink: 0,
-              border: `1.5px solid ${estado === 'empty' ? 'var(--border)' : color}`,
-              background: estado === 'full' ? color : estado === 'partial' ? color + '44' : 'transparent',
-              cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-            {estado === 'full' && <span style={{ color: '#fff', fontSize: 8, lineHeight: 1 }}>✓</span>}
-            {estado === 'partial' && <span style={{ color, fontSize: 10, lineHeight: 1 }}>−</span>}
-          </button>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-            {grupo.label}
-          </span>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, paddingLeft: 23 }}>
-          {grupo.children.map(hijo => {
-            const sel = value.includes(hijo.id)
-            return (
-              <button key={hijo.id} type="button"
-                onClick={() => onChange(toggleEstructura(hijo.id, grupo, value))}
-                style={{
-                  fontSize: 11, padding: '3px 10px', borderRadius: 20,
-                  border: `1.5px solid ${sel ? color : 'var(--border)'}`,
-                  background: sel ? color + '22' : 'transparent',
-                  color: sel ? color : 'var(--text2)',
-                  cursor: 'pointer', fontWeight: sel ? 600 : 400, transition: 'all 0.1s',
-                }}>
-                {hijo.label}
-              </button>
-            )
-          })}
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      {bloquesRec.length > 0 && (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>
-            💡 Sugeridos según anatomía seleccionada
-          </div>
-          {bloquesRec.map(bloque => (
-            <div key={bloque.id}>
-              {bloquesRec.length > 1 && (
-                <div style={{ fontSize: 10, color: bloque.color, fontWeight: 600, marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.04em' }}>{bloque.label}</div>
-              )}
-              {bloque.grupos.map(grupo => renderGrupo(grupo, bloque.color))}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <div>
-        <button type="button" onClick={() => setTodosAbierto(o => !o)}
-          style={{ fontSize: 11, padding: '4px 12px', borderRadius: 20, border: '1.5px solid var(--border)', background: 'transparent', color: 'var(--text2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 5, marginBottom: todosAbierto ? 10 : 0 }}>
-          {todosAbierto ? <ChevronUp size={11} /> : <ChevronDown size={11} />}
-          Todos los patrones
-        </button>
-        {todosAbierto && (
-          <div>
-            {PATRON_MOVIMIENTO.map(bloque => (
-              <div key={bloque.id} style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 10, fontWeight: 700, color: bloque.color, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>{bloque.label}</div>
-                {bloque.grupos.map(grupo => renderGrupo(grupo, bloque.color))}
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ── TAG SELECTOR (secciones tipo grupos y chips) ──────────────────────────────
-function TagSelector({ seccion, value = [], onChange, listMode }) {
-  if (seccion.tipo === 'chips') {
-    const getLabel = seccion.labelFn || (id => id)
-    if (listMode) {
-      return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-          {seccion.items.map(item => {
-            const activo = value.includes(item)
-            return (
-              <div key={item}
-                onClick={() => onChange(activo ? value.filter(v => v !== item) : [...value, item])}
-                style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 6px', borderRadius: 5, cursor: 'pointer', background: activo ? '#f0fdf4' : 'transparent', transition: 'background 0.1s' }}>
-                <span style={{ width: 13, height: 13, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${activo ? '#2d6a4f' : 'var(--border-strong, #cbd5e1)'}`, background: activo ? '#2d6a4f' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {activo && <Check size={8} color="#fff" strokeWidth={3} />}
-                </span>
-                <span style={{ fontSize: 11.5, color: activo ? '#065f46' : 'var(--text2)', fontWeight: activo ? 500 : 400 }}>{getLabel(item)}</span>
-              </div>
-            )
-          })}
-        </div>
-      )
-    }
-    return (
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-        {seccion.items.map(item => {
-          const activo = value.includes(item)
-          return (
-            <button key={item} type="button"
-              onClick={() => onChange(activo ? value.filter(v => v !== item) : [...value, item])}
-              style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${activo ? seccion.color : 'var(--border)'}`, background: activo ? seccion.color + '22' : 'transparent', color: activo ? seccion.color : 'var(--text2)', cursor: 'pointer', fontWeight: activo ? 600 : 400, transition: 'all 0.1s' }}>
-              {getLabel(item)}
-            </button>
-          )
-        })}
-      </div>
-    )
-  }
-  if (listMode) {
-    return (
-      <div>
-        {seccion.grupos.map(({ grupo, items }) => (
-          <div key={grupo} style={{ marginBottom: 6 }}>
-            {grupo && <div style={{ fontSize: 9.5, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{grupo}</div>}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {items.map(item => {
-                const activo = value.includes(item)
-                return (
-                  <div key={item}
-                    onClick={() => onChange(activo ? value.filter(v => v !== item) : [...value, item])}
-                    style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '4px 6px', borderRadius: 5, cursor: 'pointer', background: activo ? '#f0fdf4' : 'transparent', transition: 'background 0.1s' }}>
-                    <span style={{ width: 13, height: 13, borderRadius: 3, flexShrink: 0, border: `1.5px solid ${activo ? '#2d6a4f' : 'var(--border-strong, #cbd5e1)'}`, background: activo ? '#2d6a4f' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      {activo && <Check size={8} color="#fff" strokeWidth={3} />}
-                    </span>
-                    <span style={{ fontSize: 11.5, color: activo ? '#065f46' : 'var(--text2)', fontWeight: activo ? 500 : 400 }}>{item}</span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-    )
-  }
-  return (
-    <div>
-      {seccion.grupos.map(({ grupo, items }) => (
-        <div key={grupo} style={{ marginBottom: 8 }}>
-          {grupo && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>{grupo}</div>}
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-            {items.map(item => {
-              const activo = value.includes(item)
-              return (
-                <button key={item} type="button"
-                  onClick={() => onChange(activo ? value.filter(v => v !== item) : [...value, item])}
-                  style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1.5px solid ${activo ? seccion.color : 'var(--border)'}`, background: activo ? seccion.color + '22' : 'transparent', color: activo ? seccion.color : 'var(--text2)', cursor: 'pointer', fontWeight: activo ? 600 : 400, transition: 'all 0.1s' }}>
-                  {item}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── MINI CHIPS (display) ──────────────────────────────────────────────────────
-function MiniChips({ values = [], color }) {
-  if (!values?.length) return <span style={{ color: 'var(--text3)', fontSize: 11 }}>—</span>
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-      {values.map(v => (
-        <span key={v} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 20, background: color + '18', color, border: `1px solid ${color}33`, fontWeight: 500, whiteSpace: 'nowrap' }}>{v}</span>
-      ))}
-    </div>
-  )
-}
-
-// Chips de estructura anatómica con color por complejo
-function EstructuraChips({ estructuraIds = [] }) {
-  const hojas = idsHojaDeEstructura(estructuraIds)
-  if (!hojas.length) return <span style={{ color: 'var(--text3)', fontSize: 11 }}>—</span>
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-      {hojas.map(id => {
-        const color = colorDeId(id)
-        return (
-          <span key={id} style={{ fontSize: 10, padding: '1px 6px', borderRadius: 20, background: color + '18', color, border: `1px solid ${color}33`, fontWeight: 500, whiteSpace: 'nowrap' }}>
-            {labelDeId(id)}
-          </span>
-        )
-      })}
-    </div>
-  )
-}
-
-// ── INLINE TAGS (editable, tabla) ─────────────────────────────────────────────
-function InlineTags({ seccion, values = [], onChange }) {
-  const color = seccion.color
-  const getLabel = seccion.labelFn || (id => id)
-
-  // Para tipo:'patron' extraemos todos los hijos de PATRON_MOVIMIENTO como items planos
-  const allItems = seccion.tipo === 'patron'
-    ? PATRON_MOVIMIENTO.flatMap(b => b.grupos.flatMap(g => g.children.map(c => c.id)))
-    : seccion.tipo === 'chips'
-      ? seccion.items
-      : seccion.grupos.flatMap(g => g.items)
-
-  const disponibles = allItems.filter(i => !values.includes(i))
-  const [abierto, setAbierto] = useState(false)
-  const ref = useRef()
-
-  useEffect(() => {
-    if (!abierto) return
-    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setAbierto(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [abierto])
-
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center', marginTop: 4, position: 'relative' }} ref={ref}>
-      {values.map(v => {
-        const label = seccion.tipo === 'patron' ? labelDePatronId(v) : getLabel(v)
-        return (
-          <span key={v} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '2px 6px 2px 8px', borderRadius: 20, background: color + '18', color, border: `1px solid ${color}55`, fontWeight: 500 }}>
-            {label}
-            <button type="button" onClick={() => onChange(values.filter(x => x !== v))}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color, display: 'flex', alignItems: 'center', opacity: 0.7 }}>
-              <X size={9} />
-            </button>
-          </span>
-        )
-      })}
-      {disponibles.length > 0 && (
-        <button type="button" onClick={() => setAbierto(o => !o)}
-          style={{ fontSize: 10, padding: '2px 7px', borderRadius: 20, border: `1px dashed ${color}88`, background: 'transparent', color, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 2 }}>
-          <Plus size={9} /> añadir
-        </button>
-      )}
-      {abierto && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 100, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, padding: 10, marginTop: 4, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', minWidth: 200, maxWidth: 340, maxHeight: 260, overflowY: 'auto' }}>
-          {(seccion.tipo === 'chips' || seccion.tipo === 'patron') ? (
-            seccion.tipo === 'patron'
-              ? PATRON_MOVIMIENTO.map(bloque => {
-                  const dispBloque = bloque.grupos.flatMap(g => g.children.map(c => c.id)).filter(id => !values.includes(id))
-                  if (!dispBloque.length) return null
-                  return (
-                    <div key={bloque.id} style={{ marginBottom: 8 }}>
-                      <div style={{ fontSize: 10, fontWeight: 700, color: bloque.color, textTransform: 'uppercase', marginBottom: 4 }}>{bloque.label}</div>
-                      {bloque.grupos.map(grupo => {
-                        const dispGrupo = grupo.children.map(c => c.id).filter(id => !values.includes(id))
-                        if (!dispGrupo.length) return null
-                        return (
-                          <div key={grupo.id} style={{ marginBottom: 5 }}>
-                            <div style={{ fontSize: 10, color: 'var(--text3)', fontWeight: 600, marginBottom: 3 }}>{grupo.label}</div>
-                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                              {dispGrupo.map(id => (
-                                <button key={id} type="button"
-                                  onClick={() => { onChange([...values, id]); setAbierto(false) }}
-                                  style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: `1px solid ${bloque.color}55`, background: bloque.color + '10', color: bloque.color, cursor: 'pointer', fontWeight: 500 }}>
-                                  {labelDePatronId(id)}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )
-                })
-              : (
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {disponibles.map(item => (
-                    <button key={item} type="button"
-                      onClick={() => { onChange([...values, item]); setAbierto(false) }}
-                      style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: `1px solid ${color}55`, background: color + '10', color, cursor: 'pointer', fontWeight: 500 }}>
-                      {getLabel(item)}
-                    </button>
-                  ))}
-                </div>
-              )
-          ) : seccion.grupos.map(({ grupo, items }) => {
-            const disp = items.filter(i => !values.includes(i))
-            if (!disp.length) return null
-            return (
-              <div key={grupo} style={{ marginBottom: 6 }}>
-                {grupo && <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', marginBottom: 4 }}>{grupo}</div>}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {disp.map(item => (
-                    <button key={item} type="button"
-                      onClick={() => { onChange([...values, item]); setAbierto(false) }}
-                      style={{ fontSize: 10, padding: '2px 8px', borderRadius: 20, border: `1px solid ${color}55`, background: color + '10', color, cursor: 'pointer', fontWeight: 500 }}>
-                      {item}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ── INLINE TAGS PANEL (dentro de cards/lista en edición rápida) ───────────────
-function InlineTagsPanel({ ej, onChange }) {
-  // Para estructura_anatomica mostramos chips removibles (sin selector complejo inline)
-  const hojas = idsHojaDeEstructura(ej.estructura_anatomica || [])
-  return (
-    <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {hojas.length > 0 && (
-        <div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#374151', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 3 }}>Estructura implicada</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {hojas.map(id => {
-              const color = colorDeId(id)
-              return (
-                <span key={id} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, padding: '2px 6px 2px 8px', borderRadius: 20, background: color + '18', color, border: `1px solid ${color}55`, fontWeight: 500 }}>
-                  {labelDeId(id)}
-                  <button type="button" onClick={() => {
-                    const nextEst = (ej.estructura_anatomica || []).filter(x => x !== id)
-                    const grupoId = ej.estructura_anatomica.find(x => {
-                      const prefijo = id.split(':')[0]
-                      const nombreGrupo = id.split(':')[1]
-                      return x === prefijo + ':' + nombreGrupo.split('_')[0]
-                    })
-                    onChange('estructura_anatomica', nextEst)
-                    onChange('complejo_articular', derivarComplejos(nextEst))
-                  }}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color, display: 'flex', alignItems: 'center', opacity: 0.7 }}>
-                    <X size={9} />
-                  </button>
-                </span>
-              )
-            })}
-          </div>
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, fontStyle: 'italic' }}>Usa ⚙ para editar la jerarquía completa</div>
-        </div>
-      )}
-      {SECCIONES_CLASIFICACION.filter(s => s.tipo !== 'complejos').map(seccion => (
-        <div key={seccion.campo}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: seccion.color, textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: 2 }}>{seccion.label}</div>
-          <InlineTags seccion={seccion} values={ej[seccion.campo] || []} onChange={v => onChange(seccion.campo, v)} />
-          {seccion.tipo === 'patron' && (
-            <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4, fontStyle: 'italic' }}>Usa ⚙ para editar la jerarquía completa</div>
-          )}
-        </div>
-      ))}
-    </div>
-  )
-}
-
-// ── COLUMN FILTER (tabla) ─────────────────────────────────────────────────────
-function ColumnFilter({ seccion, filtros, toggleFiltro, clearFiltro, ejercicios }) {
-  const [abierto, setAbierto] = useState(false)
-  const ref = useRef(null)
-  const campo = seccion.campo
-  const activos = filtros[campo] || []
-  const getLabel = seccion.labelFn || (seccion.tipo === 'patron' ? labelDePatronId : (id => id))
-  const allItems = seccion.tipo === 'patron'
-    ? PATRON_MOVIMIENTO.flatMap(b => b.grupos.flatMap(g => g.children.map(c => c.id)))
-    : seccion.tipo === 'chips'
-      ? seccion.items
-      : seccion.grupos.flatMap(g => g.items)
-  const valoresUsados = new Set()
-  ejercicios.forEach(e => (e[campo] || []).forEach(v => valoresUsados.add(v)))
-  const items = allItems.filter(v => valoresUsados.has(v))
-
-  useEffect(() => {
-    if (!abierto) return
-    function handler(e) { if (ref.current && !ref.current.contains(e.target)) setAbierto(false) }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [abierto])
-
-  if (items.length === 0) return null
-
-  return (
-    <div ref={ref} style={{ position: 'relative', display: 'inline-block' }}>
-      <button type="button" onClick={e => { e.stopPropagation(); setAbierto(v => !v) }}
-        style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '2px 3px', borderRadius: 4, color: activos.length ? seccion.color : 'var(--text3)', display: 'flex', alignItems: 'center' }}
-        title="Filtrar por esta columna">
-        <Filter size={10} style={{ fill: activos.length ? seccion.color : 'none' }} />
-        {activos.length > 0 && <span style={{ fontSize: 9, marginLeft: 1, fontWeight: 700 }}>{activos.length}</span>}
-      </button>
-      {abierto && (
-        <div style={{ position: 'absolute', top: '100%', left: 0, zIndex: 999, minWidth: 200, maxWidth: 280, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 6px 24px rgba(0,0,0,0.14)', padding: 10, marginTop: 4 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <span style={{ fontSize: 10, fontWeight: 700, color: seccion.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{seccion.label}</span>
-            {activos.length > 0 && (
-              <button type="button" onClick={() => clearFiltro(campo)} style={{ fontSize: 10, color: 'var(--text3)', background: 'none', border: 'none', cursor: 'pointer' }}>✕ limpiar</button>
-            )}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, maxHeight: 260, overflowY: 'auto' }}>
-            {items.map(item => {
-              const sel = activos.includes(item)
-              return (
-                <label key={item} style={{ display: 'flex', alignItems: 'center', gap: 7, cursor: 'pointer', padding: '3px 4px', borderRadius: 5, background: sel ? seccion.color + '14' : 'transparent' }}>
-                  <input type="checkbox" checked={sel} onChange={() => toggleFiltro(campo, item)} style={{ accentColor: seccion.color, cursor: 'pointer', width: 13, height: 13 }} />
-                  <span style={{ fontSize: 11.5, color: sel ? seccion.color : 'var(--text2)', fontWeight: sel ? 600 : 400 }}>{getLabel(item)}</span>
-                </label>
-              )
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ── BIBLIOTECA BLOQUES (sin cambios) ─────────────────────────────────────────
@@ -716,15 +200,12 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
   const [tabPrincipal, setTabPrincipal] = useState('ejercicios')
   const [ejercicios, setEjercicios] = useState([])
   const [busquedaTexto, setBusquedaTexto] = useState('')
-  const [filtros, setFiltros] = useState({})
   const [loading, setLoading] = useState(true)
   const [modal, setModal] = useState(null)
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [expandido, setExpandido] = useState(null)
-  const [filtroAbierto, setFiltroAbierto] = useState(false)
   const [vista, setVista] = useState('cards')
-  const [sortBy, setSortBy] = useState('nombre')
   const [sortDir, setSortDir] = useState('asc')
   const [inlineEj, setInlineEj] = useState(null)
   const [inlineSaving, setInlineSaving] = useState(false)
@@ -770,42 +251,18 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       nombre: e.nombre || '', descripcion: e.descripcion || '',
       media_tipo: e.media_tipo || '', media_url: e.media_url || '',
       video_url: e.video_url || '', notas: e.notas || '',
-      complejo_articular: e.complejo_articular || [],
-      estructura_anatomica: e.estructura_anatomica || [],
-      familia: e.familia || [],
-      patron_movimiento: e.patron_movimiento || [],
-      posicion_ejercicio: e.posicion_ejercicio || [],
-      plano_movimiento: e.plano_movimiento || [],
-      tipo_contraccion: e.tipo_contraccion || [],
-      material: e.material || [],
     })
     setModal(e)
   }
 
   function activarInline(e) {
-    setInlineEj({
-      id: e.id, nombre: e.nombre || '',
-      complejo_articular: [...(e.complejo_articular || [])],
-      estructura_anatomica: [...(e.estructura_anatomica || [])],
-      familia: [...(e.familia || [])],
-      patron_movimiento: [...(e.patron_movimiento || [])],
-      posicion_ejercicio: [...(e.posicion_ejercicio || [])],
-      plano_movimiento: [...(e.plano_movimiento || [])],
-      tipo_contraccion: [...(e.tipo_contraccion || [])],
-      material: [...(e.material || [])],
-    })
+    setInlineEj({ id: e.id, nombre: e.nombre || '' })
   }
 
   function cancelarInline() { setInlineEj(null) }
 
   function fd(campo, valor) {
-    if (campo === 'estructura_anatomica') {
-      setForm(f => ({ ...f, estructura_anatomica: valor, complejo_articular: derivarComplejos(valor) }))
-    } else if (campo === 'complejo_articular') {
-      setForm(f => ({ ...f, complejo_articular: valor }))
-    } else {
-      setForm(f => ({ ...f, [campo]: valor }))
-    }
+    setForm(f => ({ ...f, [campo]: valor }))
   }
 
   async function guardar() {
@@ -815,14 +272,6 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       nombre: form.nombre.trim(), descripcion: form.descripcion || null,
       media_tipo: form.media_tipo || null, media_url: form.media_url || null,
       video_url: form.video_url || null, notas: form.notas || null,
-      complejo_articular: form.complejo_articular,
-      estructura_anatomica: form.estructura_anatomica,
-      familia: form.familia,
-      patron_movimiento: form.patron_movimiento,
-      posicion_ejercicio: form.posicion_ejercicio,
-      plano_movimiento: form.plano_movimiento,
-      tipo_contraccion: form.tipo_contraccion,
-      material: form.material,
     }
     const { error } = modal === 'nuevo'
       ? await supabase.from('ejercicios_biblioteca').insert(datos)
@@ -839,14 +288,6 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
     setInlineSaving(true)
     const { error } = await supabase.from('ejercicios_biblioteca').update({
       nombre: inlineEj.nombre.trim(),
-      complejo_articular: inlineEj.complejo_articular,
-      estructura_anatomica: inlineEj.estructura_anatomica,
-      familia: inlineEj.familia,
-      patron_movimiento: inlineEj.patron_movimiento,
-      posicion_ejercicio: inlineEj.posicion_ejercicio,
-      plano_movimiento: inlineEj.plano_movimiento,
-      tipo_contraccion: inlineEj.tipo_contraccion,
-      material: inlineEj.material,
     }).eq('id', inlineEj.id)
     setInlineSaving(false)
     if (error) { mostrarToast('error'); return }
@@ -862,48 +303,14 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
     cargar()
   }
 
-  function toggleFiltro(campo, valor) {
-    setFiltros(f => {
-      const prev = f[campo] || []
-      const next = prev.includes(valor) ? prev.filter(v => v !== valor) : [...prev, valor]
-      return { ...f, [campo]: next }
-    })
-  }
-
-  function clearFiltro(campo) {
-    setFiltros(f => ({ ...f, [campo]: [] }))
-  }
-
-  function toggleSort(campo) {
-    if (sortBy === campo) setSortDir(d => d === 'asc' ? 'desc' : 'asc')
-    else { setSortBy(campo); setSortDir('asc') }
-  }
-
-  const hayFiltros = Object.values(filtros).some(v => v.length > 0)
-
-  // Secciones de filtro (solo las que tienen campo plano, no complejos)
-  const seccionesFiltro = SECCIONES_CLASIFICACION.filter(s => s.tipo !== 'complejos')
-
+  const textoBusqueda = busquedaTexto.toLowerCase()
   const filtrados = ejercicios.filter(e => {
-    if (busquedaTexto && !e.nombre.toLowerCase().includes(busquedaTexto.toLowerCase()) && !(e.descripcion || '').toLowerCase().includes(busquedaTexto.toLowerCase())) return false
-    for (const [campo, vals] of Object.entries(filtros)) {
-      if (!vals.length) continue
-      const ejVals = e[campo] || []
-      if (!vals.some(v => ejVals.includes(v))) return false
-    }
-    return true
+    if (!textoBusqueda) return true
+    return e.nombre.toLowerCase().includes(textoBusqueda) || (e.descripcion || '').toLowerCase().includes(textoBusqueda)
   }).sort((a, b) => {
-    let va = a[sortBy]; let vb = b[sortBy]
-    if (Array.isArray(va)) va = (va[0] || '')
-    if (Array.isArray(vb)) vb = (vb[0] || '')
-    va = (va || '').toLowerCase(); vb = (vb || '').toLowerCase()
+    const va = (a.nombre || '').toLowerCase(); const vb = (b.nombre || '').toLowerCase()
     return sortDir === 'asc' ? va.localeCompare(vb, 'es') : vb.localeCompare(va, 'es')
   })
-
-  const SortArrow = ({ campo }) => {
-    if (sortBy !== campo) return <span style={{ color: 'var(--text3)', fontSize: 10 }}>↕</span>
-    return <span style={{ fontSize: 10 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
-  }
 
   function InlineActions() {
     return (
@@ -915,15 +322,6 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       </div>
     )
   }
-
-  // Columnas tabla (excluye estructura_anatomica compleja, usa patron+material)
-  const TABLA_COLUMNAS = [
-    { campo: 'nombre', label: 'Ejercicio', filtrable: false },
-    { campo: 'familia', label: 'Familia', filtrable: true, seccion: seccionesFiltro.find(s => s.campo === 'familia') },
-    { campo: 'patron_movimiento', label: 'Patrón', filtrable: true, seccion: seccionesFiltro.find(s => s.campo === 'patron_movimiento') },
-    { campo: 'posicion_ejercicio', label: 'Posición', filtrable: true, seccion: seccionesFiltro.find(s => s.campo === 'posicion_ejercicio') },
-    { campo: 'material', label: 'Material', filtrable: true, seccion: seccionesFiltro.find(s => s.campo === 'material') },
-  ]
 
   return (
     <div className="page">
@@ -955,18 +353,14 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
           <button className="btn btn-primary" onClick={abrirNuevo}><Plus size={14} /> Nuevo ejercicio</button>
         </div>
 
-        {/* Búsqueda, filtros y vista */}
-        <div style={{ marginBottom: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Búsqueda y vista */}
+        <div style={{ marginBottom: 16 }}>
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
             <div style={{ position: 'relative', flex: 1, minWidth: 200, maxWidth: 360 }}>
               <Search size={14} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)' }} />
               <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar ejercicio..." value={busquedaTexto} onChange={e => setBusquedaTexto(e.target.value)} />
               {busquedaTexto && <button onClick={() => setBusquedaTexto('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)' }}><X size={13} /></button>}
             </div>
-            <button className="btn btn-ghost" onClick={() => setFiltroAbierto(o => !o)} style={{ gap: 5, color: hayFiltros ? 'var(--accent)' : undefined, borderColor: hayFiltros ? 'var(--accent)' : undefined }}>
-              Filtros {hayFiltros ? '(activos)' : ''} {filtroAbierto ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-            </button>
-            {hayFiltros && <button className="btn btn-ghost btn-sm" onClick={() => setFiltros({})}>Limpiar</button>}
             <div style={{ display: 'flex', gap: 2, marginLeft: 'auto', background: 'var(--bg2)', borderRadius: 8, padding: 3, border: '1px solid var(--border)' }}>
               {[{ id: 'cards', icon: <LayoutGrid size={14} />, title: 'Cards' }, { id: 'lista', icon: <List size={14} />, title: 'Lista' }, { id: 'tabla', icon: <Table2 size={14} />, title: 'Tabla' }].map(({ id, icon, title }) => (
                 <button key={id} title={title} onClick={() => setVista(id)}
@@ -976,73 +370,12 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
               ))}
             </div>
           </div>
-
-          {vista === 'lista' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: 'var(--text3)' }}>Ordenar por:</span>
-              {SORT_OPTIONS.map(({ value, label }) => (
-                <button key={value} onClick={() => toggleSort(value)}
-                  style={{ fontSize: 11, padding: '3px 10px', borderRadius: 20, border: `1.5px solid ${sortBy === value ? 'var(--accent)' : 'var(--border)'}`, background: sortBy === value ? 'var(--accent-light)' : 'transparent', color: sortBy === value ? 'var(--accent)' : 'var(--text2)', cursor: 'pointer', fontWeight: sortBy === value ? 600 : 400, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  {label} {sortBy === value && <SortArrow campo={value} />}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {filtroAbierto && (
-            <div style={{ padding: 16, background: 'var(--bg2)', borderRadius: 10, border: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 0 }}>
-              <p style={{ fontSize: 11, color: 'var(--text3)', margin: '0 0 12px', fontStyle: 'italic' }}>
-                Distintas categorías filtran con AND. Dentro de la misma categoría, con OR.
-              </p>
-              {seccionesFiltro.map((seccion, idx, arr) => (
-                <div key={seccion.campo}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, color: seccion.color, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{seccion.label}</div>
-                    {(filtros[seccion.campo] || []).length > 0 && (
-                      <button type="button" onClick={() => setFiltros(f => ({ ...f, [seccion.campo]: [] }))}
-                        style={{ fontSize: 10, color: 'var(--text3)', background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>✕ limpiar</button>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginBottom: 0 }}>
-                    {(seccion.tipo === 'patron'
-                      ? PATRON_MOVIMIENTO.flatMap(b => b.grupos.flatMap(g => g.children.map(c => c.id)))
-                      : seccion.tipo === 'chips'
-                        ? seccion.items
-                        : seccion.grupos.flatMap(g => g.items)
-                    ).map(item => {
-                      const activo = (filtros[seccion.campo] || []).includes(item)
-                      const label = seccion.tipo === 'patron'
-                        ? labelDePatronId(item)
-                        : seccion.labelFn
-                          ? seccion.labelFn(item)
-                          : item
-                      return (
-                        <button key={item} type="button" onClick={() => toggleFiltro(seccion.campo, item)}
-                          style={{ fontSize: 11, padding: '3px 9px', borderRadius: 20, border: `1.5px solid ${activo ? seccion.color : 'var(--border)'}`, background: activo ? seccion.color + '18' : 'transparent', color: activo ? seccion.color : 'var(--text2)', cursor: 'pointer', fontWeight: activo ? 600 : 400 }}>
-                          {label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {idx < arr.length - 1 && (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0' }}>
-                      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                      {(filtros[seccion.campo] || []).length > 0 && Object.entries(filtros).some(([k, v]) => k !== seccion.campo && v.length > 0)
-                        ? <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', padding: '1px 8px', borderRadius: 20, background: 'var(--accent-light)', border: '1px solid var(--accent)' }}>AND</span>
-                        : <span style={{ fontSize: 10, color: 'var(--text3)', padding: '1px 8px' }}>+</span>}
-                      <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {loading ? (
           <div className="empty"><p>Cargando...</p></div>
         ) : filtrados.length === 0 ? (
-          <div className="empty"><p>No hay ejercicios{busquedaTexto || hayFiltros ? ' con esos filtros' : ''}.</p></div>
+          <div className="empty"><p>No hay ejercicios{busquedaTexto ? ' con esa búsqueda' : ''}.</p></div>
         ) : vista === 'cards' ? (
           /* ── CARDS ── */
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
@@ -1097,25 +430,9 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                     )}
 
                     {editando ? (
-                      <>
-                        <InlineTagsPanel ej={inlineEj} onChange={(campo, v) => setInlineEj(ie => ({ ...ie, [campo]: v }))} />
-                        <InlineActions />
-                      </>
+                      <InlineActions />
                     ) : (
-                      <>
-                        {e.video_url && <a href={e.video_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 11, color: 'var(--accent)' }}>▶ Ver vídeo</a>}
-                        <EstructuraChips estructuraIds={e.estructura_anatomica || []} />
-                        {seccionesFiltro.map(seccion => {
-                          const vals = e[seccion.campo] || []
-                          if (!vals.length) return null
-                          const labels = seccion.tipo === 'patron'
-                            ? vals.map(id => labelDePatronId(id))
-                            : seccion.labelFn
-                              ? vals.map(id => seccion.labelFn(id))
-                              : vals
-                          return <MiniChips key={seccion.campo} values={labels} color={seccion.color} />
-                        })}
-                      </>
+                      e.video_url && <a href={e.video_url} target="_blank" rel="noreferrer" style={{ display: 'inline-block', marginTop: 6, fontSize: 11, color: 'var(--accent)' }}>▶ Ver vídeo</a>
                     )}
                   </div>
                 </div>
@@ -1172,26 +489,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                           )}
                         </div>
                       )}
-                      {editando ? (
-                        <>
-                          <InlineTagsPanel ej={inlineEj} onChange={(campo, v) => setInlineEj(ie => ({ ...ie, [campo]: v }))} />
-                          <InlineActions />
-                        </>
-                      ) : (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
-                          <EstructuraChips estructuraIds={e.estructura_anatomica || []} />
-                          {seccionesFiltro.map(seccion => {
-                            const vals = e[seccion.campo] || []
-                            if (!vals.length) return null
-                            const labels = seccion.tipo === 'patron'
-                              ? vals.map(id => labelDePatronId(id))
-                              : seccion.labelFn
-                                ? vals.map(id => seccion.labelFn(id))
-                                : vals
-                            return <MiniChips key={seccion.campo} values={labels} color={seccion.color} />
-                          })}
-                        </div>
-                      )}
+                      {editando && <InlineActions />}
                     </div>
                   </div>
                 </div>
@@ -1204,15 +502,11 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                  {TABLA_COLUMNAS.map(({ campo, label, filtrable, seccion }) => (
-                    <th key={campo}
-                      style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: sortBy === campo ? 'var(--accent)' : 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', userSelect: 'none' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <span onClick={() => toggleSort(campo)} style={{ cursor: 'pointer' }}>{label} <SortArrow campo={campo} /></span>
-                        {filtrable && seccion && <ColumnFilter seccion={seccion} filtros={filtros} toggleFiltro={toggleFiltro} clearFiltro={clearFiltro} ejercicios={ejercicios} />}
-                      </div>
-                    </th>
-                  ))}
+                  <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 700, fontSize: 11, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.04em', whiteSpace: 'nowrap', userSelect: 'none' }}>
+                    <span onClick={() => setSortDir(d => d === 'asc' ? 'desc' : 'asc')} style={{ cursor: 'pointer' }}>
+                      Ejercicio <span style={{ fontSize: 10 }}>{sortDir === 'asc' ? '↑' : '↓'}</span>
+                    </span>
+                  </th>
                   <th style={{ padding: '8px 10px', width: 80 }}></th>
                 </tr>
               </thead>
@@ -1236,14 +530,6 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                           </>
                         )}
                       </td>
-                      {TABLA_COLUMNAS.slice(1).map(({ campo, seccion: col }) => (
-                        <td key={campo} style={{ padding: '8px 10px', maxWidth: 180 }}>
-                          {editando
-                            ? col && <InlineTags seccion={col} values={inlineEj[campo] || []} onChange={v => setInlineEj(ie => ({ ...ie, [campo]: v }))} />
-                            : <MiniChips values={e[campo]} color={col?.color || '#6b7280'} />
-                          }
-                        </td>
-                      ))}
                       <td style={{ padding: '8px 10px', whiteSpace: 'nowrap' }}>
                         {editando ? (
                           <div style={{ display: 'flex', gap: 4 }}>
@@ -1269,7 +555,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
         {/* ── MODAL NUEVO/EDITAR ── */}
         {modal && (
           <div className="modal-backdrop" onClick={() => setModal(null)}>
-            <div className="modal" style={{ maxWidth: 'min(96vw, 1160px)', width: '100%', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal" style={{ maxWidth: 'min(96vw, 760px)', width: '100%', maxHeight: '90vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
                 <span className="modal-title">{modal === 'nuevo' ? 'Nuevo ejercicio' : 'Editar ejercicio'}</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => setModal(null)}><X size={14} /></button>
@@ -1278,7 +564,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
               {/* ── Cuerpo en dos columnas ── */}
               <div style={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
 
-                {/* Columna izquierda: nombre + descripción + clasificación */}
+                {/* Columna izquierda: nombre + descripción */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '14px 16px' }}>
                   <div className="form-group">
                     <label className="form-label">Nombre *</label>
@@ -1286,56 +572,11 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                   </div>
                   <div className="form-group">
                     <label className="form-label">Descripción</label>
-                    <textarea className="form-input" value={form.descripcion} onChange={e => fd('descripcion', e.target.value)} placeholder="Explicación del ejercicio..." rows={2} style={{ resize: 'vertical' }} />
-                  </div>
-
-                  {/* ── Clasificación principal ─────────────────────────────────── */}
-                  <div style={{ borderLeft: '3px solid #2d6a4f', paddingLeft: 10, marginBottom: 8, marginTop: 4 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text2)' }}>Clasificación principal</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
-                    {[0, 1, 2].map((idx, i) => {
-                      const s = SECCIONES_CLASIFICACION[idx]
-                      return (
-                        <div key={s.tipo === 'complejos' ? 'complejos' : s.campo} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ padding: '6px 10px', background: 'var(--bg2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                            <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#1e293b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{i + 1}</span>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: s.color }}>{s.label}</span>
-                          </div>
-                          <div style={{ padding: 10, flex: 1 }}>
-                            {s.tipo === 'complejos' ? (
-                              <ComplexSelector estructura_anatomica={form.estructura_anatomica} onChange={({ estructura_anatomica, complejo_articular }) => setForm(f => ({ ...f, estructura_anatomica, complejo_articular }))} />
-                            ) : s.tipo === 'patron' ? (
-                              <PatronSelector value={form.patron_movimiento} onChange={v => fd('patron_movimiento', v)} complejosSeleccionados={form.complejo_articular} estructurasSeleccionadas={form.estructura_anatomica} />
-                            ) : (
-                              <TagSelector seccion={s} value={form[s.campo]} onChange={v => fd(s.campo, v)} listMode />
-                            )}
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-
-                  {/* ── Características del ejercicio ──────────────────────────────── */}
-                  <div style={{ borderLeft: '3px solid #64748b', paddingLeft: 10, marginBottom: 8 }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text2)' }}>Características del ejercicio</span>
-                  </div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8 }}>
-                    {SECCIONES_CLASIFICACION.slice(3).map((s, i) => (
-                      <div key={s.campo} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
-                        <div style={{ padding: '6px 10px', background: 'var(--bg2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <span style={{ width: 16, height: 16, borderRadius: '50%', background: '#64748b', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, color: '#fff', flexShrink: 0 }}>{4 + i}</span>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: s.color }}>{s.label}</span>
-                        </div>
-                        <div style={{ padding: 10, flex: 1 }}>
-                          <TagSelector seccion={s} value={form[s.campo]} onChange={v => fd(s.campo, v)} listMode />
-                        </div>
-                      </div>
-                    ))}
+                    <textarea className="form-input" value={form.descripcion} onChange={e => fd('descripcion', e.target.value)} placeholder="Explicación del ejercicio..." rows={8} style={{ resize: 'vertical' }} />
                   </div>
                 </div>
 
-                {/* Columna derecha: media + notas + resumen */}
+                {/* Columna derecha: media + notas */}
                 <div style={{ width: 264, flexShrink: 0, borderLeft: '1px solid var(--border)', background: 'var(--bg2)', overflowY: 'auto', padding: '14px 14px', display: 'flex', flexDirection: 'column', gap: 0 }}>
 
                   {/* ── Vista previa de media — siempre visible ── */}
@@ -1410,41 +651,6 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                   <div style={{ marginBottom: 12 }}>
                     <div className="form-label" style={{ marginBottom: 4 }}>Notas internas</div>
                     <textarea className="form-input" value={form.notas} onChange={e => fd('notas', e.target.value)} placeholder="Apuntes, cuidados, variantes..." rows={3} style={{ resize: 'vertical', fontSize: 12 }} />
-                  </div>
-
-                  {/* Resumen de etiquetas */}
-                  <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 8 }}>Resumen</div>
-                    {(() => {
-                      const labelFromId = id => id.split(':').pop().replace(/_/g, ' ')
-                      const secciones = [
-                        { label: 'Complejo', color: SECCIONES_CLASIFICACION[0].color, vals: form.complejo_articular || [] },
-                        { label: 'Estructura', color: SECCIONES_CLASIFICACION[0].color, vals: form.estructura_anatomica || [] },
-                        ...SECCIONES_CLASIFICACION.slice(1).map(s => ({
-                          label: s.label, color: s.color,
-                          vals: form[s.campo] || [],
-                          labelFn: s.labelFn || labelFromId,
-                        })),
-                      ]
-                      const conValores = secciones.filter(s => s.vals.length > 0)
-                      if (!conValores.length) return <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>Sin etiquetas seleccionadas</div>
-                      return (
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
-                          {conValores.map(s => (
-                            <div key={s.label}>
-                              <div style={{ fontSize: 9.5, fontWeight: 600, color: s.color, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>{s.label}</div>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3 }}>
-                                {s.vals.map(v => (
-                                  <span key={v} style={{ fontSize: 10.5, padding: '2px 7px', borderRadius: 12, background: s.color + '18', color: s.color, border: `1px solid ${s.color}33`, fontWeight: 500 }}>
-                                    {(s.labelFn || labelFromId)(v)}
-                                  </span>
-                                ))}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )
-                    })()}
                   </div>
                 </div>
               </div>
