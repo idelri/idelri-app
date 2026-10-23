@@ -10,7 +10,6 @@ import Sesiones from './pages/Sesiones'
 import Biblioteca from './pages/Biblioteca'
 import Agenda from './pages/Agenda'
 import SesionPublica from './pages/SesionPublica'
-import CheckinPortal from './pages/CheckinPortal'
 import Login from './pages/Login'
 import PackPublico from './pages/PackPublico'
 import ClientePortal from './pages/ClientePortal'
@@ -41,7 +40,6 @@ export default function App() {
   const [publicPackToken, setPublicPackToken] = useState(null)
   const [publicClienteToken, setPublicClienteToken] = useState(null)
   const [publicCuestionarioToken, setPublicCuestionarioToken] = useState(null)
-  const [publicCheckinPortalToken, setPublicCheckinPortalToken] = useState(null)
   const [stravaCallbackParams, setStravaCallbackParams] = useState(null)
   useEffect(() => {
     const path = window.location.pathname
@@ -55,10 +53,10 @@ export default function App() {
       setAuthLoading(false)
       return
     }
-    const matchCheckinPortal = path.match(/^\/checkin-portal\/(.+)$/)
+    // El check-in semanal ya no existe: los enlaces antiguos llevan al portal.
+    const matchCheckinPortal = path.match(/^\/checkin-portal\/([^/?]+)/)
     if (matchCheckinPortal) {
-      setPublicCheckinPortalToken(matchCheckinPortal[1])
-      setAuthLoading(false)
+      window.location.replace(`/cliente/${matchCheckinPortal[1]}`)
       return
     }
     const matchPack = path.match(/^\/pack\/([a-f0-9-]+)$/)
@@ -108,7 +106,6 @@ export default function App() {
   if (window.location.pathname.startsWith('/restablecer-contrasena')) return <RestablecerContrasena />
   if (stravaCallbackParams) return <StravaCallback params={stravaCallbackParams} />
  if (publicSesionToken) return <SesionPublica token={publicSesionToken} />
-   if (publicCheckinPortalToken) return <CheckinPortal />
   if (publicPackToken) return <PackPublico token={publicPackToken} />
   if (publicClienteToken) return <ClientePortal token={publicClienteToken} />
   if (publicCuestionarioToken) return <CuestionarioInicial token={publicCuestionarioToken} />

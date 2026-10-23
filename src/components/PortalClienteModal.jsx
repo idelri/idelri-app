@@ -1,18 +1,24 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 
-const DEFAULT_CONFIG = {
-  mostrar_semana: true,
-  mostrar_calendario: true,
-  mostrar_plan: true,
-}
+// Apartados visibles del portal y lo que el cliente puede hacer en él.
+// Una clave que no existe vale true (así los clientes antiguos no cambian).
+const VISTAS = [
+  { key: 'mostrar_semana',     label: 'Esta semana' },
+  { key: 'mostrar_calendario', label: 'Calendario' },
+  { key: 'mostrar_plan',       label: 'Mi plan' },
+]
+const PERMISOS = [
+  { key: 'registrar_manual', label: 'Registrar sesiones manuales', ayuda: 'El cliente puede añadir sesiones que hace por su cuenta.' },
+  { key: 'feedback',         label: 'Feedback de las sesiones',    ayuda: 'El cliente puede marcar sesiones como hechas y contarte cómo le fueron.' },
+  { key: 'strava',           label: 'Conectar Strava',             ayuda: 'El cliente ve la opción de conectar su cuenta de Strava.' },
+]
+const CLAVES = [...VISTAS, ...PERMISOS].map(o => o.key)
 
 function normalizar(config) {
-  return {
-    mostrar_semana:    config?.mostrar_semana    ?? true,
-    mostrar_calendario: config?.mostrar_calendario ?? true,
-    mostrar_plan:      config?.mostrar_plan       ?? true,
-  }
+  const out = {}
+  CLAVES.forEach(k => { out[k] = config?.[k] ?? true })
+  return out
 }
 
 export default function PortalClienteModal({ cliente, abierto, onCerrar, onGuardado }) {
@@ -23,11 +29,7 @@ export default function PortalClienteModal({ cliente, abierto, onCerrar, onGuard
   if (!abierto || !cliente) return null
 
   const url = `${window.location.origin}/cliente/${cliente.token_cliente}`
-  const activos = Object.values(config).filter(Boolean).length
-  const sinCambios =
-    config.mostrar_semana    === normalizar(cliente.portal_config).mostrar_semana &&
-    config.mostrar_calendario === normalizar(cliente.portal_config).mostrar_calendario &&
-    config.mostrar_plan      === normalizar(cliente.portal_config).mostrar_plan
+  const activos = VISTAS.filter(o => config[o.key]).length
 
   function toggle(key) {
     setConfig(prev => ({ ...prev, [key]: !prev[key] }))
@@ -40,13 +42,14 @@ export default function PortalClienteModal({ cliente, abierto, onCerrar, onGuard
       return false
     }
     setGuardando(true)
-    const { error } = await supabase.from('clientes').update({ portal_config: config }).eq('id', cliente.id)
+    const nuevo = { ...(cliente.portal_config || {}), ...config }
+    const { error } = await supabase.from('clientes').update({ portal_config: nuevo }).eq('id', cliente.id)
     setGuardando(false)
     if (error) {
       setMensaje('Error al guardar. Inténtalo de nuevo.')
       return false
     }
-    if (onGuardado) onGuardado(config)
+    if (onGuardado) onGuardado(nuevo)
     return true
   }
 
@@ -69,12 +72,6 @@ export default function PortalClienteModal({ cliente, abierto, onCerrar, onGuard
     }
   }
 
-  const opciones = [
-    { key: 'mostrar_semana',     label: 'Esta semana' },
-    { key: 'mostrar_calendario', label: 'Calendario' },
-    { key: 'mostrar_plan',       label: 'Mi plan' },
-  ]
-
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
       onClick={e => { if (e.target === e.currentTarget) onCerrar() }}>
@@ -85,11 +82,26 @@ export default function PortalClienteModal({ cliente, abierto, onCerrar, onGuard
         <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text3)', margin: '0 0 10px' }}>Contenido visible</p>
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
-          {opciones.map(({ key, label }) => (
+          {VISTAS.map(({ key, label }) => (
             <label key={key} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', fontSize: 14 }}>
               <input type="checkbox" checked={config[key]} onChange={() => toggle(key)}
                 style={{ width: 16, height: 16, accentColor: 'var(--accent)', cursor: 'pointer' }} />
               {label}
+            </label>
+          ))}
+        </div>
+
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text3)', margin: '0 0 10px' }}>El cliente puede</p>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+          {PERMISOS.map(({ key, label, ayuda }) => (
+            <label key={key} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', fontSize: 14 }}>
+              <input type="checkbox" checked={config[key]} onChange={() => toggle(key)}
+                style={{ width: 16, height: 16, marginTop: 2, accentColor: 'var(--accent)', cursor: 'pointer', flexShrink: 0 }} />
+              <span>
+                {label}
+                <span style={{ display: 'block', fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>{ayuda}</span>
+              </span>
             </label>
           ))}
         </div>

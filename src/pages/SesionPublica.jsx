@@ -263,6 +263,9 @@ export default function SesionPublica({ token }) {
   const [guardandoSesion, setGuardandoSesion] = useState(false)
   const [sesionFijaGuardada, setSesionFijaGuardada] = useState(false)
   const [clonToken, setClonToken] = useState(null)
+  // Si la entrenadora ha desactivado el feedback para este cliente, la sesión
+  // es solo de lectura: sin series para marcar, sin "hecha" y sin cuestionario.
+  const [interactiva, setInteractiva] = useState(true)
   const [comentarioVisto, setComentarioVisto] = useState(false)
   const [videoActivo, setVideoActivo] = useState({})
 
@@ -277,7 +280,7 @@ export default function SesionPublica({ token }) {
   }, [])
 
   async function cargar() {
-    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr] = await Promise.all([
+    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr] = await Promise.all([
       supabase.rpc('get_sesion_por_token',              { p_token: token }).then(r => r.data),
       supabase.rpc('get_fases_por_token_sesion',        { p_token: token }).then(r => r.data),
       supabase.rpc('get_grupos_fases_por_token_sesion', { p_token: token }).then(r => r.data),
@@ -286,10 +289,12 @@ export default function SesionPublica({ token }) {
       supabase.rpc('get_ejercicios_por_token_sesion',   { p_token: token }).then(r => r.data),
       supabase.rpc('get_feedback_por_token_sesion',     { p_token: token }).then(r => r.data),
       supabase.rpc('get_clon_pendiente_feedback_por_token_original', { p_token: token }).then(r => r.data),
+      supabase.rpc('get_permisos_por_token_sesion',     { p_token: token }).then(r => r.data),
     ])
     const s = sesArr?.[0] ?? null
     if (!s) { setError(true); setLoading(false); return }
     setSesion(s)
+    setInteractiva(permArr?.[0]?.feedback !== false)
     setComentarioVisto(!!s?.comentario_visto_at)
     setCliente(cliArr?.[0] ?? null)
     // Scroll automático al comentario si viene con el ancla #comentario
@@ -687,7 +692,7 @@ export default function SesionPublica({ token }) {
                     {/* Prescripción en una fila (como en el editor) */}
                     <FilaPrescripcion e={e} metodo={b.metodo} />
                     {/* Series — parte inferior separada */}
-                    {parseInt(e.series) > 0 && (
+                    {interactiva && parseInt(e.series) > 0 && (
                       <div style={{ marginTop: 'auto', paddingTop: 6, marginTop: 6, borderTop: `0.5px solid ${T.line}`, display: 'flex', flexDirection: 'column', gap: 5 }}>
                         {!locked && (
                           <button onClick={() => marcarEjercicio(e.id, prog.series.length)}
@@ -819,7 +824,7 @@ export default function SesionPublica({ token }) {
                             <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1, lineHeight: 1.2, color: T.ink, minWidth: 0 }}>{e.nombre}</span>
                           </div>
                           <FilaPrescripcion e={e} metodo={b.metodo} size={12} />
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {interactiva && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                             {prog2.series.map((hecha, sIdx) => (
                               <div key={sIdx}
                                 onClick={locked ? undefined : () => toggleSerie(e.id, sIdx)}
@@ -827,7 +832,7 @@ export default function SesionPublica({ token }) {
                                 {hecha ? '✓' : sIdx + 1}
                               </div>
                             ))}
-                          </div>
+                          </div>}
                           {(esVideo2 || yid2 || esImg2) && (
                             <div style={{ borderRadius: 8, overflow: 'hidden', aspectRatio: '9/16', position: 'relative', maxHeight: 190 }}>
                               {esVideo2 ? (
@@ -866,7 +871,7 @@ export default function SesionPublica({ token }) {
                 )}
 
                 {/* Block footer */}
-                <div style={{ padding: '9px 14px', borderTop: `0.5px solid ${T.line}`, background: `${bc}06`, display: 'flex', justifyContent: 'flex-end' }}>
+                {interactiva && <div style={{ padding: '9px 14px', borderTop: `0.5px solid ${T.line}`, background: `${bc}06`, display: 'flex', justifyContent: 'flex-end' }}>
                   {sesionFlexibleGuardada || sesionFijaGuardada || clonToken ? (
                     <span style={{ fontSize: 11.5, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: '1.5px solid #16a34a', background: '#f0fdf4', color: '#16a34a' }}>✓ Bloque hecho</span>
                   ) : (
@@ -875,14 +880,14 @@ export default function SesionPublica({ token }) {
                       {bloqueHecho ? '✓ Bloque hecho' : '✓ Todo el bloque'}
                     </button>
                   )}
-                </div>
+                </div>}
               </div>
             </section>
           )
         })}
 
         {/* MARCAR SESIÓN COMPLETA — botón pequeño al final */}
-        {!sesionFlexibleGuardada && !sesionFijaGuardada && !feedbackEnviado && !clonToken && (() => {
+        {interactiva && !sesionFlexibleGuardada && !sesionFijaGuardada && !feedbackEnviado && !clonToken && (() => {
           const todaMarcada = Object.keys(progreso).length > 0 && Object.values(progreso).every(p => p.hecho)
           return (
             <div style={{ marginTop: 20 }}>
@@ -895,7 +900,7 @@ export default function SesionPublica({ token }) {
         })()}
 
         {/* FEEDBACK POST-SESIÓN (incluye el guardado de la sesión) */}
-        {sesion.con_feedback !== false && <div style={{ marginTop: 24 }}>
+        {interactiva && sesion.con_feedback !== false && <div style={{ marginTop: 24 }}>
           {sesionFlexibleGuardada && (
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 16, padding: '18px 16px', textAlign: 'center', marginBottom: 16 }}>
               <div style={{ fontSize: 28, marginBottom: 8 }}>✅</div>
@@ -988,7 +993,7 @@ export default function SesionPublica({ token }) {
         </div>}
 
         {/* SESIONES SIN CUESTIONARIO: botón de guardar independiente */}
-        {sesion.con_feedback === false && !sesionFijaGuardada && !sesionFlexibleGuardada && (
+        {interactiva && sesion.con_feedback === false && !sesionFijaGuardada && !sesionFlexibleGuardada && (
           <div style={{ marginTop: 24 }}>
             <button
               onClick={async () => {
