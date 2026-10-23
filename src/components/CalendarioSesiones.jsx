@@ -133,16 +133,14 @@ export default function CalendarioSesiones({
   async function cargarContenidoTooltip(sesion) {
     const cache = tooltipCache.current
     if (cache.has(sesion.id)) return cache.get(sesion.id)
-    let contenido
-    if (sesion.tipo_editor === 'carrera') {
-      const [{ data: fases }, { data: grupos }] = await Promise.all([
-        supabase.from('sesion_fases').select('nombre, descripcion, orden, grupo_id').eq('sesion_id', sesion.id).order('orden'),
-        supabase.from('sesion_fase_grupos').select('id, repeticiones, orden').eq('sesion_id', sesion.id).order('orden'),
-      ])
-      contenido = { fases: fases || [], grupos: grupos || [], bloques: [] }
-    } else {
-      const { data: bloques } = await supabase.from('sesion_bloques').select('id, nombre, color, sesion_ejercicios(nombre, orden)').eq('sesion_id', sesion.id).order('orden')
-      contenido = { bloques: bloques || [], fases: [] }
+    // Bloques con sus ejercicios; en los de resistencia, sus fases
+    const [{ data: bloques }, { data: fases }] = await Promise.all([
+      supabase.from('sesion_bloques').select('id, nombre, color, sesion_ejercicios(nombre, orden)').eq('sesion_id', sesion.id).order('orden'),
+      supabase.from('sesion_fases').select('nombre, orden, bloque_id').eq('sesion_id', sesion.id).order('orden'),
+    ])
+    const contenido = {
+      bloques: (bloques || []).map(b => ({ ...b, fasesNombres: (fases || []).filter(f => f.bloque_id === b.id).map(f => f.nombre).filter(Boolean) })),
+      fases: [],
     }
     cache.set(sesion.id, contenido)
     return contenido
@@ -640,6 +638,9 @@ export default function CalendarioSesiones({
                 </div>
                 {(b.sesion_ejercicios || []).sort((a,z) => a.orden - z.orden).map((e, i) => (
                   <div key={i} style={{ fontSize: 10.5, color: 'var(--text2)', paddingLeft: 13, lineHeight: 1.6 }}>· {e.nombre || '—'}</div>
+                ))}
+                {(b.fasesNombres || []).map((n, i) => (
+                  <div key={'f' + i} style={{ fontSize: 10.5, color: 'var(--text2)', paddingLeft: 13, lineHeight: 1.6 }}>▸ {n}</div>
                 ))}
               </div>
             ))

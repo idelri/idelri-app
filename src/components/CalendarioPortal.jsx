@@ -71,7 +71,7 @@ function DetalleSesion({ T, detalle }) {
   if (detalle.error) {
     return <div style={{ fontSize: 11.5, color: T.ink3, padding: '6px 0' }}>No se han podido cargar los ejercicios.</div>
   }
-  const { bloques, ejercicios } = detalle
+  const { bloques, ejercicios, fases = [] } = detalle
   if (bloques.length === 0) {
     return <div style={{ fontSize: 11.5, color: T.ink3, padding: '6px 0' }}>Abre la sesión para ver el detalle.</div>
   }
@@ -79,6 +79,7 @@ function DetalleSesion({ T, detalle }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {bloques.map(b => {
         const ejs = ejercicios.filter(e => e.bloque_id === b.id)
+        const fs = fases.filter(x => x.bloque_id === b.id)
         const color = b.color || T.green
         const vueltas = b.vueltas > 1 ? ` · ${b.vueltas} vueltas` : ''
         return (
@@ -86,7 +87,13 @@ function DetalleSesion({ T, detalle }) {
             <div style={{ fontSize: 10.5, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '.3px' }}>
               {b.nombre || 'Bloque'}<span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: T.ink3 }}>{vueltas}</span>
             </div>
-            {ejs.length === 0 && b.nota && (
+            {fs.map(x => (
+              <div key={x.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
+                <span style={{ flex: 1, minWidth: 0, color: T.ink }}>▸ {x.nombre || 'Fase'}</span>
+                {(x.volumen_min || x.volumen_km) && <span style={{ fontFamily: T.mono, fontSize: 10.5, color: T.ink3, whiteSpace: 'nowrap' }}>{x.volumen_min ? `${x.volumen_min} min` : `${x.volumen_km} km`}</span>}
+              </div>
+            ))}
+            {ejs.length === 0 && fs.length === 0 && b.nota && (
               <div style={{ fontSize: 11.5, color: T.ink2, marginTop: 2, lineHeight: 1.35 }}>{b.nota}</div>
             )}
             {ejs.map(e => {
@@ -124,7 +131,8 @@ export default function CalendarioPortal({
     Promise.all([
       supabase.rpc('get_bloques_por_token_sesion', { p_token: token }),
       supabase.rpc('get_ejercicios_por_token_sesion', { p_token: token }),
-    ]).then(([b, e]) => {
+      supabase.rpc('get_fases_bloque_por_token_sesion', { p_token: token }),
+    ]).then(([b, e, f]) => {
       if (b.error || e.error) {
         pedidos.current.delete(token)
         setDetalles(d => ({ ...d, [token]: { error: true } }))
@@ -132,7 +140,8 @@ export default function CalendarioPortal({
       }
       const bls = (b.data || []).slice().sort((x, y) => (x.orden ?? 0) - (y.orden ?? 0))
       const ejs = (e.data || []).slice().sort((x, y) => (x.orden ?? 0) - (y.orden ?? 0))
-      setDetalles(d => ({ ...d, [token]: { bloques: bls, ejercicios: ejs } }))
+      const fases = (f.data || []).slice().sort((x, y) => (x.orden ?? 0) - (y.orden ?? 0))
+      setDetalles(d => ({ ...d, [token]: { bloques: bls, ejercicios: ejs, fases } }))
     })
   }
 

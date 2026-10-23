@@ -250,7 +250,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
 
   const [controlesCal, setControlesCal] = useState([])
   const [fases, setFases] = useState([])
-  const [carritoItems, setCarritoItems] = useState([]) // lista combinada fases sueltas + grupos para editor carrera
+  const [carritos, setCarritos] = useState({}) // bloqueId → lista combinada fases sueltas + grupos (bloques de resistencia)
   const [draggingCarrito, setDraggingCarrito] = useState(null) // { idx, grupoId?, innerIdx? }
   const [ctxCarrito, setCtxCarrito] = useState(null) // { x, y, item, grupoId?, innerIdx? }
   const [clipboardBloque, setClipboardBloque] = useState(() => {
@@ -302,20 +302,9 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   async function pegarDesdePortapapeles() {
     if (!clipboardBloque || !sesionAbierta) return
     const { tipo, payload } = clipboardBloque
-    if (tipo === 'bloque_carrera') {
-      const orden = nextCarritoOrden(carritoItems)
-      const { data } = await supabase.from('sesion_fases').insert({ ...payload.fase, sesion_id: sesionAbierta.id, orden, grupo_id: null }).select().single()
-      if (data) { setCarritoItems(ci => [...ci, { type: 'fase', ...data }]); setDirty(true) }
-    } else if (tipo === 'grupo_carrera') {
-      const orden = nextCarritoOrden(carritoItems)
-      const { data: grp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, repeticiones: payload.grupo.repeticiones, orden }).select().single()
-      if (!grp) return
-      const fases = []
-      for (let i = 0; i < payload.fases.length; i++) {
-        const { data: f } = await supabase.from('sesion_fases').insert({ ...payload.fases[i], sesion_id: sesionAbierta.id, orden: i, grupo_id: grp.id }).select().single()
-        if (f) fases.push(f)
-      }
-      setCarritoItems(ci => [...ci, { type: 'grupo', ...grp, fases }]); setDirty(true)
+    if (tipo === 'bloque_carrera' || tipo === 'grupo_carrera') {
+      alert('Para pegar fases, usa el botón «Pegar» dentro de un bloque de resistencia.')
+      return
     } else if (tipo === 'bloque_fuerza') {
       const orden = bloques.length
       const { data: nb } = await supabase.from('sesion_bloques').insert({ ...payload.bloque, sesion_id: sesionAbierta.id, orden }).select().single()
@@ -473,18 +462,24 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
       supabase.from('sesion_fases').select('*').eq('sesion_id', sesionId).order('orden'),
       supabase.from('sesion_fase_grupos').select('*').eq('sesion_id', sesionId).order('orden'),
     ])
+    // Fases sin bloque (formato antiguo "sesión de carrera"): se pasan a un
+    // bloque de resistencia y se vuelve a cargar.
+    if ((fs || []).some(f => !f.bloque_id) || (grps || []).some(g => !g.bloque_id)) {
+      if (await convertirFasesSueltas(sesionId, bls || [])) return cargarDetalle(sesionId)
+    }
     setBloques(bls || [])
     setFases(fs || [])
-    // Construir lista combinada para editor carrera
+    // Lista combinada (fases sueltas + grupos) de cada bloque de resistencia
     const gruposMap = {}
     ;(grps || []).forEach(g => { gruposMap[g.id] = { type: 'grupo', ...g, fases: [] } })
-    const fasesLibres = []
+    const porBloque = {}
     ;(fs || []).forEach(f => {
       if (f.grupo_id && gruposMap[f.grupo_id]) gruposMap[f.grupo_id].fases.push(f)
-      else fasesLibres.push({ type: 'fase', ...f })
+      else (porBloque[f.bloque_id] = porBloque[f.bloque_id] || []).push({ type: 'fase', ...f })
     })
-    const combined = [...fasesLibres, ...Object.values(gruposMap)].sort((a, b) => a.orden - b.orden)
-    setCarritoItems(combined)
+    Object.values(gruposMap).forEach(g => { (porBloque[g.bloque_id] = porBloque[g.bloque_id] || []).push(g) })
+    Object.keys(porBloque).forEach(k => porBloque[k].sort((a, b) => a.orden - b.orden))
+    setCarritos(porBloque)
     if (bls && bls.length > 0) {
       const { data: ejs } = await supabase.from('sesion_ejercicios').select('*').in('bloque_id', bls.map(b => b.id)).order('orden')
       const map = {}
@@ -495,24 +490,57 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     }
   }
 
-  // ── Carrito helpers ──────────────────────────────────────────────────
+  async function convertirFasesSueltas(sesionId, bls) {
+    const ses = sesiones.find(x => x.id === sesionId) || (sesionAbierta?.id === sesionId ? sesionAbierta : null)
+    const esCarrera = ses?.tipo_editor === 'carrera'
+    if (esCarrera) {
+      const sinMarcar = bls.filter(b => !b.biblioteca).map(b => b.id)
+      if (sinMarcar.length) await supabase.from('sesion_bloques').update({ biblioteca: 'fuerza' }).in('id', sinMarcar)
+      if (ses.biblioteca !== 'resistencia') {
+        await supabase.from('sesiones').update({ biblioteca: 'resistencia' }).eq('id', sesionId)
+        setSesiones(ss => ss.map(x => x.id === sesionId ? { ...x, biblioteca: 'resistencia' } : x))
+        setSesionAbierta(sa => sa && sa.id === sesionId ? { ...sa, biblioteca: 'resistencia' } : sa)
+      }
+    }
+    let destino = bls.find(b => b.biblioteca === 'resistencia')
+    if (!destino) {
+      await Promise.all(bls.map(b => supabase.from('sesion_bloques').update({ orden: (b.orden ?? 0) + 1 }).eq('id', b.id)))
+      const { data: nb, error } = await supabase.from('sesion_bloques').insert({
+        sesion_id: sesionId, nombre: 'Resistencia', color: '#4C82E8', nota: '', orden: 0, metodo: 'individual', biblioteca: 'resistencia',
+      }).select().single()
+      if (error || !nb) return false
+      destino = nb
+    }
+    await Promise.all([
+      supabase.from('sesion_fases').update({ bloque_id: destino.id }).eq('sesion_id', sesionId).is('bloque_id', null),
+      supabase.from('sesion_fase_grupos').update({ bloque_id: destino.id }).eq('sesion_id', sesionId).is('bloque_id', null),
+    ])
+    return true
+  }
+
+  // ── Bloques de resistencia (fases + grupos de repetición) ─────────────
+  // crearOpsCarrito(bloqueId) devuelve la lista y las operaciones del bloque.
   function nextCarritoOrden(ci) {
     return ci.reduce((m, it) => Math.max(m, it.orden ?? 0), -1) + 1
   }
 
+  function crearOpsCarrito(bloqueId) {
+  const carritoItems = carritos[bloqueId] || []
+  const setCarritoItems = fn => setCarritos(c => ({ ...c, [bloqueId]: typeof fn === 'function' ? fn(c[bloqueId] || []) : fn }))
+
   async function añadirBloqueSuelto() {
     const orden = nextCarritoOrden(carritoItems)
-    const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, nombre: '', orden, grupo_id: null }).select().single()
+    const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden, grupo_id: null }).select().single()
     if (data) setCarritoItems(ci => [...ci, { type: 'fase', ...data }])
     setDirty(true)
   }
 
   async function añadirGrupoCarrera() {
     const orden = nextCarritoOrden(carritoItems)
-    const { data: grp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, repeticiones: 3, orden }).select().single()
+    const { data: grp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, repeticiones: 3, orden }).select().single()
     if (!grp) return
-    const { data: f1 } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, nombre: '', orden: 0, grupo_id: grp.id }).select().single()
-    const { data: f2 } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, nombre: '', orden: 1, grupo_id: grp.id }).select().single()
+    const { data: f1 } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden: 0, grupo_id: grp.id }).select().single()
+    const { data: f2 } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden: 1, grupo_id: grp.id }).select().single()
     setCarritoItems(ci => [...ci, { type: 'grupo', ...grp, fases: [f1, f2].filter(Boolean) }])
     setDirty(true)
   }
@@ -550,7 +578,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   async function añadirFaseAGrupoCarrito(grupoId) {
     const grp = carritoItems.find(it => it.id === grupoId)
     if (!grp) return
-    const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, nombre: '', orden: grp.fases.length, grupo_id: grupoId }).select().single()
+    const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden: grp.fases.length, grupo_id: grupoId }).select().single()
     if (data) setCarritoItems(ci => ci.map(it => it.id === grupoId ? { ...it, fases: [...it.fases, data] } : it))
     setDirty(true)
   }
@@ -567,7 +595,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
       if (!grp) return
       const src = grp.fases.find(f => f.id === id)
       if (!src) return
-      const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, nombre: src.nombre, descripcion: src.descripcion, volumen_min: src.volumen_min, volumen_km: src.volumen_km, fc_zona: src.fc_zona, ritmo_inicio: src.ritmo_inicio, ritmo_fin: src.ritmo_fin, rpe: src.rpe, orden: grp.fases.length, grupo_id: grupoId }).select().single()
+      const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: src.nombre, descripcion: src.descripcion, volumen_min: src.volumen_min, volumen_km: src.volumen_km, fc_zona: src.fc_zona, ritmo_inicio: src.ritmo_inicio, ritmo_fin: src.ritmo_fin, rpe: src.rpe, orden: grp.fases.length, grupo_id: grupoId }).select().single()
       if (data) setCarritoItems(ci => ci.map(it => {
         if (it.id !== grupoId) return it
         const idx = it.fases.findIndex(f => f.id === id)
@@ -577,7 +605,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     } else {
       const src = carritoItems.find(it => it.id === id)
       if (!src) return
-      const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, nombre: src.nombre, descripcion: src.descripcion, volumen_min: src.volumen_min, volumen_km: src.volumen_km, fc_zona: src.fc_zona, ritmo_inicio: src.ritmo_inicio, ritmo_fin: src.ritmo_fin, rpe: src.rpe, orden: nextCarritoOrden(carritoItems), grupo_id: null }).select().single()
+      const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: src.nombre, descripcion: src.descripcion, volumen_min: src.volumen_min, volumen_km: src.volumen_km, fc_zona: src.fc_zona, ritmo_inicio: src.ritmo_inicio, ritmo_fin: src.ritmo_fin, rpe: src.rpe, orden: nextCarritoOrden(carritoItems), grupo_id: null }).select().single()
       if (data) setCarritoItems(ci => { const idx = ci.findIndex(it => it.id === id); const n = [...ci]; n.splice(idx + 1, 0, { type: 'fase', ...data }); return n })
     }
     setDirty(true)
@@ -586,11 +614,11 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   async function duplicarGrupoCarrito(grupoId) {
     const src = carritoItems.find(it => it.id === grupoId)
     if (!src) return
-    const { data: newGrp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, repeticiones: src.repeticiones, orden: nextCarritoOrden(carritoItems) }).select().single()
+    const { data: newGrp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, repeticiones: src.repeticiones, orden: nextCarritoOrden(carritoItems) }).select().single()
     if (!newGrp) return
     const newFases = []
     for (const f of src.fases) {
-      const { data: nf } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, nombre: f.nombre, descripcion: f.descripcion, volumen_min: f.volumen_min, volumen_km: f.volumen_km, fc_zona: f.fc_zona, ritmo_inicio: f.ritmo_inicio, ritmo_fin: f.ritmo_fin, rpe: f.rpe, orden: f.orden, grupo_id: newGrp.id }).select().single()
+      const { data: nf } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: f.nombre, descripcion: f.descripcion, volumen_min: f.volumen_min, volumen_km: f.volumen_km, fc_zona: f.fc_zona, ritmo_inicio: f.ritmo_inicio, ritmo_fin: f.ritmo_fin, rpe: f.rpe, orden: f.orden, grupo_id: newGrp.id }).select().single()
       if (nf) newFases.push(nf)
     }
     setCarritoItems(ci => { const idx = ci.findIndex(it => it.id === grupoId); const n = [...ci]; n.splice(idx + 1, 0, { type: 'grupo', ...newGrp, fases: newFases }); return n })
@@ -620,15 +648,36 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     setDirty(true)
   }
 
-  // legacy (kept for compatibility with old sessions that call actualizarFase directly)
-  async function añadirFase() {
-    await añadirBloqueSuelto()
+  async function pegarCarrera() {
+    if (!clipboardBloque || !sesionAbierta) return false
+    const { tipo, payload } = clipboardBloque
+    if (tipo === 'bloque_carrera') {
+      const orden = nextCarritoOrden(carritoItems)
+      const { data } = await supabase.from('sesion_fases').insert({ ...payload.fase, sesion_id: sesionAbierta.id, bloque_id: bloqueId, orden, grupo_id: null }).select().single()
+      if (data) { setCarritoItems(ci => [...ci, { type: 'fase', ...data }]); setDirty(true) }
+      return true
+    }
+    if (tipo === 'grupo_carrera') {
+      const orden = nextCarritoOrden(carritoItems)
+      const { data: grp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, repeticiones: payload.grupo.repeticiones, orden }).select().single()
+      if (!grp) return true
+      const fases = []
+      for (let i = 0; i < payload.fases.length; i++) {
+        const { data: f } = await supabase.from('sesion_fases').insert({ ...payload.fases[i], sesion_id: sesionAbierta.id, bloque_id: bloqueId, orden: i, grupo_id: grp.id }).select().single()
+        if (f) fases.push(f)
+      }
+      setCarritoItems(ci => [...ci, { type: 'grupo', ...grp, fases }]); setDirty(true)
+      return true
+    }
+    return false
   }
-  async function actualizarFase(id, campo, valor) {
-    await actualizarBloqueCarrito(id, campo, valor, null)
+
+  return {
+    carritoItems, añadirBloqueSuelto, añadirGrupoCarrera, eliminarBloqueCarrito, eliminarGrupoCarrito,
+    actualizarBloqueCarrito, cambiarRepeticionesGrupo, añadirFaseAGrupoCarrito, eliminarFaseDeGrupoCarrito,
+    duplicarBloqueCarrito, duplicarGrupoCarrito, reordenarCarrito, reordenarFasesEnGrupo,
+    pegarDesdePortapapeles: async () => { if (!(await pegarCarrera())) await pegarDesdePortapapeles() },
   }
-  async function eliminarFase(id) {
-    await eliminarBloqueCarrito(id)
   }
 
   function abrirNuevaSesion() {
@@ -645,21 +694,9 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   async function guardarEnBiblioteca(sesion) {
     if (!sesion) return
     setGuardandoEnBib(true)
-    const { data: nueva } = await supabase.from('sesiones').insert({
-      titulo: sesion.titulo, objetivo: sesion.objetivo, duracion_min: sesion.duracion_min,
-      icono: sesion.icono, tipo_editor: sesion.tipo_editor || 'fuerza',
-      es_plantilla: true, cliente_id: null,
-    }).select().single()
-    if (nueva) {
-      const { data: bls } = await supabase.from('sesion_bloques').select('*').eq('sesion_id', sesion.id).order('orden')
-      for (const b of bls || []) {
-        const { data: nb } = await supabase.from('sesion_bloques').insert({ sesion_id: nueva.id, nombre: b.nombre, color: b.color, nota: b.nota, orden: b.orden }).select().single()
-        const { data: ejs } = await supabase.from('sesion_ejercicios').select('*').eq('bloque_id', b.id).order('orden')
-        for (const e of ejs || []) {
-          await supabase.from('sesion_ejercicios').insert({ bloque_id: nb.id, nombre: e.nombre, series: e.series, reps: e.reps, rpe: e.rpe, notas: e.notas, media_tipo: e.media_tipo, media_url: e.media_url, video_url: e.video_url, orden: e.orden })
-        }
-      }
-    }
+    // Copia completa (bloques, ejercicios y fases de resistencia) como plantilla
+    const { data: nueva } = await clonarSesion(supabase, sesion.id, { clienteDestino: null, fecha: null })
+    if (nueva) await supabase.from('sesiones').update({ es_plantilla: true }).eq('id', nueva.id)
     setGuardandoEnBib(false)
     alert('✅ Sesión guardada en la biblioteca.')
   }
@@ -723,8 +760,10 @@ async function guardarSesion() {
     setSesionAbierta(s => s ? { ...s, biblioteca: key } : s)
     setSesiones(ss => ss.map(x => x.id === id ? { ...x, biblioteca: key } : x))
     setBloques(bs => bs.map(b => b.sesion_id === id || b.sesion_id == null ? { ...b, biblioteca: null } : b))
+    const tipo_editor = key === 'resistencia' ? 'carrera' : 'fuerza' // lo usa el cuestionario de feedback
+    setSesionAbierta(s => s ? { ...s, tipo_editor } : s)
     await Promise.all([
-      supabase.from('sesiones').update({ biblioteca: key }).eq('id', id),
+      supabase.from('sesiones').update({ biblioteca: key, tipo_editor }).eq('id', id),
       supabase.from('sesion_bloques').update({ biblioteca: null }).eq('sesion_id', id),
     ])
   }
@@ -937,152 +976,14 @@ async function guardarSesion() {
     alert(`Enlace del pack copiado:\n${url}`)
   }
 
-  return (
-    <>
-    <div>
-      <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
-          {sesionAbierta && (
-            <>
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>{sesionAbierta.titulo}</span>
-              {sesionAbierta.fecha && (
-                <span style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
-                  {new Date(sesionAbierta.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
-                </span>
-              )}
-              {sesionAbierta.tipo_sesion && (
-                <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99, background: 'var(--bg2)', border: '1px solid var(--border)', color: 'var(--text2)', whiteSpace: 'nowrap' }}>
-                  {sesionAbierta.tipo_sesion === 'programada' ? 'Programada' : sesionAbierta.tipo_sesion === 'flexible' ? 'Flexible' : 'Opcional'}
-                </span>
-              )}
-              {sesionAbierta.duracion_min && (
-                <span style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{sesionAbierta.duracion_min} min</span>
-              )}
-            </>
-          )}
-        </div>
-        {sesionAbierta && (() => {
-          const btnIcon = { width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', fontSize: 14, color: 'var(--text2)' }
-          return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-              <div title="Biblioteca de ejercicios de la sesión: se aplica a todos los bloques (cada bloque se puede cambiar)"
-                style={{ display: 'flex', alignItems: 'center', background: 'var(--bg2)', borderRadius: 8, padding: 2, gap: 2, marginRight: 4 }}>
-                {BIBLIOTECAS.map(o => {
-                  const activa = (sesionAbierta.biblioteca || 'fuerza') === o.key
-                  return (
-                    <button key={o.key} onClick={() => aplicarBibliotecaSesion(o.key)}
-                      style={{ padding: '4px 9px', fontSize: 11, fontWeight: activa ? 700 : 400, borderRadius: 6, border: 'none', cursor: 'pointer', background: activa ? 'var(--accent)' : 'transparent', color: activa ? '#fff' : 'var(--text3)', whiteSpace: 'nowrap' }}>
-                      {o.icono} {o.label}
-                    </button>
-                  )
-                })}
-              </div>
-              <button title="Biblioteca" style={btnIcon}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={async () => { if (!biblioteca) { const { data } = await supabase.from('ejercicios_biblioteca').select('*').order('nombre'); setBiblioteca(data || []) } if (!panelBiblioteca && bloquesBiblioteca === null) cargarBloquesBiblioteca(); if (!panelBiblioteca) setCarpetaBib(sesionAbierta.biblioteca || 'fuerza'); setPanelBiblioteca(v => !v) }}>
-                📚
-              </button>
-              <button title="Guardar en biblioteca" style={{ ...btnIcon, opacity: guardandoEnBib ? 0.5 : 1 }}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={() => guardarEnBiblioteca(sesionAbierta)} disabled={guardandoEnBib}>
-                {guardandoEnBib ? '⏳' : '🧱'}
-              </button>
-              <button title="Duplicar sesión" style={btnIcon}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={() => { setModalDuplicar(sesionAbierta); setFechaDuplicar(format(new Date(), 'yyyy-MM-dd')) }}>
-                📋
-              </button>
-              <button title="Editar sesión" style={btnIcon}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={() => abrirEditarSesion(sesionAbierta)}>
-                ✎
-              </button>
-              <button title={sesionAbierta.comentario_entrenadora ? 'Editar mensaje' : 'Mensaje al cliente'} style={btnIcon}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={() => { const cli = clientes.find(c => c.id === clienteSeleccionado); setModalComentario({ sesionId: sesionAbierta.id, sesionTitulo: sesionAbierta.titulo, clienteEmail: cli?.email || null, inicial: sesionAbierta.comentario_entrenadora || null }) }}>
-                ✉
-              </button>
-              <button title="Compartir sesión" style={btnIcon}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={() => { if (sesionAbierta.token_publico) { navigator.clipboard.writeText(`${window.location.origin}/sesion/${sesionAbierta.token_publico}`).catch(() => {}) } }}>
-                🔗
-              </button>
-              <button title="Volver" style={btnIcon}
-                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={() => { if (dirty) { setAvisoSinGuardar(true) } else { volverAlCalendario() } }}>
-                ←
-              </button>
-              <button title="Guardar"
-                style={{ padding: '5px 14px', borderRadius: 6, border: 'none', background: guardadoOk ? '#16a34a' : 'var(--accent, #2d6a4f)', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
-                onClick={() => { setDirty(false); setAvisoSinGuardar(false); setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500) }}>
-                {guardadoOk ? '✓ Guardado' : 'Guardar'}
-              </button>
-            </div>
-          )
-        })()}
-        {avisoSinGuardar && (
-          <div style={{ margin: '8px 0 0', padding: '10px 14px', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#713f12' }}>
-            <span>⚠️ Tienes cambios sin guardar. Pulsa <strong>Guardar</strong> para confirmarlos.</span>
-            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: '#713f12' }} onClick={() => { setAvisoSinGuardar(false); volverAlCalendario() }}>Salir sin guardar</button>
-            <button className="btn btn-primary btn-sm" style={{ minWidth: 90, background: guardadoOk ? '#16a34a' : undefined, borderColor: guardadoOk ? '#16a34a' : undefined }} onClick={() => { setDirty(false); setAvisoSinGuardar(false); setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500) }}>{guardadoOk ? '✓ Guardado' : 'Guardar'}</button>
-          </div>
-        )}
-      </div>
-
-
-      {toastCopiado && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', pointerEvents: 'none' }}>
-          📋 Bloque copiado: "{toastCopiado}"
-        </div>
-      )}
-
-      {sesionAbierta && (
-        <div style={{ paddingRight: panelBiblioteca ? 306 : 0, transition: 'padding-right 0.2s' }}>
-
-          {/* ── CAJA 2: Indicaciones + Material ── */}
-          <div style={{ background: 'var(--surface, #fff)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 10, overflow: 'hidden' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
-              <div style={{ padding: '8px 12px', borderRight: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Indicaciones</div>
-                <InlineInput
-                  value={sesionAbierta.indicaciones}
-                  placeholder="Indicaciones generales..."
-                  textarea
-                  fontSize={11}
-                  onSave={async v => { await supabase.from('sesiones').update({ indicaciones: v || null }).eq('id', sesionAbierta.id); setSesionAbierta(s => ({ ...s, indicaciones: v })); setSesiones(ss => ss.map(s => s.id === sesionAbierta.id ? { ...s, indicaciones: v } : s)); setDirty(true) }}
-                />
-              </div>
-              <div style={{ padding: '8px 12px' }}>
-                <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Material necesario</div>
-                <InlineInput
-                  value={sesionAbierta.material}
-                  placeholder="Material necesario..."
-                  textarea
-                  fontSize={11}
-                  onSave={async v => { await supabase.from('sesiones').update({ material: v || null }).eq('id', sesionAbierta.id); setSesionAbierta(s => ({ ...s, material: v })); setSesiones(ss => ss.map(s => s.id === sesionAbierta.id ? { ...s, material: v } : s)); setDirty(true) }}
-                />
-              </div>
-            </div>
-            {(sesionAbierta.objetivo || sesionAbierta.notas_entrenador) && (
-              <div style={{ display: 'grid', gridTemplateColumns: sesionAbierta.objetivo && sesionAbierta.notas_entrenador ? '1fr 1fr' : '1fr', borderTop: '1px solid var(--border)' }}>
-                {sesionAbierta.objetivo && (
-                  <div style={{ padding: '8px 12px', borderRight: sesionAbierta.notas_entrenador ? '1px solid var(--border)' : 'none' }}>
-                    <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Nota al cliente</div>
-                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, fontStyle: 'italic' }}>{sesionAbierta.objetivo}</div>
-                  </div>
-                )}
-                {sesionAbierta.notas_entrenador && (
-                  <div style={{ padding: '8px 12px' }}>
-                    <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Notas internas</div>
-                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, fontStyle: 'italic' }}>{sesionAbierta.notas_entrenador}</div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {/* ── EDITOR CARRERA ── */}
-          {sesionAbierta.tipo_editor === 'carrera' && (() => {
+  // Editor de un bloque de resistencia: fases y grupos de repetición con su
+  // gráfica (el antiguo "editor de carrera", ahora dentro de un bloque).
+  function renderEditorResistencia(bloqueId) {
+    const {
+      carritoItems, añadirBloqueSuelto, añadirGrupoCarrera, eliminarBloqueCarrito, eliminarGrupoCarrito,
+      actualizarBloqueCarrito, cambiarRepeticionesGrupo, añadirFaseAGrupoCarrito, eliminarFaseDeGrupoCarrito,
+      duplicarBloqueCarrito, duplicarGrupoCarrito, reordenarCarrito, reordenarFasesEnGrupo, pegarDesdePortapapeles,
+    } = crearOpsCarrito(bloqueId)
             const FC_COLORS = ['#10b981','#84cc16','#f59e0b','#ef4444','#7c3aed']
             function rpeC(r) { return !r ? 'var(--text3)' : r <= 4 ? '#10b981' : r <= 6 ? '#f59e0b' : '#ef4444' }
 
@@ -1321,7 +1222,7 @@ async function guardarSesion() {
                           title={tooltipLabel}
                           onMouseEnter={e => e.currentTarget.style.opacity = '1'}
                           onMouseLeave={e => e.currentTarget.style.opacity = b.grupoId ? '0.72' : '0.92'}
-                          onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxCarrito({ x: e.clientX, y: e.clientY, item: b, grupoId: b.grupoId }) }} />
+                          onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxCarrito({ x: e.clientX, y: e.clientY, item: b, grupoId: b.grupoId, bloqueId }) }} />
                       )
                     })}
                     {/* Group brackets */}
@@ -1357,8 +1258,8 @@ async function guardarSesion() {
                     const zColor = item.fc_zona ? FC_COLORS[item.fc_zona - 1] : 'var(--border)'
                     return (
                       <div key={item.id} className="card" style={{ padding: 0, overflow: 'hidden', borderLeft: `4px solid ${zColor}`, cursor: 'default' }}
-                        draggable onDragStart={() => setDraggingCarrito({ idx })} onDragEnd={() => setDraggingCarrito(null)}
-                        onDragOver={e => e.preventDefault()} onDrop={() => { if (draggingCarrito && draggingCarrito.idx !== idx) reordenarCarrito(draggingCarrito.idx, idx) }}>
+                        draggable onDragStart={() => setDraggingCarrito({ idx, bloqueId })} onDragEnd={() => setDraggingCarrito(null)}
+                        onDragOver={e => e.preventDefault()} onDrop={() => { if (draggingCarrito && draggingCarrito.bloqueId === bloqueId && draggingCarrito.idx !== idx) reordenarCarrito(draggingCarrito.idx, idx) }}>
                         <div style={{ padding: '10px 14px', background: 'var(--bg2)', display: 'flex', alignItems: 'center', gap: 8 }}>
                           <span style={{ color: 'var(--text3)', cursor: 'grab', fontSize: 14, userSelect: 'none' }}>⠿</span>
                           <div style={{ flex: 1 }}>
@@ -1376,8 +1277,8 @@ async function guardarSesion() {
                   // GRUPO
                   return (
                     <div key={item.id} style={{ border: '2px solid #4C82E8', borderRadius: 12, background: '#f5f8ff', overflow: 'hidden' }}
-                      draggable onDragStart={() => setDraggingCarrito({ idx })} onDragEnd={() => setDraggingCarrito(null)}
-                      onDragOver={e => e.preventDefault()} onDrop={() => { if (draggingCarrito && draggingCarrito.idx !== idx) reordenarCarrito(draggingCarrito.idx, idx) }}>
+                      draggable onDragStart={() => setDraggingCarrito({ idx, bloqueId })} onDragEnd={() => setDraggingCarrito(null)}
+                      onDragOver={e => e.preventDefault()} onDrop={() => { if (draggingCarrito && draggingCarrito.bloqueId === bloqueId && draggingCarrito.idx !== idx) reordenarCarrito(draggingCarrito.idx, idx) }}>
                       {/* Group header */}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#eef2ff', borderBottom: '1px solid #dde6ff' }}>
                         <span style={{ color: '#8fa8e8', cursor: 'grab', fontSize: 14, userSelect: 'none' }}>⠿</span>
@@ -1398,7 +1299,7 @@ async function guardarSesion() {
                           const zColor = f.fc_zona ? FC_COLORS[f.fc_zona - 1] : '#dde6ff'
                           return (
                             <div key={f.id} style={{ background: '#fff', border: '1.5px solid #dde6ff', borderLeft: `4px solid ${zColor}`, borderRadius: 10, overflow: 'hidden' }}
-                              draggable onDragStart={e => { e.stopPropagation(); setDraggingCarrito({ idx, grupoId: item.id, innerIdx: fi }) }}
+                              draggable onDragStart={e => { e.stopPropagation(); setDraggingCarrito({ idx, grupoId: item.id, innerIdx: fi, bloqueId }) }}
                               onDragEnd={() => setDraggingCarrito(null)}
                               onDragOver={e => e.preventDefault()}
                               onDrop={e => { e.stopPropagation(); if (draggingCarrito?.grupoId === item.id && draggingCarrito.innerIdx !== fi) reordenarFasesEnGrupo(item.id, draggingCarrito.innerIdx, fi) }}>
@@ -1458,7 +1359,7 @@ async function guardarSesion() {
                 )}
 
                 {/* ── MENÚ CONTEXTUAL (gráfica) ── */}
-                {ctxCarrito && (
+                {ctxCarrito && ctxCarrito.bloqueId === bloqueId && (
                   <div style={{ position: 'fixed', top: ctxCarrito.y, left: ctxCarrito.x, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 9999, minWidth: 170, overflow: 'hidden' }}
                     onClick={e => e.stopPropagation()}>
                     <div style={{ padding: '5px 14px 3px', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
@@ -1482,10 +1383,154 @@ async function guardarSesion() {
                 )}
               </div>
             )
-          })()}
+  }
 
-          {/* ── EDITOR FUERZA ── */}
-          {sesionAbierta.tipo_editor !== 'carrera' && !vistaPrevia && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+  return (
+    <>
+    <div>
+      <div className="page-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+          {sesionAbierta && (
+            <>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>{sesionAbierta.titulo}</span>
+              {sesionAbierta.fecha && (
+                <span style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
+                  {new Date(sesionAbierta.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
+                </span>
+              )}
+              {sesionAbierta.tipo_sesion && (
+                <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99, background: 'var(--bg2)', border: '1px solid var(--border)', color: 'var(--text2)', whiteSpace: 'nowrap' }}>
+                  {sesionAbierta.tipo_sesion === 'programada' ? 'Programada' : sesionAbierta.tipo_sesion === 'flexible' ? 'Flexible' : 'Opcional'}
+                </span>
+              )}
+              {sesionAbierta.duracion_min && (
+                <span style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>{sesionAbierta.duracion_min} min</span>
+              )}
+            </>
+          )}
+        </div>
+        {sesionAbierta && (() => {
+          const btnIcon = { width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', fontSize: 14, color: 'var(--text2)' }
+          return (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div title="Biblioteca de ejercicios de la sesión: se aplica a todos los bloques (cada bloque se puede cambiar)"
+                style={{ display: 'flex', alignItems: 'center', background: 'var(--bg2)', borderRadius: 8, padding: 2, gap: 2, marginRight: 4 }}>
+                {BIBLIOTECAS.map(o => {
+                  const activa = (sesionAbierta.biblioteca || 'fuerza') === o.key
+                  return (
+                    <button key={o.key} onClick={() => aplicarBibliotecaSesion(o.key)}
+                      style={{ padding: '4px 9px', fontSize: 11, fontWeight: activa ? 700 : 400, borderRadius: 6, border: 'none', cursor: 'pointer', background: activa ? 'var(--accent)' : 'transparent', color: activa ? '#fff' : 'var(--text3)', whiteSpace: 'nowrap' }}>
+                      {o.icono} {o.label}
+                    </button>
+                  )
+                })}
+              </div>
+              <button title="Biblioteca" style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={async () => { if (!biblioteca) { const { data } = await supabase.from('ejercicios_biblioteca').select('*').order('nombre'); setBiblioteca(data || []) } if (!panelBiblioteca && bloquesBiblioteca === null) cargarBloquesBiblioteca(); if (!panelBiblioteca) setCarpetaBib(sesionAbierta.biblioteca || 'fuerza'); setPanelBiblioteca(v => !v) }}>
+                📚
+              </button>
+              <button title="Guardar en biblioteca" style={{ ...btnIcon, opacity: guardandoEnBib ? 0.5 : 1 }}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => guardarEnBiblioteca(sesionAbierta)} disabled={guardandoEnBib}>
+                {guardandoEnBib ? '⏳' : '🧱'}
+              </button>
+              <button title="Duplicar sesión" style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => { setModalDuplicar(sesionAbierta); setFechaDuplicar(format(new Date(), 'yyyy-MM-dd')) }}>
+                📋
+              </button>
+              <button title="Editar sesión" style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => abrirEditarSesion(sesionAbierta)}>
+                ✎
+              </button>
+              <button title={sesionAbierta.comentario_entrenadora ? 'Editar mensaje' : 'Mensaje al cliente'} style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => { const cli = clientes.find(c => c.id === clienteSeleccionado); setModalComentario({ sesionId: sesionAbierta.id, sesionTitulo: sesionAbierta.titulo, clienteEmail: cli?.email || null, inicial: sesionAbierta.comentario_entrenadora || null }) }}>
+                ✉
+              </button>
+              <button title="Compartir sesión" style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => { if (sesionAbierta.token_publico) { navigator.clipboard.writeText(`${window.location.origin}/sesion/${sesionAbierta.token_publico}`).catch(() => {}) } }}>
+                🔗
+              </button>
+              <button title="Volver" style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => { if (dirty) { setAvisoSinGuardar(true) } else { volverAlCalendario() } }}>
+                ←
+              </button>
+              <button title="Guardar"
+                style={{ padding: '5px 14px', borderRadius: 6, border: 'none', background: guardadoOk ? '#16a34a' : 'var(--accent, #2d6a4f)', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
+                onClick={() => { setDirty(false); setAvisoSinGuardar(false); setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500) }}>
+                {guardadoOk ? '✓ Guardado' : 'Guardar'}
+              </button>
+            </div>
+          )
+        })()}
+        {avisoSinGuardar && (
+          <div style={{ margin: '8px 0 0', padding: '10px 14px', background: '#fef9c3', border: '1px solid #fde68a', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 12, fontSize: 13, color: '#713f12' }}>
+            <span>⚠️ Tienes cambios sin guardar. Pulsa <strong>Guardar</strong> para confirmarlos.</span>
+            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: '#713f12' }} onClick={() => { setAvisoSinGuardar(false); volverAlCalendario() }}>Salir sin guardar</button>
+            <button className="btn btn-primary btn-sm" style={{ minWidth: 90, background: guardadoOk ? '#16a34a' : undefined, borderColor: guardadoOk ? '#16a34a' : undefined }} onClick={() => { setDirty(false); setAvisoSinGuardar(false); setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500) }}>{guardadoOk ? '✓ Guardado' : 'Guardar'}</button>
+          </div>
+        )}
+      </div>
+
+
+      {toastCopiado && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: '#065f46', color: '#fff', borderRadius: 10, padding: '10px 20px', fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', pointerEvents: 'none' }}>
+          📋 Bloque copiado: "{toastCopiado}"
+        </div>
+      )}
+
+      {sesionAbierta && (
+        <div style={{ paddingRight: panelBiblioteca ? 306 : 0, transition: 'padding-right 0.2s' }}>
+
+          {/* ── CAJA 2: Indicaciones + Material ── */}
+          <div style={{ background: 'var(--surface, #fff)', border: '1px solid var(--border)', borderRadius: 8, marginBottom: 10, overflow: 'hidden' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
+              <div style={{ padding: '8px 12px', borderRight: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Indicaciones</div>
+                <InlineInput
+                  value={sesionAbierta.indicaciones}
+                  placeholder="Indicaciones generales..."
+                  textarea
+                  fontSize={11}
+                  onSave={async v => { await supabase.from('sesiones').update({ indicaciones: v || null }).eq('id', sesionAbierta.id); setSesionAbierta(s => ({ ...s, indicaciones: v })); setSesiones(ss => ss.map(s => s.id === sesionAbierta.id ? { ...s, indicaciones: v } : s)); setDirty(true) }}
+                />
+              </div>
+              <div style={{ padding: '8px 12px' }}>
+                <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Material necesario</div>
+                <InlineInput
+                  value={sesionAbierta.material}
+                  placeholder="Material necesario..."
+                  textarea
+                  fontSize={11}
+                  onSave={async v => { await supabase.from('sesiones').update({ material: v || null }).eq('id', sesionAbierta.id); setSesionAbierta(s => ({ ...s, material: v })); setSesiones(ss => ss.map(s => s.id === sesionAbierta.id ? { ...s, material: v } : s)); setDirty(true) }}
+                />
+              </div>
+            </div>
+            {(sesionAbierta.objetivo || sesionAbierta.notas_entrenador) && (
+              <div style={{ display: 'grid', gridTemplateColumns: sesionAbierta.objetivo && sesionAbierta.notas_entrenador ? '1fr 1fr' : '1fr', borderTop: '1px solid var(--border)' }}>
+                {sesionAbierta.objetivo && (
+                  <div style={{ padding: '8px 12px', borderRight: sesionAbierta.notas_entrenador ? '1px solid var(--border)' : 'none' }}>
+                    <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Nota al cliente</div>
+                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, fontStyle: 'italic' }}>{sesionAbierta.objetivo}</div>
+                  </div>
+                )}
+                {sesionAbierta.notas_entrenador && (
+                  <div style={{ padding: '8px 12px' }}>
+                    <div style={{ fontSize: 10, fontFamily: "'JetBrains Mono', monospace", color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 4 }}>Notas internas</div>
+                    <div style={{ fontSize: 12, color: 'var(--text2)', lineHeight: 1.5, fontStyle: 'italic' }}>{sesionAbierta.notas_entrenador}</div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* ── EDITOR DE BLOQUES ── */}
+          {!vistaPrevia && <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {bloques.map((b, idx) => {
               function renderEjerciciosBloque(b, ejs, { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU }) {
                 const metodo = b.metodo || 'individual'
@@ -2243,7 +2288,7 @@ async function guardarSesion() {
                           </div>
                         </div>
                       )}
-                      <div style={{ fontSize: 9, color: 'var(--text3)', fontStyle: 'italic', padding: '0 10px 5px 18px', lineHeight: 1.4, cursor: 'text', fontFamily: "'Inter', system-ui, sans-serif", background: 'var(--surface2, #f8f9fa)', borderBottom: '0.5px solid var(--border)' }}>
+                      {bibDeBloque(b.id) === 'fuerza' && <div style={{ fontSize: 9, color: 'var(--text3)', fontStyle: 'italic', padding: '0 10px 5px 18px', lineHeight: 1.4, cursor: 'text', fontFamily: "'Inter', system-ui, sans-serif", background: 'var(--surface2, #f8f9fa)', borderBottom: '0.5px solid var(--border)' }}>
                         {editandoDescripcion === b.id ? (
                           <textarea
                             autoFocus
@@ -2262,11 +2307,16 @@ async function guardarSesion() {
                             {b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual']}
                           </span>
                         )}
-                      </div>
+                      </div>}
                     </>
                   )
                 })()}
-                {renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}
+                {bibDeBloque(b.id) === 'resistencia' ? (
+                  <div style={{ padding: '10px 10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {renderEditorResistencia(b.id)}
+                    {(ejercicios[b.id] || []).length > 0 && renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}
+                  </div>
+                ) : renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}
               </div>
               )
             })}
@@ -2302,7 +2352,7 @@ async function guardarSesion() {
           </div>}
 
           {/* ── VISTA PREVIA CLIENTE (modo lectura) ── */}
-          {sesionAbierta.tipo_editor !== 'carrera' && vistaPrevia && (
+          {vistaPrevia && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ background: '#fff3cd', border: '1px solid #ffc107', borderRadius: 10, padding: '10px 14px', fontSize: 12.5, color: '#856404' }}>
                 👁 Vista previa — así verá el cliente la sesión
@@ -2385,21 +2435,6 @@ async function guardarSesion() {
             <div className="modal-header">
               <span className="modal-title">{modalSesion === 'nueva' ? 'Nueva sesión' : 'Editar sesión'}</span>
               <button className="btn btn-ghost btn-sm" onClick={() => setModalSesion(null)}><X size={14} /></button>
-            </div>
-            {/* Estructura */}
-            <div className="form-group">
-              <label className="form-label">Tipo de editor</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {[['fuerza','💪','Fuerza / salud'],['carrera','🏃','Carrera / resistencia']].map(([val, ico, label]) => {
-                  const active = (formSesion.tipo_editor || 'fuerza') === val
-                  return (
-                    <button key={val} type="button" onClick={() => setFormSesion(f => ({ ...f, tipo_editor: val }))}
-                      style={{ flex: 1, padding: '8px', borderRadius: 9, border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`, background: active ? 'var(--accent-light)' : 'var(--bg)', cursor: 'pointer', fontSize: 12, fontWeight: active ? 600 : 400, color: active ? 'var(--accent)' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 16 }}>{ico}</span> {label}
-                    </button>
-                  )
-                })}
-              </div>
             </div>
             <div className="form-group">
               <label className="form-label">Icono de sesión</label>
@@ -2526,7 +2561,7 @@ async function guardarSesion() {
               </div>
             </div>
             {modalSesion === 'nueva' && (
-              <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>{(formSesion.tipo_editor || 'fuerza') === 'carrera' ? 'Se crearán 3 fases de ejemplo (calentamiento, trabajo, vuelta a la calma).' : 'Se crearán 4 bloques con 3 ejercicios de ejemplo, listos para editar.'}</p>
+              <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>Se crearán 4 bloques con 3 ejercicios de ejemplo, listos para editar.</p>
             )}
             {modalSesion !== 'nueva' && (
               <div style={{ marginBottom: 8 }}>
@@ -2935,7 +2970,7 @@ async function guardarSesion() {
       })()}
 
       {/* Zona de drop para bloques de biblioteca (cuando la sesión es fuerza) */}
-      {libDragActive && sesionAbierta?.tipo_editor !== 'carrera' && (
+      {libDragActive && (
         <div style={{ position: 'fixed', bottom: 24, right: 310, background: '#1e3a2f', color: '#6ee7b7', border: '2px dashed #6ee7b7', borderRadius: 12, padding: '10px 18px', fontSize: 12, fontWeight: 600, zIndex: 500, pointerEvents: 'none' }}>
           ↓ Suelta sobre un bloque (ejercicio) o aquí (bloque completo)
         </div>

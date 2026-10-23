@@ -1651,20 +1651,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         return (
           <div style={{ padding: '0 20px 4px' }}>
             <div className="form-group">
-              <label className="form-label">Tipo de editor</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {[['fuerza','💪','Fuerza / salud'],['carrera','🏃','Carrera / resistencia']].map(([val, ico, label]) => {
-                  const active = (formData.tipo_editor || 'fuerza') === val
-                  return (
-                    <button key={val} type="button" onClick={() => fd('tipo_editor', val)}
-                      style={{ flex: 1, padding: '8px', borderRadius: 9, border: `2px solid ${active ? 'var(--accent)' : 'var(--border)'}`, background: active ? 'var(--accent-light)' : 'var(--bg)', cursor: 'pointer', fontSize: 12, fontWeight: active ? 600 : 400, color: active ? 'var(--accent)' : 'var(--text2)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                      <span style={{ fontSize: 16 }}>{ico}</span> {label}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-            <div className="form-group">
               <label className="form-label">Icono de sesión</label>
               <EmojiPicker value={formData.icono || ''} onChange={v => fd('icono', v)} />
             </div>
@@ -1764,7 +1750,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                 <div style={{ fontSize: 11, color: 'var(--text3)' }}>{formData.lista ? 'Contenido completo, el cliente puede ejecutarla' : 'Pensada pero pendiente de desarrollar'}</div>
               </div>
             </div>
-            <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>{(formData.tipo_editor || 'fuerza') === 'carrera' ? 'Se crearán 3 fases de ejemplo (calentamiento, trabajo, vuelta a la calma).' : 'Se crearán 4 bloques con 3 ejercicios de ejemplo, listos para editar.'}</p>
+            <p style={{ fontSize: 12, color: 'var(--text3)', marginTop: 4 }}>Se crearán 4 bloques con 3 ejercicios de ejemplo, listos para editar.</p>
           </div>
         )
 
