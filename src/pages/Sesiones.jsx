@@ -747,19 +747,23 @@ async function guardarSesion() {
   }
 
   function añadirBloque() {
+    // El selector de método solo tiene sentido en sesiones de fuerza. En campo
+    // o resistencia el bloque se crea directamente (su diseño propio, más adelante).
+    if ((sesionAbierta?.biblioteca || 'fuerza') !== 'fuerza') { crearBloqueConMetodo('individual', `Bloque ${bloques.length + 1}`); return }
     setMostrarSelectorMetodo(true)
   }
 
-  async function crearBloqueConMetodo(metodo) {
+  async function crearBloqueConMetodo(metodo, nombre) {
     const def = METODOS_SESION.find(m => m.id === metodo)
     const { data: b } = await supabase.from('sesion_bloques').insert({
       sesion_id: sesionAbierta.id,
-      nombre: def?.nombre || 'Bloque',
+      nombre: nombre || def?.nombre || 'Bloque',
       color: COLORES[bloques.length % COLORES.length],
       nota: '',
       orden: bloques.length,
       metodo,
-      descripcion_metodo: def?.desc || null,
+      // Bloques de campo / resistencia: sin texto de método
+      descripcion_metodo: nombre ? null : (def?.desc || null),
     }).select().single()
     if (b) {
       setBloques(bs => [...bs, b])
@@ -2196,12 +2200,12 @@ async function guardarSesion() {
                           style={{ width: 30, height: 30, borderRadius: '50%', background: `${bc}15`, border: `2px solid ${bc}`, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, fontSize: 12, fontFamily: 'monospace', fontWeight: 700, color: bc }}>
                           {idx + 1}
                         </div>
-                        <span
+                        {bibDeBloque(b.id) === 'fuerza' && <span
                           title="Cambiar método"
                           onClick={ev => { ev.stopPropagation(); setEditandoMetodo(editandoMetodo === b.id ? null : b.id) }}
                           style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: `${bc}18`, color: bc, border: `1px solid ${bc}33`, flexShrink: 0, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '.05em', cursor: 'pointer' }}>
                           {nombreMetodo}
-                        </span>
+                        </span>}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <InlineInput value={b.nombre} placeholder={`Bloque ${idx + 1}`} fontSize={13}
                             style={{ fontWeight: 600, fontFamily: "'Inter', system-ui, sans-serif" }}
@@ -2221,7 +2225,7 @@ async function guardarSesion() {
                         <button className="btn btn-ghost btn-sm" title="Copiar bloque" onClick={() => copiarBloqueFuerza(b)} style={{ color: 'var(--text3)', opacity: .5 }}>📋</button>
                         <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', opacity: .5 }} onClick={() => eliminarBloque(b.id)}><Trash2 size={12} /></button>
                       </div>
-                      {editandoMetodo === b.id && (
+                      {editandoMetodo === b.id && bibDeBloque(b.id) === 'fuerza' && (
                         <div style={{ padding: '8px 10px', borderBottom: '0.5px solid var(--border)', background: 'var(--surface2, #f8f9fa)' }}>
                           <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 6 }}>Cambiar método</div>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 6 }}>
