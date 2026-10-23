@@ -122,6 +122,30 @@ function InlineInput({ value, onSave, placeholder, style, textarea, fontSize, ty
   )
 }
 
+// Bibliotecas (carpetas) de ejercicios — ver ejercicios_biblioteca.carpeta
+const BIBLIOTECAS = [
+  { key: 'fuerza',      label: 'Fuerza',      icono: '🏋️' },
+  { key: 'campo',       label: 'Campo',       icono: '⚽' },
+  { key: 'resistencia', label: 'Resistencia', icono: '🏃' },
+]
+
+function ChipsBiblioteca({ valor, onChange, biblioteca, compacto }) {
+  return (
+    <div style={{ display: 'flex', gap: 4, marginBottom: compacto ? 8 : 10, flexWrap: 'wrap' }}>
+      {BIBLIOTECAS.map(o => {
+        const activa = valor === o.key
+        const n = (biblioteca || []).filter(e => (e.carpeta || 'fuerza') === o.key).length
+        return (
+          <button key={o.key} onClick={() => onChange(o.key)}
+            style={{ flex: compacto ? 1 : 'none', padding: compacto ? '4px 4px' : '5px 12px', fontSize: compacto ? 10.5 : 12, borderRadius: 7, cursor: 'pointer', border: `1px solid ${activa ? 'var(--accent)' : 'var(--border)'}`, background: activa ? 'var(--accent-light)' : 'transparent', color: activa ? 'var(--accent)' : 'var(--text2)', fontWeight: activa ? 600 : 400, whiteSpace: 'nowrap' }}>
+            {o.icono} {o.label}{biblioteca ? ` · ${n}` : ''}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
 export default function Sesiones({ clienteInicial, sesionInicialId, fechaNuevaSesion, esPlantilla, setPage, setClientePlanificacion, setRecargarPlan }) {
   const [clientes, setClientes] = useState([])
   const [clienteSeleccionado, setClienteSeleccionado] = useState(clienteInicial || null)
@@ -162,6 +186,7 @@ export default function Sesiones({ clienteInicial, sesionInicialId, fechaNuevaSe
   const [panelBiblioteca, setPanelBiblioteca] = useState(false)
   const [guardandoEnBib, setGuardandoEnBib] = useState(false)
   const [busquedaBiblioteca, setBusquedaBiblioteca] = useState('')
+  const [carpetaBib, setCarpetaBib] = useState('fuerza') // carpeta de la biblioteca que se está mirando
   const [guardadoOk, setGuardadoOk] = useState(false)
   const [mediaPreview, setMediaPreview] = useState(null) // { tipo, ytid, url, x, y }
   const [inputInlineBloque, setInputInlineBloque] = useState(null) // id del bloque con input abierto
@@ -685,6 +710,30 @@ async function guardarSesion() {
     else setSesionAbierta(null)
   }
 
+  // Biblioteca de ejercicios de la sesión (fuerza / campo / resistencia).
+  // Cada bloque la hereda salvo que tenga la suya propia.
+  function bibDeBloque(bloqueId) {
+    const b = bloques.find(x => x.id === bloqueId)
+    return b?.biblioteca || sesionAbierta?.biblioteca || 'fuerza'
+  }
+
+  async function aplicarBibliotecaSesion(key) {
+    if (!sesionAbierta) return
+    const id = sesionAbierta.id
+    setSesionAbierta(s => s ? { ...s, biblioteca: key } : s)
+    setSesiones(ss => ss.map(x => x.id === id ? { ...x, biblioteca: key } : x))
+    setBloques(bs => bs.map(b => b.sesion_id === id || b.sesion_id == null ? { ...b, biblioteca: null } : b))
+    await Promise.all([
+      supabase.from('sesiones').update({ biblioteca: key }).eq('id', id),
+      supabase.from('sesion_bloques').update({ biblioteca: null }).eq('sesion_id', id),
+    ])
+  }
+
+  async function cambiarBibliotecaBloque(bloqueId, key) {
+    const valor = key === (sesionAbierta?.biblioteca || 'fuerza') ? null : key
+    await actualizarBloque(bloqueId, 'biblioteca', valor)
+  }
+
   async function actualizarBloque(id, campo, valor) {
     await supabase.from('sesion_bloques').update({ [campo]: valor }).eq('id', id)
     setBloques(bs => bs.map(b => b.id === id ? { ...b, [campo]: valor } : b))
@@ -735,6 +784,7 @@ async function guardarSesion() {
 
   async function abrirBiblioteca(bloqueId, variablesDefault = []) {
     setModalBiblioteca({ bloqueId, variablesDefault })
+    setCarpetaBib(bibDeBloque(bloqueId))
     setBusquedaBiblioteca('')
     if (!biblioteca) {
       const { data } = await supabase.from('ejercicios_biblioteca').select('*').order('nombre')
@@ -776,6 +826,7 @@ async function guardarSesion() {
 
     const insertBib = {
       nombre: formCrearEj.nombre.trim(),
+      carpeta: bibDeBloque(bloqueId),
       ...(formCrearEj.descripcion ? { descripcion: formCrearEj.descripcion } : {}),
       ...(formCrearEj.notas ? { notas: formCrearEj.notas } : {}),
       ...(formCrearEj.media_tipo ? { media_tipo: formCrearEj.media_tipo } : {}),
@@ -910,9 +961,21 @@ async function guardarSesion() {
           const btnIcon = { width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', fontSize: 14, color: 'var(--text2)' }
           return (
             <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+              <div title="Biblioteca de ejercicios de la sesión: se aplica a todos los bloques (cada bloque se puede cambiar)"
+                style={{ display: 'flex', alignItems: 'center', background: 'var(--bg2)', borderRadius: 8, padding: 2, gap: 2, marginRight: 4 }}>
+                {BIBLIOTECAS.map(o => {
+                  const activa = (sesionAbierta.biblioteca || 'fuerza') === o.key
+                  return (
+                    <button key={o.key} onClick={() => aplicarBibliotecaSesion(o.key)}
+                      style={{ padding: '4px 9px', fontSize: 11, fontWeight: activa ? 700 : 400, borderRadius: 6, border: 'none', cursor: 'pointer', background: activa ? 'var(--accent)' : 'transparent', color: activa ? '#fff' : 'var(--text3)', whiteSpace: 'nowrap' }}>
+                      {o.icono} {o.label}
+                    </button>
+                  )
+                })}
+              </div>
               <button title="Biblioteca" style={btnIcon}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
-                onClick={async () => { if (!biblioteca) { const { data } = await supabase.from('ejercicios_biblioteca').select('*').order('nombre'); setBiblioteca(data || []) } if (!panelBiblioteca && bloquesBiblioteca === null) cargarBloquesBiblioteca(); setPanelBiblioteca(v => !v) }}>
+                onClick={async () => { if (!biblioteca) { const { data } = await supabase.from('ejercicios_biblioteca').select('*').order('nombre'); setBiblioteca(data || []) } if (!panelBiblioteca && bloquesBiblioteca === null) cargarBloquesBiblioteca(); if (!panelBiblioteca) setCarpetaBib(sesionAbierta.biblioteca || 'fuerza'); setPanelBiblioteca(v => !v) }}>
                 📚
               </button>
               <button title="Guardar en biblioteca" style={{ ...btnIcon, opacity: guardandoEnBib ? 0.5 : 1 }}
@@ -2144,6 +2207,16 @@ async function guardarSesion() {
                             style={{ fontWeight: 600, fontFamily: "'Inter', system-ui, sans-serif" }}
                             onSave={v => actualizarBloque(b.id, 'nombre', v)} />
                         </div>
+                        {(() => {
+                          const propia = !!b.biblioteca && b.biblioteca !== (sesionAbierta?.biblioteca || 'fuerza')
+                          return (
+                            <select value={bibDeBloque(b.id)} onChange={ev => cambiarBibliotecaBloque(b.id, ev.target.value)}
+                              title={propia ? 'Este bloque usa otra biblioteca que la sesión' : 'Biblioteca del bloque (la de la sesión)'}
+                              style={{ fontSize: 10.5, padding: '2px 4px', borderRadius: 6, border: `1px solid ${propia ? 'var(--accent)' : 'var(--border)'}`, background: propia ? 'var(--accent-light)' : 'transparent', color: propia ? 'var(--accent)' : 'var(--text3)', fontWeight: propia ? 600 : 400, cursor: 'pointer', flexShrink: 0 }}>
+                              {BIBLIOTECAS.map(o => <option key={o.key} value={o.key}>{o.icono} {o.label}</option>)}
+                            </select>
+                          )
+                        })()}
                         <button className="btn btn-ghost btn-sm" title="Guardar en biblioteca" onClick={() => guardarBloqueEnBiblioteca(b)} style={{ color: 'var(--text3)', opacity: .5 }}>🧱</button>
                         <button className="btn btn-ghost btn-sm" title="Copiar bloque" onClick={() => copiarBloqueFuerza(b)} style={{ color: 'var(--text3)', opacity: .5 }}>📋</button>
                         <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)', opacity: .5 }} onClick={() => eliminarBloque(b.id)}><Trash2 size={12} /></button>
@@ -2596,7 +2669,7 @@ async function guardarSesion() {
 
       {modalBiblioteca && (() => {
         const textoBib = busquedaBiblioteca.toLowerCase()
-        const bibFiltrada = !biblioteca ? [] : biblioteca.filter(item => !textoBib || item.nombre.toLowerCase().includes(textoBib))
+        const bibFiltrada = !biblioteca ? [] : biblioteca.filter(item => (item.carpeta || 'fuerza') === carpetaBib && (!textoBib || item.nombre.toLowerCase().includes(textoBib)))
 
         return (
           <div className="modal-backdrop" onClick={() => setModalBiblioteca(null)}>
@@ -2606,6 +2679,8 @@ async function guardarSesion() {
                 <button className="btn btn-ghost btn-sm" onClick={() => setModalBiblioteca(null)}>✕</button>
               </div>
 
+              {/* Carpeta */}
+              <ChipsBiblioteca valor={carpetaBib} onChange={setCarpetaBib} biblioteca={biblioteca} />
               {/* Búsqueda */}
               <div style={{ padding: '0 0 10px' }}>
                 <input className="form-input" autoFocus placeholder="Buscar ejercicio..." value={busquedaBiblioteca} onChange={e => setBusquedaBiblioteca(e.target.value)} />
@@ -2675,6 +2750,7 @@ async function guardarSesion() {
           {tabBiblioteca === 'ejercicios' && (
             <>
               <div style={{ padding: '10px 14px 0' }}>
+                <ChipsBiblioteca valor={carpetaBib} onChange={setCarpetaBib} biblioteca={biblioteca} compacto />
                 <input className="form-input" autoFocus placeholder="Buscar ejercicio..." value={busquedaBiblioteca} onChange={e => setBusquedaBiblioteca(e.target.value)} style={{ marginBottom: 6, fontSize: 12 }} />
                 <p style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8 }}>Arrastra al bloque destino</p>
               </div>
@@ -2682,7 +2758,7 @@ async function guardarSesion() {
                 <p style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 0' }}>Cargando...</p>
               ) : (
                 <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {biblioteca.filter(item => !busquedaBiblioteca || item.nombre.toLowerCase().includes(busquedaBiblioteca.toLowerCase())).map(item => (
+                  {biblioteca.filter(item => (item.carpeta || 'fuerza') === carpetaBib && (!busquedaBiblioteca || item.nombre.toLowerCase().includes(busquedaBiblioteca.toLowerCase()))).map(item => (
                     <div key={item.id} draggable
                       onDragStart={e => { setLibDragActive(true); e.dataTransfer.setData('application/json', JSON.stringify({ tipo: 'ejercicio_bib', item })); e.dataTransfer.effectAllowed = 'copy' }}
                       onDragEnd={() => { setLibDragActive(false); setDragOverBloqueId(null) }}
