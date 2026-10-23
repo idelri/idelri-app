@@ -71,7 +71,7 @@ const VARS_DEFAULT_METODO = {
   emom:        ['Duración'],
   amrap:       ['Duración'],
 }
-const EMPTY_SESION = { titulo: '', fecha: '', objetivo: '', notas_entrenador: '', duracion_min: '', sinFecha: false, tipo_sesion: 'programada', estado: 'pendiente', tipo_editor: 'fuerza', con_feedback: true, icono: '', tipo_sesion_detalle: null, modalidad: 'autonoma', lugar: '', lista: false, publicada: true }
+const EMPTY_SESION = { titulo: '', fecha: '', objetivo: '', notas_entrenador: '', duracion_min: '', sinFecha: false, tipo_sesion: 'programada', estado: 'pendiente', tipo_editor: 'fuerza', con_feedback: true, icono: '', modalidad: 'autonoma', lugar: '', lista: false, publicada: true }
 function ytId(url) {
   if (!url) return null
   const m = url.match(/(?:youtube\.com\/.*v=|youtu\.be\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/)
@@ -612,7 +612,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   }
 
   function abrirEditarSesion(s) {
-    setFormSesion({ titulo: s.titulo, fecha: s.fecha || '', sinFecha: !s.fecha, objetivo: s.objetivo || '', notas_entrenador: s.notas_entrenador || '', duracion_min: s.duracion_min || '', tipo_sesion: s.tipo_sesion || 'programada', estado: s.estado || 'pendiente', tipo_editor: s.tipo_editor || 'fuerza', con_feedback: s.con_feedback !== false, icono: s.icono || '', tipo_sesion_detalle: s.tipo_sesion_detalle || null, modalidad: s.modalidad || 'autonoma', lugar: s.lugar || '', lista: s.lista || false, publicada: s.publicada !== false })
+    setFormSesion({ titulo: s.titulo, fecha: s.fecha || '', sinFecha: !s.fecha, objetivo: s.objetivo || '', notas_entrenador: s.notas_entrenador || '', duracion_min: s.duracion_min || '', tipo_sesion: s.tipo_sesion || 'programada', estado: s.estado || 'pendiente', tipo_editor: s.tipo_editor || 'fuerza', con_feedback: s.con_feedback !== false, icono: s.icono || '', modalidad: s.modalidad || 'autonoma', lugar: s.lugar || '', lista: s.lista || false, publicada: s.publicada !== false })
     setFormCompletadaEl(s.completada_el || '')
     setModalSesion(s)
   }
@@ -643,7 +643,7 @@ async function guardarSesion() {
     if (!formSesion.titulo) return
     if (!formSesion.sinFecha && !formSesion.fecha) return
     setSaving(true)
-    const datos = { titulo: formSesion.titulo, fecha: formSesion.sinFecha ? null : formSesion.fecha, objetivo: formSesion.objetivo || null, notas_entrenador: formSesion.notas_entrenador || null, duracion_min: formSesion.duracion_min ? parseInt(formSesion.duracion_min) : null, tipo_sesion: formSesion.tipo_sesion || 'programada', estado: formSesion.estado || 'pendiente', tipo_editor: formSesion.tipo_editor || 'fuerza', con_feedback: formSesion.con_feedback !== false, icono: formSesion.icono || null, tipo_sesion_detalle: formSesion.tipo_sesion_detalle || null, modalidad: formSesion.modalidad || 'autonoma', lugar: formSesion.lugar || null, lista: formSesion.lista || false, publicada: formSesion.publicada !== false }
+    const datos = { titulo: formSesion.titulo, fecha: formSesion.sinFecha ? null : formSesion.fecha, objetivo: formSesion.objetivo || null, notas_entrenador: formSesion.notas_entrenador || null, duracion_min: formSesion.duracion_min ? parseInt(formSesion.duracion_min) : null, tipo_sesion: formSesion.tipo_sesion || 'programada', estado: formSesion.estado || 'pendiente', tipo_editor: formSesion.tipo_editor || 'fuerza', con_feedback: formSesion.con_feedback !== false, icono: formSesion.icono || null, modalidad: formSesion.modalidad || 'autonoma', lugar: formSesion.lugar || null, lista: formSesion.lista || false, publicada: formSesion.publicada !== false }
     if (modalSesion?.id) {
       const fechaCambio = formSesion.fecha !== modalSesion.fecha
       // Si la entrenadora cambia la fecha, sincronizar completada_el y marcar el flag
@@ -898,11 +898,6 @@ async function guardarSesion() {
               {sesionAbierta.tipo_sesion && (
                 <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99, background: 'var(--bg2)', border: '1px solid var(--border)', color: 'var(--text2)', whiteSpace: 'nowrap' }}>
                   {sesionAbierta.tipo_sesion === 'programada' ? 'Programada' : sesionAbierta.tipo_sesion === 'flexible' ? 'Flexible' : 'Opcional'}
-                </span>
-              )}
-              {sesionAbierta.tipo_sesion_detalle && (
-                <span style={{ fontSize: 10, padding: '1px 7px', borderRadius: 99, background: 'var(--bg2)', border: '1px solid var(--border)', color: 'var(--text2)', textTransform: 'capitalize', whiteSpace: 'nowrap' }}>
-                  {sesionAbierta.tipo_sesion_detalle}
                 </span>
               )}
               {sesionAbierta.duracion_min && (
@@ -2314,38 +2309,6 @@ async function guardarSesion() {
               <span className="modal-title">{modalSesion === 'nueva' ? 'Nueva sesión' : 'Editar sesión'}</span>
               <button className="btn btn-ghost btn-sm" onClick={() => setModalSesion(null)}><X size={14} /></button>
             </div>
-            <div className="form-group">
-              <label className="form-label">Tipo de sesión</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {['optimizadora', 'coadyuvante'].map(tipo => (
-                  <button
-                    key={tipo}
-                    type="button"
-                    onClick={() => setFormSesion(f => ({ ...f, tipo_sesion_detalle: tipo }))}
-                    style={{
-                      padding: '6px 14px',
-                      borderRadius: 'var(--radius)',
-                      border: formSesion.tipo_sesion_detalle === tipo
-                        ? '1.5px solid var(--accent)'
-                        : '1px solid var(--border)',
-                      background: formSesion.tipo_sesion_detalle === tipo
-                        ? 'var(--accent-light)'
-                        : 'transparent',
-                      color: formSesion.tipo_sesion_detalle === tipo
-                        ? 'var(--accent)'
-                        : 'var(--text2)',
-                      cursor: 'pointer',
-                      fontSize: 13,
-                      fontWeight: formSesion.tipo_sesion_detalle === tipo ? 500 : 400,
-                      textTransform: 'capitalize',
-                    }}
-                  >
-                    {tipo.charAt(0).toUpperCase() + tipo.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
-
             {/* Estructura */}
             <div className="form-group">
               <label className="form-label">Tipo de editor</label>

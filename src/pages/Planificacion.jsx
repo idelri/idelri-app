@@ -606,7 +606,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
       case 'nota':
         return { texto: item?.texto || '', fecha: item?.fecha || format(new Date(), 'yyyy-MM-dd'), visibilidad: item?.visibilidad || 'entrenadora' }
       case 'sesion':
-        return { titulo: '', fecha: item?.fecha || '', sinFecha: false, tipo_sesion: 'programada', tipo_sesion_detalle: null, tipo_editor: 'fuerza', estado: 'pendiente', modalidad: 'autonoma', lugar: '', objetivo: '', notas_entrenador: '', duracion_min: '', con_feedback: true, icono: '', lista: false, publicada: true }
+        return { titulo: '', fecha: item?.fecha || '', sinFecha: false, tipo_sesion: 'programada', tipo_editor: 'fuerza', estado: 'pendiente', modalidad: 'autonoma', lugar: '', objetivo: '', notas_entrenador: '', duracion_min: '', con_feedback: true, icono: '', lista: false, publicada: true }
       default:
         return {}
     }
@@ -1022,7 +1022,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
             titulo: formData.titulo,
             fecha: formData.sinFecha ? null : (formData.fecha || null),
             tipo_sesion: formData.tipo_sesion || 'programada',
-            tipo_sesion_detalle: formData.tipo_sesion_detalle || null,
             tipo_editor: formData.tipo_editor || 'fuerza',
             estado: formData.estado || 'pendiente',
             modalidad: formData.modalidad || 'autonoma',
@@ -1650,17 +1649,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
       case 'sesion':
         return (
           <div style={{ padding: '0 20px 4px' }}>
-            <div className="form-group">
-              <label className="form-label">Tipo de sesión</label>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {['optimizadora', 'coadyuvante'].map(tipo => (
-                  <button key={tipo} type="button" onClick={() => fd('tipo_sesion_detalle', formData.tipo_sesion_detalle === tipo ? null : tipo)}
-                    style={{ padding: '6px 14px', borderRadius: 'var(--radius)', border: formData.tipo_sesion_detalle === tipo ? '1.5px solid var(--accent)' : '1px solid var(--border)', background: formData.tipo_sesion_detalle === tipo ? 'var(--accent-light)' : 'transparent', color: formData.tipo_sesion_detalle === tipo ? 'var(--accent)' : 'var(--text2)', cursor: 'pointer', fontSize: 13, fontWeight: formData.tipo_sesion_detalle === tipo ? 500 : 400, textTransform: 'capitalize' }}>
-                    {tipo.charAt(0).toUpperCase() + tipo.slice(1)}
-                  </button>
-                ))}
-              </div>
-            </div>
             <div className="form-group">
               <label className="form-label">Tipo de editor</label>
               <div style={{ display: 'flex', gap: 8 }}>
