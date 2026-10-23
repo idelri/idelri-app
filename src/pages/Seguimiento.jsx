@@ -1,19 +1,19 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-import { format, addWeeks, addDays, isWithinInterval, parseISO, startOfWeek } from 'date-fns'
+import { format, addWeeks, addDays, isWithinInterval, parseISO } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import {
-  Chart, BarController, LineController, RadarController,
+  Chart, BarController, LineController,
   BarElement, LineElement, PointElement,
-  LinearScale, CategoryScale, RadialLinearScale,
+  LinearScale, CategoryScale,
   Tooltip, Legend, Filler,
 } from 'chart.js'
 
 Chart.register(
-  BarController, LineController, RadarController,
+  BarController, LineController,
   BarElement, LineElement, PointElement,
-  LinearScale, CategoryScale, RadialLinearScale,
+  LinearScale, CategoryScale,
   Tooltip, Legend, Filler,
 )
 
@@ -26,22 +26,6 @@ const AZUL = '#3b82f6', AZUL_BG = '#dbeafe'
 
 const SIN_DATO = { color: GRIS, bg: GRIS_BG }
 
-function claseEscala15(v) {
-  if (v == null) return SIN_DATO
-  if (v >= 4) return { color: VERDE, bg: VERDE_BG }
-  if (v === 3) return { color: AMARILLO, bg: AMARILLO_BG }
-  return { color: ROJO, bg: ROJO_BG }
-}
-
-function claseCarga(texto) {
-  if (!texto) return SIN_DATO
-  const t = texto.toLowerCase()
-  if (t.includes('adecuada') || t.includes('muy fácil') || t.includes('muy facil') || t.includes('fácil') || t.includes('facil')) return { color: VERDE, bg: VERDE_BG }
-  if (t.includes('exigente pero asumible')) return { color: AMARILLO, bg: AMARILLO_BG }
-  if (t.includes('demasiado exigente')) return { color: ROJO, bg: ROJO_BG }
-  return SIN_DATO
-}
-
 function claseMolestias(texto) {
   if (!texto) return SIN_DATO
   const t = texto.toLowerCase()
@@ -51,23 +35,12 @@ function claseMolestias(texto) {
   return SIN_DATO
 }
 
-function claseComparativa(texto) {
-  if (!texto) return SIN_DATO
-  const t = texto.toLowerCase()
-  if (t.includes('mucho peor')) return { color: ROJO, bg: ROJO_BG }
-  if (t.includes('peor')) return { color: AMARILLO, bg: AMARILLO_BG }
-  return { color: VERDE, bg: VERDE_BG }
-}
-
 function claseEstadoSesion(status) {
   if (status === 'completed') return { color: VERDE, bg: VERDE_BG, label: 'Completada' }
   if (status === 'partial') return { color: AZUL, bg: AZUL_BG, label: 'Parcial' }
   if (status === 'missed') return { color: ROJO, bg: ROJO_BG, label: 'No realizada' }
   return { color: GRIS, bg: GRIS_BG, label: 'Sin feedback' }
 }
-
-const CARGA_COD = { 'Muy fácil': 1, 'Fácil': 2, 'Adecuada': 3, 'Exigente pero asumible': 4, 'Demasiado exigente': 5 }
-function cargaCodificada(texto) { return texto ? (CARGA_COD[texto] ?? null) : null }
 
 function rpeMedioSemana(semana) {
   const vals = semana.sesiones.map(s => s.feedback?.data?.rpe?.value).filter(v => v != null)
@@ -101,26 +74,6 @@ function Chip({ children, color, bg, style }) {
   )
 }
 
-function Barra5({ valor }) {
-  const cls = claseEscala15(valor)
-  return (
-    <div style={{ display: 'flex', gap: 3 }}>
-      {[1, 2, 3, 4, 5].map(i => (
-        <div key={i} style={{ width: 14, height: 6, borderRadius: 2, background: valor != null && i <= valor ? cls.color : 'var(--border)' }} />
-      ))}
-    </div>
-  )
-}
-
-function CampoValor({ label, valor, cls }) {
-  return (
-    <div>
-      <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 600, color: cls?.color || 'var(--text)' }}>{valor}</div>
-    </div>
-  )
-}
-
 function FilaDetalle({ label, valor }) {
   if (valor == null || valor === '' || valor === false) return null
   return (
@@ -132,59 +85,6 @@ function FilaDetalle({ label, valor }) {
 }
 
 // ───────────────────────── Bloque de check-in semanal ─────────────────────────
-function BloqueCheckin({ checkin }) {
-  if (!checkin) {
-    return (
-      <div className="card" style={{ marginBottom: 12, padding: '14px 16px', background: 'var(--bg)' }}>
-        <span style={{ fontSize: 12.5, color: 'var(--text3)' }}>Sin feedback de semana registrado.</span>
-      </div>
-    )
-  }
-  return (
-    <div style={{ marginBottom: 12, padding: 16, borderRadius: 'var(--radius)', background: VERDE_BG, border: '1px solid var(--border)' }}>
-      <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 12 }}>Feedback de semana</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Energía</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{checkin.energia ?? '—'}/5</span>
-            <Barra5 valor={checkin.energia} />
-          </div>
-        </div>
-        <div>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Descanso</div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>{checkin.descanso ?? '—'}/5</span>
-            <Barra5 valor={checkin.descanso} />
-          </div>
-        </div>
-        <CampoValor label="Horas de sueño" valor={checkin.horas_sueno || '—'} />
-        <CampoValor label="Tolerancia a la carga" valor={checkin.tolerancia_carga || '—'} cls={claseCarga(checkin.tolerancia_carga)} />
-        <CampoValor label="Comparativa semanas anteriores" valor={checkin.comparativa_semanas || '—'} cls={claseComparativa(checkin.comparativa_semanas)} />
-        <div>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Molestias</div>
-          <div style={{ fontSize: 13, fontWeight: 600, color: claseMolestias(checkin.molestias).color }}>{checkin.molestias || '—'}</div>
-          {checkin.molestias_zonas && Object.keys(checkin.molestias_zonas).length > 0 && (
-            <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{JSON.stringify(checkin.molestias_zonas)}</div>
-          )}
-        </div>
-        <div>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Agujetas</div>
-          <div style={{ fontSize: 13, fontWeight: 600 }}>{checkin.agujetas || '—'}</div>
-          {checkin.agujetas_detalle && <div style={{ fontSize: 11.5, color: 'var(--text2)', marginTop: 2 }}>{checkin.agujetas_detalle}</div>}
-        </div>
-      </div>
-      {checkin.comentario_libre && (
-        <div className="card" style={{ borderLeft: `3px solid ${VERDE}`, padding: '10px 14px', background: 'var(--surface)' }}>
-          <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Comentario libre</div>
-          <div style={{ fontSize: 13, color: 'var(--text)' }}>{checkin.comentario_libre}</div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ───────────────────────── Fila de sesión expandible ─────────────────────────
 function FilaSesion({ sesion }) {
   const [abierta, setAbierta] = useState(false)
   const fb = sesion.feedback?.data
@@ -343,13 +243,8 @@ function BloqueCumplimiento({ semana }) {
 
 // ───────────────────────── Cabecera de semana ─────────────────────────
 function CabeceraSemana({ semana, abierta, onToggle }) {
-  const c = semana.checkin
   const rpe = rpeMedioSemana(semana)
   const { ok, total } = resumenSesiones(semana)
-  const claseEnergia = claseEscala15(c?.energia)
-  const claseDescanso = claseEscala15(c?.descanso)
-  const cCarga = claseCarga(c?.tolerancia_carga)
-  const cMolestias = claseMolestias(c?.molestias)
   return (
     <div onClick={onToggle} style={{
       display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px 10px 36px',
@@ -361,10 +256,6 @@ function CabeceraSemana({ semana, abierta, onToggle }) {
         Semana {semana.numero} <span style={{ color: 'var(--text3)', fontWeight: 400, fontFamily: 'var(--mono)', fontSize: 11 }}>· {format(semana.inicio, 'dd MMM', { locale: es })}–{format(semana.fin, 'dd MMM', { locale: es })}</span>
       </span>
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-        <Chip color={claseEnergia.color} bg={claseEnergia.bg}>Energía {c?.energia ?? '—'}/5</Chip>
-        <Chip color={claseDescanso.color} bg={claseDescanso.bg}>Descanso {c?.descanso ?? '—'}/5</Chip>
-        <Chip color={cCarga.color} bg={cCarga.bg}>{c?.tolerancia_carga || 'Sin carga'}</Chip>
-        <Chip color={cMolestias.color} bg={cMolestias.bg}>{c?.molestias ? `Molestias: ${c.molestias}` : 'Sin molestias'}</Chip>
         <Chip color={GRIS} bg={GRIS_BG}>RPE medio {rpe ?? '—'}</Chip>
         <Chip color={ok === total && total > 0 ? VERDE : GRIS} bg={ok === total && total > 0 ? VERDE_BG : GRIS_BG}>{ok}/{total} sesiones</Chip>
       </div>
@@ -381,7 +272,6 @@ function SubvistaTabla({ semanasPorMes, semanasEnriquecidas, clienteData }) {
   const [semanasAbiertas, setSemanasAbiertas] = useState({})
 
   function pasaFiltroTipo(semana) {
-    if (filtroTipo === 'checkins') return !!semana.checkin
     if (filtroTipo === 'sesiones') return semana.sesiones.length > 0
     return true
   }
@@ -408,7 +298,6 @@ function SubvistaTabla({ semanasPorMes, semanasEnriquecidas, clienteData }) {
         </select>
         <select className="form-select" style={{ maxWidth: 180 }} value={filtroTipo} onChange={e => setFiltroTipo(e.target.value)}>
           <option value="todo">Todo</option>
-          <option value="checkins">Solo feedback de semana</option>
           <option value="sesiones">Solo sesiones</option>
         </select>
       </div>
@@ -418,7 +307,6 @@ function SubvistaTabla({ semanasPorMes, semanasEnriquecidas, clienteData }) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         {mesesFiltrados.map(mes => {
           const abierto = mesesAbiertos[mes.key] ?? true
-          const numCheckins = mes.semanas.filter(s => s.checkin).length
           const numSesionesFb = mes.semanas.reduce((acc, s) => acc + s.sesiones.filter(se => se.feedback).length, 0)
           return (
             <div key={mes.key} className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -426,7 +314,7 @@ function SubvistaTabla({ semanasPorMes, semanasEnriquecidas, clienteData }) {
                 style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 16px', cursor: 'pointer', background: 'var(--bg2)', borderBottom: abierto ? '1px solid var(--border)' : 'none' }}>
                 {abierto ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
                 <span style={{ fontSize: 14, fontWeight: 600, textTransform: 'capitalize' }}>{mes.label}</span>
-                <span style={{ fontSize: 11.5, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{numCheckins} feedback de semana · {numSesionesFb} sesiones con feedback</span>
+                <span style={{ fontSize: 11.5, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{numSesionesFb} sesiones con feedback</span>
               </div>
               {abierto && mes.semanas.map(semana => {
                 const semAbierta = semanasAbiertas[semana.id] ?? false
@@ -436,7 +324,6 @@ function SubvistaTabla({ semanasPorMes, semanasEnriquecidas, clienteData }) {
                     {semAbierta && (
                       <div style={{ padding: '14px 16px 16px 36px' }}>
                         <BloqueCumplimiento semana={semana} />
-                        <BloqueCheckin checkin={semana.checkin} />
                         {semana.sesiones.length === 0 ? (
                           <div style={{ fontSize: 12.5, color: 'var(--text3)' }}>Sin sesiones esta semana.</div>
                         ) : (
@@ -473,11 +360,8 @@ function SubvistaTabla({ semanasPorMes, semanasEnriquecidas, clienteData }) {
 
 // ───────────────────────── Variables y colores para el dashboard ─────────────────────────
 const VARIABLES = [
-  { id: 'energia', label: 'Energía', color: '#2d6a4f', getValor: s => s.checkin?.energia ?? null },
-  { id: 'descanso', label: 'Descanso', color: '#3b82f6', getValor: s => s.checkin?.descanso ?? null },
   { id: 'rpe', label: 'RPE medio sesiones', color: '#e34948', getValor: s => rpeMedioSemana(s) },
   { id: 'duracion', label: 'Duración media sesiones (min)', color: '#8b5cf6', getValor: s => duracionMediaSemana(s) },
-  { id: 'carga', label: 'Carga tolerada', color: '#eda100', getValor: s => cargaCodificada(s.checkin?.tolerancia_carga) },
 ]
 
 const TIPOS_GRAFICA = [
@@ -548,94 +432,9 @@ function GraficaSeguimiento({ semanas, variablesActivas }) {
   )
 }
 
-function RadarSemana({ semana }) {
-  const canvasRef = useRef(null)
-  const chartRef = useRef(null)
-
-  useEffect(() => {
-    if (!canvasRef.current || !semana) return
-    if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null }
-
-    const energia = semana.checkin?.energia ?? 0
-    const descanso = semana.checkin?.descanso ?? 0
-    const rpe = rpeMedioSemana(semana)
-    const carga = cargaCodificada(semana.checkin?.tolerancia_carga) ?? 0
-    const duracion = duracionMediaSemana(semana)
-
-    chartRef.current = new Chart(canvasRef.current, {
-      type: 'radar',
-      data: {
-        labels: ['Energía', 'Descanso', 'RPE', 'Carga', 'Duración'],
-        datasets: [{
-          label: `Semana ${semana.numero}`,
-          data: [energia, descanso, rpe != null ? rpe / 2 : 0, carga, duracion != null ? duracion / 10 : 0],
-          backgroundColor: 'rgba(59,130,246,0.25)',
-          borderColor: '#3b82f6',
-          pointBackgroundColor: '#3b82f6',
-          borderWidth: 2,
-        }],
-      },
-      options: {
-        responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { r: { beginAtZero: true, suggestedMax: 5, grid: { color: 'rgba(0,0,0,0.08)' }, ticks: { font: { size: 10 } } } },
-      },
-    })
-
-    return () => { if (chartRef.current) { chartRef.current.destroy(); chartRef.current = null } }
-  }, [semana])
-
-  return (
-    <div style={{ position: 'relative', width: '100%', maxWidth: 420, height: 360, margin: '0 auto' }}>
-      <canvas ref={canvasRef} role="img" aria-label="Perfil de la semana" />
-    </div>
-  )
-}
-
-function VistaComentarios({ semanas }) {
-  const conComentario = semanas.filter(s => s.checkin?.comentario_libre)
-  if (conComentario.length === 0) return <div className="empty"><p>No hay comentarios libres registrados.</p></div>
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {conComentario.map(s => (
-        <div key={s.id} className="card" style={{ borderLeft: `3px solid ${VERDE}`, padding: '12px 16px' }}>
-          <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)', marginBottom: 6 }}>
-            Semana {s.numero} · {format(s.inicio, 'dd MMM yyyy', { locale: es })}
-          </div>
-          <div style={{ fontSize: 13.5, fontStyle: 'italic', color: 'var(--text)' }}>"{s.checkin.comentario_libre}"</div>
-        </div>
-      ))}
-    </div>
-  )
-}
-
-function VistaChipsSemanales({ semanas, campo, clasificador }) {
-  const conValor = semanas.filter(s => s.checkin?.[campo])
-  if (conValor.length === 0) return <div className="empty"><p>No hay datos registrados.</p></div>
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      {conValor.map(s => {
-        const cls = clasificador(s.checkin[campo])
-        return (
-          <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <span style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--text3)', minWidth: 130 }}>Semana {s.numero} · {format(s.inicio, 'dd MMM', { locale: es })}</span>
-            <Chip color={cls.color} bg={cls.bg}>{s.checkin[campo]}</Chip>
-            {campo === 'molestias' && s.checkin.molestias_zonas && Object.keys(s.checkin.molestias_zonas).length > 0 && (
-              <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>{JSON.stringify(s.checkin.molestias_zonas)}</span>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
 // ───────────────────────── Sub-vista: Dashboard ─────────────────────────
 function SubvistaDashboard({ semanasEnriquecidas }) {
   const [variablesActivas, setVariablesActivas] = useState({})
-  const [vistaCualitativa, setVistaCualitativa] = useState(null)
-  const [perfilAbierto, setPerfilAbierto] = useState(false)
-  const [semanaPerfil, setSemanaPerfil] = useState('')
 
   function toggleVariable(id) {
     setVariablesActivas(v => ({ ...v, [id]: { tipo: v[id]?.tipo || 'linea', activo: !v[id]?.activo } }))
@@ -643,8 +442,6 @@ function SubvistaDashboard({ semanasEnriquecidas }) {
   function setTipoVariable(id, tipo) {
     setVariablesActivas(v => ({ ...v, [id]: { ...v[id], tipo, activo: true } }))
   }
-
-  const semanaSeleccionada = semanasEnriquecidas.find(s => s.id === semanaPerfil) || semanasEnriquecidas[semanasEnriquecidas.length - 1]
 
   if (semanasEnriquecidas.length === 0) {
     return <div className="empty"><p>No hay datos de seguimiento todavía.</p></div>
@@ -678,41 +475,11 @@ function SubvistaDashboard({ semanasEnriquecidas }) {
             )
           })}
         </div>
-        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 14, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
-          <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)', alignSelf: 'center' }}>Cualitativas:</span>
-          <button className="btn btn-ghost btn-sm" style={vistaCualitativa === 'molestias' ? { background: 'var(--bg2)', fontWeight: 600 } : {}} onClick={() => { setPerfilAbierto(false); setVistaCualitativa(v => v === 'molestias' ? null : 'molestias') }}>Molestias</button>
-          <button className="btn btn-ghost btn-sm" style={vistaCualitativa === 'comparativa' ? { background: 'var(--bg2)', fontWeight: 600 } : {}} onClick={() => { setPerfilAbierto(false); setVistaCualitativa(v => v === 'comparativa' ? null : 'comparativa') }}>Comparativa semanal</button>
-          <button className="btn btn-ghost btn-sm" style={vistaCualitativa === 'comentarios' ? { background: 'var(--bg2)', fontWeight: 600 } : {}} onClick={() => { setPerfilAbierto(false); setVistaCualitativa(v => v === 'comentarios' ? null : 'comentarios') }}>Comentarios libres</button>
-          <button className="btn btn-ghost btn-sm" style={perfilAbierto ? { background: 'var(--bg2)', fontWeight: 600 } : {}} onClick={() => { setVistaCualitativa(null); setPerfilAbierto(o => !o) }}>Perfil de semana</button>
-        </div>
       </div>
 
-      {!perfilAbierto && !vistaCualitativa && (
-        <div className="card" style={{ padding: '16px 16px 8px' }}>
-          <GraficaSeguimiento semanas={semanasEnriquecidas} variablesActivas={variablesActivas} />
-        </div>
-      )}
-
-      {!perfilAbierto && vistaCualitativa === 'molestias' && (
-        <div className="card"><VistaChipsSemanales semanas={semanasEnriquecidas} campo="molestias" clasificador={claseMolestias} /></div>
-      )}
-      {!perfilAbierto && vistaCualitativa === 'comparativa' && (
-        <div className="card"><VistaChipsSemanales semanas={semanasEnriquecidas} campo="comparativa_semanas" clasificador={claseComparativa} /></div>
-      )}
-      {!perfilAbierto && vistaCualitativa === 'comentarios' && (
-        <VistaComentarios semanas={semanasEnriquecidas} />
-      )}
-
-      {perfilAbierto && (
-        <div className="card" style={{ padding: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
-            <select className="form-select" style={{ maxWidth: 260 }} value={semanaSeleccionada?.id || ''} onChange={e => setSemanaPerfil(e.target.value)}>
-              {semanasEnriquecidas.map(s => <option key={s.id} value={s.id}>Semana {s.numero} · {format(s.inicio, 'dd MMM', { locale: es })}</option>)}
-            </select>
-          </div>
-          {semanaSeleccionada ? <RadarSemana semana={semanaSeleccionada} /> : <div className="empty"><p>Selecciona una semana.</p></div>}
-        </div>
-      )}
+      <div className="card" style={{ padding: '16px 16px 8px' }}>
+        <GraficaSeguimiento semanas={semanasEnriquecidas} variablesActivas={variablesActivas} />
+      </div>
     </div>
   )
 }
@@ -720,7 +487,6 @@ function SubvistaDashboard({ semanasEnriquecidas }) {
 // ───────────────────────── Componente principal ─────────────────────────
 export default function Seguimiento({ clienteId, planificacionId, bloques, semanas, subbloques, clienteData }) {
   const [subvista, setSubvista] = useState('tabla')
-  const [checkins, setCheckins] = useState([])
   const [sesionesCliente, setSesionesCliente] = useState([])
   const [feedbacks, setFeedbacks] = useState({})
   const [loading, setLoading] = useState(false)
@@ -729,8 +495,6 @@ export default function Seguimiento({ clienteId, planificacionId, bloques, seman
 
   async function cargarDatos() {
     setLoading(true)
-    const { data: cks } = await supabase.from('checkin_semanal').select('*').eq('cliente_id', clienteId)
-    setCheckins(cks || [])
     const { data: sess } = await supabase.from('sesiones').select('*').eq('cliente_id', clienteId).order('fecha')
     setSesionesCliente(sess || [])
     if (sess && sess.length > 0) {
@@ -745,11 +509,6 @@ export default function Seguimiento({ clienteId, planificacionId, bloques, seman
   }
 
   const semanasEnriquecidas = useMemo(() => {
-    const checkinPorSemana = {}
-    checkins.forEach(c => { if (c.semana_id) checkinPorSemana[c.semana_id] = c })
-    const checkinPorWeekStart = {}
-    checkins.forEach(c => { if (c.week_start) checkinPorWeekStart[c.week_start] = c })
-
     const lista = []
     const bloquesOrdenados = [...(bloques || [])].sort((a, b) => new Date(a.fecha_inicio) - new Date(b.fecha_inicio))
     bloquesOrdenados.forEach(b => {
@@ -767,7 +526,6 @@ export default function Seguimiento({ clienteId, planificacionId, bloques, seman
           .filter(se => se.fecha && isWithinInterval(parseISO(se.fecha + 'T12:00:00'), { start: inicio, end: fin }))
           .map(se => ({ ...se, feedback: feedbacks[se.id] || null }))
         const subPlan = (subbloques?.[b.id] || []).find(sb => num >= sb.semana_inicio && num <= sb.semana_fin)
-        const weekStartStr = format(startOfWeek(inicio, { weekStartsOn: 1 }), 'yyyy-MM-dd')
         lista.push({
           id: s?.id || `virtual-${b.id}-${num}`,
           virtual: !s,
@@ -775,7 +533,6 @@ export default function Seguimiento({ clienteId, planificacionId, bloques, seman
           bloqueNombre: b.nombre,
           numero: num,
           inicio, fin,
-          checkin: checkinPorSemana[s?.id] || checkinPorWeekStart[weekStartStr] || null,
           sesiones: sesionesSemana,
           kmReal:      s?.km_real      ?? null,
           kmObjetivo:  s?.km_objetivo  ?? null,
@@ -791,7 +548,7 @@ export default function Seguimiento({ clienteId, planificacionId, bloques, seman
       }
     })
     return lista
-  }, [bloques, semanas, subbloques, checkins, sesionesCliente, feedbacks])
+  }, [bloques, semanas, subbloques, sesionesCliente, feedbacks])
 
   const semanasPorMes = useMemo(() => {
     const map = {}

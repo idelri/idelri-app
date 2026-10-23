@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import FeedbackForm from '../components/FeedbackForm'
-import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, eachDayOfInterval,
-  isSameDay, addDays, isToday, addMonths, subMonths, parseISO, differenceInWeeks, startOfDay, subWeeks, addWeeks } from 'date-fns'
-import { calcWeekStart } from './CheckinPortal'
+import CalendarioPortal from '../components/CalendarioPortal'
+import { format, startOfWeek, endOfWeek,
+  isSameDay, addDays, isToday, parseISO, startOfDay, addWeeks } from 'date-fns'
 import { es } from 'date-fns/locale'
 
 /* ---------- tokens de diseño ---------- */
@@ -199,11 +199,9 @@ export default function ClientePortal({ token }) {
   const [controles, setControles] = useState([])
   const [packs, setPacks] = useState([])
   const [packSesiones, setPackSesiones] = useState([])
-  const [checkins, setCheckins] = useState([])
   const [tab, setTab] = useState('semana')
   const [tabInicializada, setTabInicializada] = useState(false)
   const [semanaOffset, setSemanaOffset] = useState(0)
-  const [calMes, setCalMes] = useState(new Date())
   const [bloquesAbiertos, setBloquesAbiertos] = useState(new Set())
   const [subsAbiertos, setSubsAbiertos] = useState(new Set())
   const [vista, setVista] = useState(() => window.innerWidth >= 768 ? 'escritorio' : 'movil')
@@ -273,9 +271,6 @@ export default function ClientePortal({ token }) {
     setPacks(pks || [])
     const { data: pkSes } = await supabase.rpc('get_sesiones_packs_por_token_cliente', { p_token: token })
     setPackSesiones(pkSes || [])
-
-    const { data: chks } = await supabase.rpc('get_checkins_por_token_cliente', { p_token: token })
-    setCheckins(chks || [])
 
     // Estado de conexión Strava — RPC SECURITY DEFINER, nunca expone tokens
     const { data: stravaData } = await supabase.rpc('get_strava_estado_conexion', { p_token: token })
@@ -410,16 +405,6 @@ export default function ClientePortal({ token }) {
     return sesiones.filter(s => { if (!s.fecha) return false; const f = parseISO(s.fecha); return f >= lun && f <= dom })
   }
 
-  function getSesionesCalMes() {
-    const ini = startOfMonth(calMes), fin = endOfMonth(calMes)
-    return sesiones.filter(s => {
-      const fv = fechaVisualSesion(s)
-      if (!fv) return false
-      const f = parseISO(fv)
-      return f >= ini && f <= fin
-    })
-  }
-
   function getItemsSemanaActual() {
     const lun = startOfWeek(new Date(), { weekStartsOn: 1 })
     const dom = endOfWeek(new Date(), { weekStartsOn: 1 })
@@ -428,16 +413,6 @@ export default function ClientePortal({ token }) {
       ...enSem(notas).map(x => ({ ...x, _tipo: 'nota' })),
       ...enSem(competiciones).map(x => ({ ...x, _tipo: 'competicion' })),
       ...enSem(controles).map(x => ({ ...x, _tipo: 'control' })),
-    ].sort((a, b) => a.fecha.localeCompare(b.fecha))
-  }
-
-  function getItemsCalMes() {
-    const ini = startOfMonth(calMes), fin = endOfMonth(calMes)
-    const enMes = arr => (arr || []).filter(x => { if (!x.fecha) return false; const f = parseISO(x.fecha); return f >= ini && f <= fin })
-    return [
-      ...enMes(notas).map(x => ({ ...x, _tipo: 'nota' })),
-      ...enMes(competiciones).map(x => ({ ...x, _tipo: 'competicion' })),
-      ...enMes(controles).map(x => ({ ...x, _tipo: 'control' })),
     ].sort((a, b) => a.fecha.localeCompare(b.fecha))
   }
 
@@ -467,6 +442,9 @@ export default function ClientePortal({ token }) {
     mostrar_semana:     cliente?.portal_config?.mostrar_semana     ?? true,
     mostrar_calendario: cliente?.portal_config?.mostrar_calendario ?? true,
     mostrar_plan:       cliente?.portal_config?.mostrar_plan       ?? true,
+    // Permisos (si no existen, activados)
+    registrar_manual:   cliente?.portal_config?.registrar_manual   ?? true,
+    feedback:           cliente?.portal_config?.feedback           ?? true,
   }
   const TABS_TODAS = [['semana', 'Semana'], ['calendario', 'Calendario'], ['plan', 'Mi plan']]
   const TABS_VISIBLES = TABS_TODAS.filter(([id]) =>
@@ -552,10 +530,6 @@ export default function ClientePortal({ token }) {
 
     const hechas = sesNav.filter(s => ['completed', 'partial', 'realizada'].includes(s.estado_efectivo)).length
 
-    const ENERGIA_LABEL = { 1: '😴 Muy baja', 2: '😕 Baja', 3: '😐 Normal', 4: '😊 Buena', 5: '🔥 Muy alta' }
-    const DESCANSO_LABEL = { 1: '😴 Muy malo', 2: '😕 Malo', 3: '😐 Regular', 4: '😊 Bueno', 5: '⭐ Muy bueno' }
-    const TOLERANCIA_LABEL = { 1: 'Muy baja', 2: 'Baja', 3: 'Normal', 4: 'Buena', 5: 'Muy alta' }
-
     /* Navegación de semana */
     const NavSemana = () => (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, padding: '10px 0 2px' }}>
@@ -599,7 +573,7 @@ export default function ClientePortal({ token }) {
           {semanaNumNav && (
             <div style={{ marginTop: 10 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 3 }}>
-                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3 }}>S{semanaNumNav} de {totalSem} · {hechas}/{sesNav.length} sesiones</span>
+                <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3 }}>S{semanaNumNav} de {totalSem} · {portalConfig.feedback ? `${hechas}/${sesNav.length}` : sesNav.length} sesiones</span>
               </div>
             </div>
           )}
@@ -613,87 +587,6 @@ export default function ClientePortal({ token }) {
         <div style={{ fontSize: 12.5, color: '#5a4e00', lineHeight: 1.5 }}>{semanaNav.nota_cliente}</div>
       </div>
     ) : null
-
-    const FeedbackSemana = () => {
-      const currentWeekStart = calcWeekStart()
-      const previousWeekStart = calcWeekStart(subWeeks(new Date(), 1))
-      const checkinActual   = checkins.find(c => c.week_start === currentWeekStart)
-      const checkinAnterior = checkins.find(c => c.week_start === previousWeekStart)
-      const diaSemana = new Date().getDay()
-      const esLunMarMie = diaSemana >= 1 && diaSemana <= 3
-      const mostrarAvisoAnt = esLunMarMie && !checkinActual && !checkinAnterior
-      function irACheckin(weekStr) { window.location.href = `/checkin-portal/${token}?week=${weekStr}` }
-
-      // Para semanas navegadas (pasadas o futuras)
-      const esPasada = semanaOffset < 0
-      const esFutura = semanaOffset > 0
-
-      // No mostrar feedback para semanas futuras
-      if (esFutura) return null
-
-      // Semana navegada: buscar checkin por week_start
-      const weekStartNav = calcWeekStart(lunNav)
-      const checkinNav = checkins.find(c => c.week_start === weekStartNav)
-
-      // Checkin a mostrar: el de la semana navegada (pasada o actual)
-      const checkinMostrar = esPasada ? checkinNav : checkinActual
-
-      function FeedbackCard({ checkin, weekStart }) {
-        if (!checkin) return null
-        return (
-          <div style={card}>
-            <div style={{ padding: '12px 14px' }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 10 }}>Feedback de semana</div>
-              {checkin ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {checkin.energia && (
-                      <div style={{ background: T.bg, borderRadius: 8, padding: '7px 10px', flex: 1, minWidth: 120 }}>
-                        <div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 3 }}>ENERGÍA</div>
-                        <div style={{ fontSize: 12, fontWeight: 500 }}>{ENERGIA_LABEL[checkin.energia] || checkin.energia}</div>
-                      </div>
-                    )}
-                    {checkin.descanso && (
-                      <div style={{ background: T.bg, borderRadius: 8, padding: '7px 10px', flex: 1, minWidth: 120 }}>
-                        <div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 3 }}>DESCANSO</div>
-                        <div style={{ fontSize: 12, fontWeight: 500 }}>{DESCANSO_LABEL[checkin.descanso] || checkin.descanso}</div>
-                      </div>
-                    )}
-                    {checkin.horas_sueno && (
-                      <div style={{ background: T.bg, borderRadius: 8, padding: '7px 10px', flex: 1, minWidth: 120 }}>
-                        <div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 3 }}>SUEÑO</div>
-                        <div style={{ fontSize: 12, fontWeight: 500 }}>~{checkin.horas_sueno}h/noche</div>
-                      </div>
-                    )}
-                    {checkin.tolerancia_carga && (
-                      <div style={{ background: T.bg, borderRadius: 8, padding: '7px 10px', flex: 1, minWidth: 120 }}>
-                        <div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 3 }}>TOLERANCIA</div>
-                        <div style={{ fontSize: 12, fontWeight: 500 }}>{TOLERANCIA_LABEL[checkin.tolerancia_carga] || checkin.tolerancia_carga}</div>
-                      </div>
-                    )}
-                  </div>
-                  {checkin.molestias && checkin.molestias !== 'No' && (
-                    <div style={{ background: '#FAEEDA', borderRadius: 8, padding: '8px 10px' }}>
-                      <div style={{ fontFamily: T.mono, fontSize: 8, color: '#633806', marginBottom: 3 }}>MOLESTIAS</div>
-                      <div style={{ fontSize: 12, color: '#633806' }}>{checkin.molestias}</div>
-                    </div>
-                  )}
-                  {checkin.comentario_libre && (
-                    <div style={{ borderLeft: `3px solid ${colNav}`, paddingLeft: 10 }}>
-                      <div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 3 }}>COMENTARIO</div>
-                      <div style={{ fontSize: 12, color: T.ink2, lineHeight: 1.45 }}>{checkin.comentario_libre}</div>
-                    </div>
-                  )}
-                  <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3 }}>✓ Enviado</div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        )
-      }
-
-      return <FeedbackCard checkin={checkinMostrar} weekStart={esPasada ? weekStartNav : currentWeekStart} />
-    }
 
     return (
       <div>
@@ -792,10 +685,12 @@ export default function ClientePortal({ token }) {
                           </div>
                           <div style={{ marginLeft: 'auto', fontFamily: T.mono, fontSize: 9, color: T.ink3 }}>{fechaStr}</div>
                         </div>
-                        <button onClick={() => setModalRegistrar({ fecha: dia })}
-                          style={{ width: '100%', padding: '6px', border: 'none', borderTop: `1px dashed ${T.border2}`, background: 'transparent', color: T.ink3, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: T.font }}>
-                          + registrar sesión
-                        </button>
+                        {portalConfig.registrar_manual && (
+                          <button onClick={() => setModalRegistrar({ fecha: dia })}
+                            style={{ width: '100%', padding: '6px', border: 'none', borderTop: `1px dashed ${T.border2}`, background: 'transparent', color: T.ink3, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: T.font }}>
+                            + registrar sesión
+                          </button>
+                        )}
                       </div>
                     )
                   }
@@ -828,8 +723,8 @@ export default function ClientePortal({ token }) {
                             </div>
                           )
                         }
-                        const bd = badgeEstado(item.estado_efectivo)
-                        const bf = badgeFeedback(item)
+                        const bd = portalConfig.feedback ? badgeEstado(item.estado_efectivo) : null
+                        const bf = portalConfig.feedback ? badgeFeedback(item) : null
                         return (
                           <div key={item.id} onClick={() => abrirSesion(item)}
                             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: !isLast ? `1px solid ${T.bg2}` : 'none', cursor: item.token_publico ? 'pointer' : 'default' }}>
@@ -842,7 +737,7 @@ export default function ClientePortal({ token }) {
                               {item.completada_el && item.fecha && item.completada_el !== item.fecha && <div style={{ fontSize: 9, color: T.ink3, marginTop: 1 }}>Prevista: {format(parseISO(item.fecha), "EEE d MMM", { locale: es })}</div>}
                             </div>
                             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
-                              <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 10, fontWeight: 500, background: bd.bg, color: bd.color, whiteSpace: 'nowrap' }}>{bd.label}</span>
+                              {bd && <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 10, fontWeight: 500, background: bd.bg, color: bd.color, whiteSpace: 'nowrap' }}>{bd.label}</span>}
                               {bf && <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 10, fontWeight: 500, background: bf.bg, color: bf.color, whiteSpace: 'nowrap' }}>{bf.label}</span>}
                               {item.comentario_entrenadora && !item.comentario_visto_at && (
                                 <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 10, fontWeight: 600, background: '#f5f3ff', color: '#7c3aed', whiteSpace: 'nowrap' }}>💬 Nuevo mensaje</span>
@@ -851,10 +746,12 @@ export default function ClientePortal({ token }) {
                           </div>
                         )
                       })}
-                      <button onClick={() => setModalRegistrar({ fecha: dia })}
-                        style={{ width: '100%', padding: '6px', border: 'none', borderTop: `1px dashed ${T.border2}`, background: 'transparent', color: T.ink3, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: T.font }}>
-                        + registrar sesión
-                      </button>
+                      {portalConfig.registrar_manual && (
+                        <button onClick={() => setModalRegistrar({ fecha: dia })}
+                          style={{ width: '100%', padding: '6px', border: 'none', borderTop: `1px dashed ${T.border2}`, background: 'transparent', color: T.ink3, fontSize: 11, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 4, fontFamily: T.font }}>
+                          + registrar sesión
+                        </button>
+                      )}
                     </div>
                   )
                 })
@@ -872,7 +769,6 @@ export default function ClientePortal({ token }) {
               </div>
             </div>
           )}
-          {!isDesktop && <FeedbackSemana />}
 
           {isDesktop && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -888,7 +784,6 @@ export default function ClientePortal({ token }) {
                   </div>
                 </div>
               )}
-              <FeedbackSemana />
             </div>
           )}
         </div>
@@ -898,96 +793,22 @@ export default function ClientePortal({ token }) {
 
   /* ---- TAB: CALENDARIO ---- */
   function TabCalendario() {
-    const diasMes = eachDayOfInterval({ start: startOfMonth(calMes), end: endOfMonth(calMes) })
-    const offset = (() => { const d = diasMes[0].getDay(); return d === 0 ? 6 : d - 1 })()
-    const sesMes = getSesionesCalMes()
-    const [diaSelec, setDiaSelec] = useState(new Date())
-    const sesDia = sesMes.filter(s => { const fv = fechaVisualSesion(s); return fv && isSameDay(parseISO(fv), diaSelec) })
-    const extras = getItemsCalMes()
-
     return (
-      <div style={isDesktop
-        ? { display: 'grid', gridTemplateColumns: '360px 1fr', gap: 20, padding: '20px 0 60px', alignItems: 'start' }
-        : { padding: '14px 16px 80px', display: 'flex', flexDirection: 'column', gap: 12 }}>
-        <div style={card}>
-          <div style={{ padding: '13px 14px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-              <div style={{ fontSize: 14, fontWeight: 500 }}>{format(calMes, 'MMMM yyyy', { locale: es })}</div>
-              <div style={{ display: 'flex', gap: 4 }}>
-                <button onClick={() => setCalMes(m => subMonths(m, 1))} style={{ width: 28, height: 26, borderRadius: 6, border: `1px solid ${T.border}`, background: 'transparent', cursor: 'pointer', fontSize: 12, color: T.ink2 }}>‹</button>
-                <button onClick={() => setCalMes(new Date())} style={{ padding: '0 8px', height: 26, borderRadius: 6, border: `1px solid ${T.border}`, background: 'transparent', cursor: 'pointer', fontSize: 10.5, color: T.ink2 }}>Hoy</button>
-                <button onClick={() => setCalMes(m => addMonths(m, 1))} style={{ width: 28, height: 26, borderRadius: 6, border: `1px solid ${T.border}`, background: 'transparent', cursor: 'pointer', fontSize: 12, color: T.ink2 }}>›</button>
-              </div>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7,1fr)', gap: 2, marginBottom: 4 }}>
-              {['L','M','X','J','V','S','D'].map(d => (
-                <div key={d} style={{ textAlign: 'center', fontFamily: T.mono, fontSize: 9, color: T.ink3, padding: '3px 0' }}>{d}</div>
-              ))}
-              {Array(offset).fill(null).map((_, i) => <div key={'p'+i} />)}
-              {diasMes.map(dia => {
-                const sesDia = sesMes.filter(s => { const fv = fechaVisualSesion(s); return fv && isSameDay(parseISO(fv), dia) })
-                const hoyDia = isToday(dia)
-                const selec = isSameDay(dia, diaSelec)
-                return (
-                  <div key={dia.toISOString()} onClick={() => setDiaSelec(dia)}
-                    style={{ aspectRatio: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', borderRadius: 7, background: hoyDia ? colA : selec ? T.bg2 : 'transparent', cursor: 'pointer', position: 'relative', padding: 2 }}>
-                    <span style={{ fontSize: 11, color: hoyDia ? '#fff' : T.ink, fontWeight: hoyDia ? 600 : 400 }}>{format(dia, 'd')}</span>
-                    {sesDia.length > 0 && (
-                      <div style={{ display: 'flex', gap: 2, position: 'absolute', bottom: 3 }}>
-                        {sesDia.slice(0, 3).map((s, i) => (
-                          <div key={i} style={{ width: 4, height: 4, borderRadius: '50%', background: hoyDia ? 'rgba(255,255,255,0.8)' : dotColor(s.estado_efectivo) }} />
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-
-        {/* Columna derecha en desktop: detalle día + notas */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          <div style={card}>
-            <div style={{ padding: '12px 14px' }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 8 }}>
-                {format(diaSelec, "EEEE d 'de' MMMM", { locale: es })}
-              </div>
-              {sesDia.length === 0 ? (
-                <div style={{ fontSize: 12, color: T.ink3, padding: '8px 0' }}>Sin sesiones este día</div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                  {sesDia.map((s, si) => {
-                    const bd = badgeEstado(s.estado_efectivo)
-                    return (
-                      <div key={s.id} onClick={() => abrirSesion(s)}
-                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 0', borderBottom: si < sesDia.length - 1 ? `1px solid ${T.bg2}` : 'none', cursor: s.token_publico ? 'pointer' : 'default' }}>
-                        <div style={{ width: 34, height: 34, borderRadius: 8, background: `${colA}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{iconoSesion(s)}</div>
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 500 }}>{s.titulo}</div>
-                          {s.duracion_min && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.ink3, marginTop: 1 }}>{s.duracion_min} min</div>}
-                          {s.completada_el && s.fecha && s.completada_el !== s.fecha && <div style={{ fontSize: 9, color: T.ink3, marginTop: 1 }}>Prevista: {format(parseISO(s.fecha), "EEE d MMM", { locale: es })}</div>}
-                        </div>
-                        <span style={{ fontSize: 9, padding: '2px 8px', borderRadius: 10, fontWeight: 500, background: bd.bg, color: bd.color, flexShrink: 0 }}>{bd.label}</span>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-          {extras.length > 0 && (
-            <div style={card}>
-              <div style={{ padding: '12px 14px' }}>
-                <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 8 }}>Notas y eventos · {format(calMes, 'MMMM', { locale: es })}</div>
-                <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {extras.map(x => <ItemExtra key={x.id} item={x} />)}
-                </div>
-              </div>
-            </div>
-          )}
-        </div>
-      </div>
+      <CalendarioPortal
+        T={T}
+        isDesktop={isDesktop}
+        sesiones={sesiones}
+        notas={notas}
+        competiciones={competiciones}
+        controles={controles}
+        bloques={bloques}
+        semanas={semanas}
+        fechaVisualSesion={fechaVisualSesion}
+        iconoSesion={iconoSesion}
+        abrirSesion={abrirSesion}
+        conEstado={portalConfig.feedback}
+        colorEstado={e => (e ? dotColor(e) : null)}
+      />
     )
   }
 
@@ -1438,7 +1259,7 @@ export default function ClientePortal({ token }) {
         {tab === 'plan'       && portalConfig.mostrar_plan       && <TabPlan />}
       </div>
 
-      {modalRegistrar && <ModalRegistrar />}
+      {modalRegistrar && portalConfig.registrar_manual && <ModalRegistrar />}
 
       {/* ── Conexión Strava ────────────────────────────────────────────── */}
       <div style={{
