@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import FeedbackForm from '../components/FeedbackForm'
 import CalendarioPortal from '../components/CalendarioPortal'
+import PlanPortal from '../components/PlanPortal'
 import { format, startOfWeek, endOfWeek,
   isSameDay, addDays, isToday, parseISO, startOfDay, addWeeks } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -120,70 +121,6 @@ function ItemExtra({ item }) {
 }
 
 /* ---- Línea de tiempo con zoom ---- */
-function Timeline({ bloques, inicio, totalSemanas }) {
-  const [zoom, setZoom] = useState(28)
-  const scRef = useRef(null)
-  const hoy = new Date()
-  const diasTranscurridos = Math.max(0, (hoy - inicio) / 86400000)
-  const posHoy = Math.min((diasTranscurridos / 7) * zoom, totalSemanas * zoom)
-  const enCurso = hoy >= inicio
-
-  useEffect(() => {
-    const c = scRef.current
-    if (c && enCurso) c.scrollLeft = Math.max(0, posHoy - c.clientWidth / 2)
-  }, [posHoy, zoom])
-
-  let acc = 0
-  return (
-    <div>
-      <div ref={scRef} style={{ overflowX: 'auto', paddingBottom: 4 }}>
-        <div style={{ width: totalSemanas * zoom, position: 'relative', paddingTop: 20 }}>
-          {enCurso && (
-            <>
-              <div style={{ position: 'absolute', left: posHoy, top: 0, fontFamily: T.mono, fontSize: 8, background: T.ink, color: '#fff', padding: '1px 5px', borderRadius: 3, transform: 'translateX(-50%)', whiteSpace: 'nowrap', zIndex: 5 }}>HOY</div>
-              <div style={{ position: 'absolute', left: posHoy, top: 16, width: 2, height: 50, background: T.ink, zIndex: 4 }} />
-            </>
-          )}
-          <div style={{ display: 'flex', gap: 2 }}>
-            {bloques.map((b, i) => {
-              const w = (b.semanas || 0) * zoom - 2
-              const esCurso = (() => {
-                if (!b.fecha_inicio) return false
-                const bi = parseISO(b.fecha_inicio + 'T12:00:00')
-                const bf = addDays(bi, (b.semanas || 0) * 7)
-                return hoy >= bi && hoy < bf
-              })()
-              acc += b.semanas || 0
-              return (
-                <div key={b.id} style={{ width: w, height: 44, borderRadius: 6, background: b.color || T.green, border: esCurso ? `2px solid ${T.ink}` : '2px solid transparent', padding: '5px 7px', overflow: 'hidden', flexShrink: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: '#fff', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.nombre}</div>
-                  <div style={{ fontFamily: T.mono, fontSize: 8, color: 'rgba(255,255,255,0.75)' }}>{b.semanas} sem</div>
-                </div>
-              )
-            })}
-          </div>
-          {/* eje de fechas */}
-          <div style={{ display: 'flex', marginTop: 5 }}>
-            {bloques.map(b => {
-              if (!b.fecha_inicio) return null
-              const w = (b.semanas || 0) * zoom
-              return (
-                <div key={b.id} style={{ width: w, flexShrink: 0, fontFamily: T.mono, fontSize: 8, color: T.ink3, paddingLeft: 2 }}>
-                  {format(parseISO(b.fecha_inicio + 'T12:00:00'), 'MMM yy', { locale: es })}
-                </div>
-              )
-            })}
-          </div>
-        </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6 }}>
-        <button onClick={() => setZoom(z => Math.max(14, z - 7))} style={{ width: 24, height: 22, border: `1px solid ${T.border}`, background: T.surface, borderRadius: 5, cursor: 'pointer', fontSize: 14, color: T.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-        <button onClick={() => setZoom(z => Math.min(60, z + 7))} style={{ width: 24, height: 22, border: `1px solid ${T.border}`, background: T.surface, borderRadius: 5, cursor: 'pointer', fontSize: 14, color: T.ink2, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-        <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, marginLeft: 4 }}>zoom</span>
-      </div>
-    </div>
-  )
-}
 
 export default function ClientePortal({ token }) {
   const [loading, setLoading] = useState(true)
@@ -815,51 +752,37 @@ export default function ClientePortal({ token }) {
 
   /* ---- TAB: MI PLAN ---- */
   function TabPlan() {
-    const inicio = plan?.fecha_inicio ? parseISO(plan.fecha_inicio + 'T12:00:00') : null
+    const tienePlanConFechas = bloques.some(b => b.fecha_inicio && b.semanas > 0)
 
     return (
       <div style={isDesktop
         ? { display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 0 60px' }
         : { padding: '14px 16px 80px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
-        {/* Resumen del plan */}
-        {plan && (
+        {/* Cuenta atrás, progreso, línea de tiempo y próximas semanas */}
+        {tienePlanConFechas ? (
+          <PlanPortal T={T} isDesktop={isDesktop} plan={plan} bloques={bloques} semanas={semanas} competiciones={competiciones} card={card} />
+        ) : plan && (
           <div style={card}>
             <div style={{ padding: '13px 14px' }}>
               <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 5 }}>Tu planificación</div>
               <div style={{ fontSize: 15, fontWeight: 600 }}>{plan.nombre}</div>
-              {plan.notas && <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 5, lineHeight: 1.45 }}>{plan.notas}</div>}
-              <div style={{ display: 'flex', gap: 16, marginTop: 12, paddingTop: 10, borderTop: `1px solid ${T.bg2}` }}>
-                {plan.fecha_inicio && <div><div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 2 }}>INICIO</div><div style={{ fontSize: 12, fontWeight: 500 }}>{format(parseISO(plan.fecha_inicio + 'T12:00:00'), 'd MMM yyyy', { locale: es })}</div></div>}
-                {plan.fecha_fin && <div><div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 2 }}>FIN</div><div style={{ fontSize: 12, fontWeight: 500 }}>{format(parseISO(plan.fecha_fin + 'T12:00:00'), 'd MMM yyyy', { locale: es })}</div></div>}
-                <div><div style={{ fontFamily: T.mono, fontSize: 8, color: T.ink3, marginBottom: 2 }}>SEMANAS</div><div style={{ fontSize: 12, fontWeight: 500 }}>{totalSem}</div></div>
-              </div>
-              <div style={{ marginTop: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3 }}>Progreso · S{semanaNum} de {totalSem}</span>
-                  <span style={{ fontFamily: T.mono, fontSize: 9, color: colA, fontWeight: 600 }}>{progreso}%</span>
-                </div>
-                <div style={{ height: 5, background: T.bg2, borderRadius: 3, overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${progreso}%`, background: colA, borderRadius: 3 }} />
-                </div>
-              </div>
             </div>
           </div>
         )}
 
-        {/* Línea de tiempo con zoom */}
-        {bloques.length > 0 && inicio && (
+        {plan?.notas && (
           <div style={card}>
-            <div style={{ padding: '12px 14px' }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 10 }}>Línea de tiempo · {totalSem} sem</div>
-              <Timeline bloques={bloques} inicio={inicio} totalSemanas={totalSem} />
+            <div style={{ padding: '13px 14px' }}>
+              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 6 }}>Sobre el plan</div>
+              <div style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.55, whiteSpace: 'pre-line' }}>{plan.notas}</div>
             </div>
           </div>
         )}
 
         {/* Bloques */}
         <div>
-          <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 7 }}>Bloques de entrenamiento</div>
+          <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 7 }}>Fases del plan</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {bloques.map(b => {
               const activo = esBloqueActivo(b)
@@ -1224,7 +1147,7 @@ export default function ClientePortal({ token }) {
           <div style={{ display: 'flex', borderTop: `1px solid ${T.bg2}` }}>
             {TABS_VISIBLES.map(([id, label]) => (
               <div key={id} onClick={() => setTab(id)}
-                style={{ flex: isDesktop ? 0 : 1, padding: isDesktop ? '8px 20px 7px' : '8px 4px 7px', textAlign: 'center', fontSize: 12, fontWeight: tab === id ? 600 : 400, color: tab === id ? colA : T.ink3, cursor: 'pointer', borderBottom: tab === id ? `2px solid ${colA}` : '2px solid transparent', transition: 'all .15s' }}>
+                style={{ flex: isDesktop ? 0 : 1, padding: isDesktop ? '8px 20px 7px' : '8px 4px 7px', textAlign: 'center', whiteSpace: 'nowrap', fontSize: 12, fontWeight: tab === id ? 600 : 400, color: tab === id ? colA : T.ink3, cursor: 'pointer', borderBottom: tab === id ? `2px solid ${colA}` : '2px solid transparent', transition: 'all .15s' }}>
                 {label}
               </div>
             ))}
