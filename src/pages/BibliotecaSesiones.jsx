@@ -4,55 +4,23 @@ import { format, startOfWeek, addDays, addWeeks, subWeeks } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { Plus, X, Search } from 'lucide-react'
 import EmojiPicker from '../components/EmojiPicker'
+import { clonarSesion } from '../lib/clonarSesion'
 const ETIQUETAS_SESION = ['Fuerza', 'Resistencia', 'Movilidad', 'Activación', 'HIIT', 'Recuperación', 'Core', 'Potencia', 'Técnica', 'Preventivo', 'Evaluación / Test']
 
+// Copias completas (bloques, ejercicios, fases de resistencia…) con la
+// función copiar_sesion de la base de datos.
 async function copiarPlantillaASesion({ plantilla, clienteId, fecha }) {
-  const { data: nueva } = await supabase.from('sesiones').insert({
-    cliente_id: clienteId, titulo: plantilla.titulo, fecha,
-    objetivo: plantilla.objetivo, duracion_min: plantilla.duracion_min,
-    icono: plantilla.icono, tipo_editor: plantilla.tipo_editor || 'fuerza',
-    tipo_sesion: 'programada', es_plantilla: false,
-  }).select().single()
+  const { data: nueva } = await clonarSesion(supabase, plantilla.id, { clienteDestino: clienteId, fecha })
   if (!nueva) return
-  const { data: bls } = await supabase.from('sesion_bloques').select('*').eq('sesion_id', plantilla.id).order('orden')
-  for (const b of bls || []) {
-    const { data: nb } = await supabase.from('sesion_bloques').insert({
-      sesion_id: nueva.id, nombre: b.nombre, color: b.color, nota: b.nota, orden: b.orden,
-    }).select().single()
-    const { data: ejs } = await supabase.from('sesion_ejercicios').select('*').eq('bloque_id', b.id).order('orden')
-    for (const e of ejs || []) {
-      await supabase.from('sesion_ejercicios').insert({
-        bloque_id: nb.id, nombre: e.nombre, series: e.series, reps: e.reps,
-        rpe: e.rpe, notas: e.notas, media_tipo: e.media_tipo,
-        media_url: e.media_url, video_url: e.video_url, orden: e.orden,
-      })
-    }
-  }
-  return nueva
+  await supabase.from('sesiones').update({ es_plantilla: false, tipo_sesion: 'programada' }).eq('id', nueva.id)
+  return { ...nueva, es_plantilla: false, tipo_sesion: 'programada' }
 }
 
 async function guardarSesionComoPlantilla(sesion) {
-  const { data: nueva } = await supabase.from('sesiones').insert({
-    titulo: sesion.titulo, objetivo: sesion.objetivo, duracion_min: sesion.duracion_min,
-    icono: sesion.icono, tipo_editor: sesion.tipo_editor || 'fuerza',
-    es_plantilla: true, cliente_id: null,
-  }).select().single()
+  const { data: nueva } = await clonarSesion(supabase, sesion.id, { clienteDestino: null, fecha: null })
   if (!nueva) return
-  const { data: bls } = await supabase.from('sesion_bloques').select('*').eq('sesion_id', sesion.id).order('orden')
-  for (const b of bls || []) {
-    const { data: nb } = await supabase.from('sesion_bloques').insert({
-      sesion_id: nueva.id, nombre: b.nombre, color: b.color, nota: b.nota, orden: b.orden,
-    }).select().single()
-    const { data: ejs } = await supabase.from('sesion_ejercicios').select('*').eq('bloque_id', b.id).order('orden')
-    for (const e of ejs || []) {
-      await supabase.from('sesion_ejercicios').insert({
-        bloque_id: nb.id, nombre: e.nombre, series: e.series, reps: e.reps,
-        rpe: e.rpe, notas: e.notas, media_tipo: e.media_tipo,
-        media_url: e.media_url, video_url: e.video_url, orden: e.orden,
-      })
-    }
-  }
-  return nueva
+  await supabase.from('sesiones').update({ es_plantilla: true }).eq('id', nueva.id)
+  return { ...nueva, es_plantilla: true }
 }
 
 // Menú contextual para sesiones del calendario

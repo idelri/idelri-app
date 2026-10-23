@@ -248,7 +248,8 @@ export default function SesionPublica({ token }) {
   const [bloques, setBloques] = useState([])
   const [ejercicios, setEjercicios] = useState({})
   const [fases, setFases] = useState([])
-  const [fasesItems, setFasesItems] = useState([]) // lista combinada fases sueltas + grupos
+  const [fasesItems, setFasesItems] = useState([]) // lista combinada fases sueltas + grupos (sin bloque)
+  const [fasesPorBloque, setFasesPorBloque] = useState({}) // bloqueId → fases sueltas + grupos
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [feedbackEnviado, setFeedbackEnviado] = useState(null)
@@ -282,8 +283,8 @@ export default function SesionPublica({ token }) {
   async function cargar() {
     const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr] = await Promise.all([
       supabase.rpc('get_sesion_por_token',              { p_token: token }).then(r => r.data),
-      supabase.rpc('get_fases_por_token_sesion',        { p_token: token }).then(r => r.data),
-      supabase.rpc('get_grupos_fases_por_token_sesion', { p_token: token }).then(r => r.data),
+      supabase.rpc('get_fases_bloque_por_token_sesion',  { p_token: token }).then(r => r.data),
+      supabase.rpc('get_grupos_bloque_por_token_sesion', { p_token: token }).then(r => r.data),
       supabase.rpc('get_nombre_por_token_sesion',       { p_token: token }).then(r => r.data),
       supabase.rpc('get_bloques_por_token_sesion',      { p_token: token }).then(r => r.data),
       supabase.rpc('get_ejercicios_por_token_sesion',   { p_token: token }).then(r => r.data),
@@ -305,14 +306,20 @@ export default function SesionPublica({ token }) {
     }
     setFases(fssArr || [])
     // Build combined list for rendering
+    // Fases y grupos de cada bloque de resistencia (bloque_id); los que no
+    // tienen bloque (formato antiguo) se muestran arriba, como antes.
     const gruposMap = {}
     ;(grpsArr || []).forEach(g => { gruposMap[g.id] = { type: 'grupo', ...g, fases: [] } })
-    const libres = []
+    const porBloque = {}
+    const meter = (k, it) => { (porBloque[k || '_'] = porBloque[k || '_'] || []).push(it) }
     ;(fssArr || []).forEach(f => {
       if (f.grupo_id && gruposMap[f.grupo_id]) gruposMap[f.grupo_id].fases.push(f)
-      else libres.push({ type: 'fase', ...f })
+      else meter(f.bloque_id, { type: 'fase', ...f })
     })
-    setFasesItems([...libres, ...Object.values(gruposMap)].sort((a, b) => a.orden - b.orden))
+    Object.values(gruposMap).forEach(g => meter(g.bloque_id, g))
+    Object.values(porBloque).forEach(l => l.sort((a, b) => a.orden - b.orden))
+    setFasesItems(porBloque['_'] || [])
+    setFasesPorBloque(porBloque)
     const bls = blsArr || []
     setBloques(bls)
     const ejsList = ejsArr || []
@@ -394,103 +401,8 @@ export default function SesionPublica({ token }) {
     })
   }
 
-  if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.paper, fontFamily: 'sans-serif' }}>
-      <p style={{ color: T.ink3 }}>Cargando sesión...</p>
-    </div>
-  )
-  if (error) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.paper, fontFamily: 'sans-serif' }}>
-      <p style={{ color: T.accent }}>Enlace no válido o sesión no encontrada.</p>
-    </div>
-  )
-
-  const COLORES_TINT = c => c + '1f'
-
-  return (
-    <div style={{ background: T.paper, color: T.ink, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", minHeight: '100vh', fontSize: 15, lineHeight: 1.45 }}>
-      <div style={{ maxWidth: 620, margin: '0 auto', padding: '18px 14px 44px' }}>
-
-        {/* HERO */}
-        <header style={{ position: 'relative', overflow: 'hidden', background: T.hero, color: '#fff', borderRadius: 18, padding: '28px 20px 22px', marginBottom: 4 }}>
-          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 3, background: T.accent }} />
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-            <p style={{ margin: '0 0 10px', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: T.accent, fontFamily: "'JetBrains Mono', monospace" }}>Ficha de entrenamiento</p>
-            <span style={{ fontSize: 11.5, fontWeight: 500, color: 'rgba(255,255,255,0.4)', flexShrink: 0, whiteSpace: 'nowrap' }}>{cliente?.nombre}</span>
-          </div>
-          <h1 style={{ margin: '0 0 12px', fontSize: 28, fontWeight: 400, fontFamily: "'DM Serif Display', Georgia, serif", lineHeight: 1.1 }}>{sesion.titulo}</h1>
-          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 7, fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
-            {sesion.fecha && <span style={{ textTransform: 'capitalize' }}>{format(parseISO(sesion.fecha), 'EEEE d MMM yyyy', { locale: es })}</span>}
-            {sesion.fecha && sesion.duracion_min && <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />}
-            {sesion.duracion_min && <span>{sesion.duracion_min} min</span>}
-            {(sesion.fecha || sesion.duracion_min) && sesion.tipo_sesion && <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />}
-            {sesion.tipo_sesion && <span style={{ textTransform: 'capitalize' }}>{sesion.tipo_sesion}</span>}
-          </div>
-          {sesion.objetivo && (
-            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
-              <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 5, fontFamily: "'JetBrains Mono', monospace" }}>Objetivo</div>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: 'rgba(255,255,255,0.85)', whiteSpace: 'pre-wrap' }}>{sesion.objetivo}</p>
-            </div>
-          )}
-          {sesion.comentario_entrenadora && (
-            <div id="comentario" style={{ marginTop: 14, padding: '12px 14px', background: 'rgba(255,255,255,0.07)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: T.accent, fontFamily: "'JetBrains Mono', monospace" }}>💬 Mensaje de tu entrenadora</div>
-                {comentarioVisto && <span style={{ fontSize: 10, color: T.accent, opacity: 0.7 }}>👁 Leído</span>}
-              </div>
-              <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'rgba(255,255,255,0.8)', whiteSpace: 'pre-wrap' }}>{sesion.comentario_entrenadora}</p>
-              {!comentarioVisto && (
-                <button onClick={async () => {
-                  await supabase.rpc('marcar_comentario_visto', { p_token: token })
-                  setComentarioVisto(true)
-                }} style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: T.accent, background: 'transparent', border: `1.5px solid ${T.accent}66`, borderRadius: 8, padding: '5px 14px', cursor: 'pointer' }}>
-                  Marcar como leído
-                </button>
-              )}
-            </div>
-          )}
-        </header>
-
-        {/* BANNER COMPLETADA (solo cuando ya está guardada) */}
-        {(sesionFlexibleGuardada || sesionFijaGuardada) && (
-          <div style={{ marginTop: 14, width: '100%', padding: '13px 16px', borderRadius: 12, background: '#f0fdf4', border: '1.5px solid #16a34a', color: '#15803d', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
-            <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: '-0.01em' }}>✓ Sesión completada y guardada</span>
-            {sesionFlexibleGuardada && (
-              <button onClick={async () => {
-                await supabase.rpc('desmarcar_sesion_por_token', { p_token: token })
-                setSesionFlexibleGuardada(null)
-                setClonToken(null)
-                setFeedbackEnviado(null)
-                setSesion(s => ({ ...s, completada_el: null, estado: 'pendiente' }))
-                const allEjs = Object.values(ejercicios).flat()
-                const progInit = {}
-                const vrInit = {}
-                allEjs.forEach(e => { const n = parseInt(e.series) || 1; progInit[e.id] = { series: Array(n).fill(false), hecho: false }; vrInit[e.id] = {} })
-                setProgreso(progInit)
-                setValoresReales(vrInit)
-              }} style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: '1.5px solid #16a34a', background: 'transparent', color: '#15803d', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                Realizar de nuevo
-              </button>
-            )}
-          </div>
-        )}
-
-        {sesion.material && (
-          <div style={{ marginTop: 16, background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: '16px 18px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: T.ink3, marginBottom: 7 }}>🎒 Material necesario</div>
-            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: T.ink2, whiteSpace: 'pre-wrap' }}>{sesion.material}</p>
-          </div>
-        )}
-
-        {sesion.indicaciones && (
-          <div style={{ marginTop: 16, background: T.accent + '10', border: `1px solid ${T.accent}33`, borderRadius: 14, padding: '14px 18px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-            <span style={{ flexShrink: 0, color: T.accent }}>✏️</span>
-            <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: T.accentD, fontWeight: 500, whiteSpace: 'pre-wrap' }}>{sesion.indicaciones}</p>
-          </div>
-        )}
-
-        {/* FASES (sesiones de resistencia/carrera) */}
-        {fasesItems.length > 0 && (() => {
+  // Fases y grupos de repetición de un bloque de resistencia
+  function renderFasesLista(items) {
           const FC_COLORS = ['#10b981','#84cc16','#f59e0b','#ef4444','#7c3aed']
           const FC_LABELS = ['Zona 1 – Muy suave','Zona 2 – Suave','Zona 3 – Moderada','Zona 4 – Dura','Zona 5 – Máxima']
 
@@ -592,7 +504,7 @@ export default function SesionPublica({ token }) {
             )
           }
 
-          return fasesItems.map((item, idx) => {
+          return items.map((item, idx) => {
             if (item.type === 'fase') {
               return (
                 <section key={item.id} style={{ marginTop: 26 }}>
@@ -615,7 +527,105 @@ export default function SesionPublica({ token }) {
               </section>
             )
           })
-        })()}
+  }
+
+  if (loading) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.paper, fontFamily: 'sans-serif' }}>
+      <p style={{ color: T.ink3 }}>Cargando sesión...</p>
+    </div>
+  )
+  if (error) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: T.paper, fontFamily: 'sans-serif' }}>
+      <p style={{ color: T.accent }}>Enlace no válido o sesión no encontrada.</p>
+    </div>
+  )
+
+  const COLORES_TINT = c => c + '1f'
+
+  return (
+    <div style={{ background: T.paper, color: T.ink, fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif", minHeight: '100vh', fontSize: 15, lineHeight: 1.45 }}>
+      <div style={{ maxWidth: 620, margin: '0 auto', padding: '18px 14px 44px' }}>
+
+        {/* HERO */}
+        <header style={{ position: 'relative', overflow: 'hidden', background: T.hero, color: '#fff', borderRadius: 18, padding: '28px 20px 22px', marginBottom: 4 }}>
+          <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: 3, background: T.accent }} />
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+            <p style={{ margin: '0 0 10px', fontSize: 10, fontWeight: 700, letterSpacing: '0.16em', textTransform: 'uppercase', color: T.accent, fontFamily: "'JetBrains Mono', monospace" }}>Ficha de entrenamiento</p>
+            <span style={{ fontSize: 11.5, fontWeight: 500, color: 'rgba(255,255,255,0.4)', flexShrink: 0, whiteSpace: 'nowrap' }}>{cliente?.nombre}</span>
+          </div>
+          <h1 style={{ margin: '0 0 12px', fontSize: 28, fontWeight: 400, fontFamily: "'DM Serif Display', Georgia, serif", lineHeight: 1.1 }}>{sesion.titulo}</h1>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 7, fontSize: 13, color: 'rgba(255,255,255,0.5)' }}>
+            {sesion.fecha && <span style={{ textTransform: 'capitalize' }}>{format(parseISO(sesion.fecha), 'EEEE d MMM yyyy', { locale: es })}</span>}
+            {sesion.fecha && sesion.duracion_min && <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />}
+            {sesion.duracion_min && <span>{sesion.duracion_min} min</span>}
+            {(sesion.fecha || sesion.duracion_min) && sesion.tipo_sesion && <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(255,255,255,0.3)', flexShrink: 0 }} />}
+            {sesion.tipo_sesion && <span style={{ textTransform: 'capitalize' }}>{sesion.tipo_sesion}</span>}
+          </div>
+          {sesion.objetivo && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: '1px solid rgba(255,255,255,0.1)' }}>
+              <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: 'rgba(255,255,255,0.35)', marginBottom: 5, fontFamily: "'JetBrains Mono', monospace" }}>Objetivo</div>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: 'rgba(255,255,255,0.85)', whiteSpace: 'pre-wrap' }}>{sesion.objetivo}</p>
+            </div>
+          )}
+          {sesion.comentario_entrenadora && (
+            <div id="comentario" style={{ marginTop: 14, padding: '12px 14px', background: 'rgba(255,255,255,0.07)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.12)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: T.accent, fontFamily: "'JetBrains Mono', monospace" }}>💬 Mensaje de tu entrenadora</div>
+                {comentarioVisto && <span style={{ fontSize: 10, color: T.accent, opacity: 0.7 }}>👁 Leído</span>}
+              </div>
+              <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.55, color: 'rgba(255,255,255,0.8)', whiteSpace: 'pre-wrap' }}>{sesion.comentario_entrenadora}</p>
+              {!comentarioVisto && (
+                <button onClick={async () => {
+                  await supabase.rpc('marcar_comentario_visto', { p_token: token })
+                  setComentarioVisto(true)
+                }} style={{ marginTop: 10, fontSize: 12, fontWeight: 600, color: T.accent, background: 'transparent', border: `1.5px solid ${T.accent}66`, borderRadius: 8, padding: '5px 14px', cursor: 'pointer' }}>
+                  Marcar como leído
+                </button>
+              )}
+            </div>
+          )}
+        </header>
+
+        {/* BANNER COMPLETADA (solo cuando ya está guardada) */}
+        {(sesionFlexibleGuardada || sesionFijaGuardada) && (
+          <div style={{ marginTop: 14, width: '100%', padding: '13px 16px', borderRadius: 12, background: '#f0fdf4', border: '1.5px solid #16a34a', color: '#15803d', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+            <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: '-0.01em' }}>✓ Sesión completada y guardada</span>
+            {sesionFlexibleGuardada && (
+              <button onClick={async () => {
+                await supabase.rpc('desmarcar_sesion_por_token', { p_token: token })
+                setSesionFlexibleGuardada(null)
+                setClonToken(null)
+                setFeedbackEnviado(null)
+                setSesion(s => ({ ...s, completada_el: null, estado: 'pendiente' }))
+                const allEjs = Object.values(ejercicios).flat()
+                const progInit = {}
+                const vrInit = {}
+                allEjs.forEach(e => { const n = parseInt(e.series) || 1; progInit[e.id] = { series: Array(n).fill(false), hecho: false }; vrInit[e.id] = {} })
+                setProgreso(progInit)
+                setValoresReales(vrInit)
+              }} style={{ fontSize: 12, fontWeight: 600, padding: '6px 14px', borderRadius: 8, border: '1.5px solid #16a34a', background: 'transparent', color: '#15803d', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                Realizar de nuevo
+              </button>
+            )}
+          </div>
+        )}
+
+        {sesion.material && (
+          <div style={{ marginTop: 16, background: T.card, border: `1px solid ${T.line}`, borderRadius: 14, padding: '16px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 10.5, fontWeight: 700, letterSpacing: '0.09em', textTransform: 'uppercase', color: T.ink3, marginBottom: 7 }}>🎒 Material necesario</div>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5, color: T.ink2, whiteSpace: 'pre-wrap' }}>{sesion.material}</p>
+          </div>
+        )}
+
+        {sesion.indicaciones && (
+          <div style={{ marginTop: 16, background: T.accent + '10', border: `1px solid ${T.accent}33`, borderRadius: 14, padding: '14px 18px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+            <span style={{ flexShrink: 0, color: T.accent }}>✏️</span>
+            <p style={{ margin: 0, fontSize: 13.5, lineHeight: 1.5, color: T.accentD, fontWeight: 500, whiteSpace: 'pre-wrap' }}>{sesion.indicaciones}</p>
+          </div>
+        )}
+
+        {/* FASES sin bloque (formato antiguo) */}
+        {fasesItems.length > 0 && renderFasesLista(fasesItems)}
 
         {/* BLOQUES */}
         {bloques.map((b, idx) => {
@@ -623,7 +633,9 @@ export default function SesionPublica({ token }) {
           const bloqueHecho = ejsBloque.every(e => progreso[e.id]?.hecho)
           const bc = b.color || '#E29A2E'
           const metodoLabel = METODO_LABEL[b.metodo || 'individual']
-          const descTexto = b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual']
+          const fasesBloque = fasesPorBloque[b.id] || []
+          const esResistencia = fasesBloque.length > 0 && ejsBloque.length === 0
+          const descTexto = esResistencia ? null : (b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual'])
 
           function renderEj(e, eIdx, totalEjs) {
             const yid = e.media_tipo === 'youtube' ? ytId(e.media_url) : null
@@ -743,7 +755,7 @@ export default function SesionPublica({ token }) {
                       {String(idx + 1).padStart(2, '0')}
                     </div>
                     <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1, lineHeight: 1.2, color: T.ink }}>{b.nombre}</h2>
-                    {metodoLabel && (
+                    {metodoLabel && !esResistencia && (
                       <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 99, background: `${bc}18`, color: bc, border: `1px solid ${bc}33`, flexShrink: 0, fontFamily: 'monospace' }}>
                         {metodoLabel}
                       </span>
@@ -763,7 +775,11 @@ export default function SesionPublica({ token }) {
                   </div>
                 )}
 
-                {METODOS_SERIES_BLOQUE.includes(b.metodo) && (
+                {fasesBloque.length > 0 && (
+                  <div style={{ padding: '0 14px 16px' }}>{renderFasesLista(fasesBloque)}</div>
+                )}
+
+                {!esResistencia && METODOS_SERIES_BLOQUE.includes(b.metodo) && (
                   b.metodo === 'amrap' ? (
                     <div style={{ borderTop: `0.5px solid ${T.line}`, borderBottom: `0.5px solid ${T.line}`, background: `${bc}08` }}>
                       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '8px 12px' }}>
@@ -871,7 +887,7 @@ export default function SesionPublica({ token }) {
                 )}
 
                 {/* Block footer */}
-                {interactiva && <div style={{ padding: '9px 14px', borderTop: `0.5px solid ${T.line}`, background: `${bc}06`, display: 'flex', justifyContent: 'flex-end' }}>
+                {interactiva && !esResistencia && <div style={{ padding: '9px 14px', borderTop: `0.5px solid ${T.line}`, background: `${bc}06`, display: 'flex', justifyContent: 'flex-end' }}>
                   {sesionFlexibleGuardada || sesionFijaGuardada || clonToken ? (
                     <span style={{ fontSize: 11.5, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: '1.5px solid #16a34a', background: '#f0fdf4', color: '#16a34a' }}>✓ Bloque hecho</span>
                   ) : (
