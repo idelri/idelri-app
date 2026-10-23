@@ -5,6 +5,7 @@ import { format, addWeeks, addDays, parseISO, differenceInWeeks, differenceInDay
 import { es } from 'date-fns/locale'
 import { Plus, X, ChevronDown, ChevronRight, Trophy, Calendar, Layers, Pencil, Lock } from 'lucide-react'
 import CalendarioSesiones from '../components/CalendarioSesiones'
+import RecursosEntrenadora from '../components/RecursosEntrenadora'
 import EmojiPicker from '../components/EmojiPicker'
 import Seguimiento from './Seguimiento'
 import PortalClienteModal from '../components/PortalClienteModal'
@@ -2180,7 +2181,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         )}
         {planificacion && (
           <div className="flex gap-2">
-            {[['timeline','Timeline'],['lista','Lista'],['calendario','Calendario'],['seguimiento','Seguimiento']].map(([v, label]) => (
+            {[['timeline','Timeline'],['lista','Lista'],['calendario','Calendario'],['recursos','Recursos'],['seguimiento','Seguimiento']].map(([v, label]) => (
               <button key={v} className="btn btn-ghost btn-sm"
                 style={vista === v ? { background: 'var(--bg2)', fontWeight: 600 } : {}}
                 onClick={() => cambiarVista(v)}>
@@ -2210,11 +2211,11 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         <>
           {vista === 'calendario' && (
             <div>
-              {sesiones.filter(s => !s.fecha && !s.pack_id).length > 0 && (
+              {sesiones.filter(s => !s.fecha && !s.pack_id && !s.recurso).length > 0 && (
                 <div style={{ marginBottom: 20, padding: 16, background: 'var(--bg2)', borderRadius: 10, border: '1px solid var(--border)' }}>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 10 }}>Sesiones sin fecha asignada</div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {sesiones.filter(s => !s.fecha && !s.pack_id).map(s => (
+                    {sesiones.filter(s => !s.fecha && !s.pack_id && !s.recurso).map(s => (
                       <div key={s.id}
                         draggable
                         onDragStart={() => setArrastrando({ ...s, _tipo: 'sesion' })}
@@ -2312,6 +2313,15 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               />
             </div>
           )}
+          {vista === 'recursos' && (
+            <RecursosEntrenadora
+              clienteId={clienteSeleccionado}
+              sesiones={sesiones}
+              setSesiones={setSesiones}
+              onAbrir={s => { if (setSesionesContext) setSesionesContext({ clienteId: clienteSeleccionado, sesionId: s.id }); if (setPage) setPage('sesiones') }}
+              onEliminar={s => eliminarItem('sesion', s.id)}
+            />
+          )}
           {vista === 'seguimiento' && (
             <Seguimiento clienteId={clienteSeleccionado} planificacionId={planificacion?.id} bloques={bloques} semanas={semanas} subbloques={subbloques} clienteData={clienteData} />
           )}
@@ -2375,7 +2385,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               return isSameMonth(col.fecha, hoy)
             }
 
-            const sesionesSinFecha = sesiones.filter(s => !s.fecha)
+            const sesionesSinFecha = sesiones.filter(s => !s.fecha && !s.recurso)
             const COLOR_TIPO = { programada: 'var(--accent)', flexible: '#8b5cf6', opcional: '#94a3b8' }
 
             return (

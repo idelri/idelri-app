@@ -7,6 +7,7 @@ const VISTAS = [
   { key: 'mostrar_semana',     label: 'Esta semana' },
   { key: 'mostrar_calendario', label: 'Calendario' },
   { key: 'mostrar_plan',       label: 'Mi plan' },
+  { key: 'mostrar_recursos',   label: 'Recursos (si tiene)' },
 ]
 const PERMISOS = [
   { key: 'registrar_manual', label: 'Registrar sesiones manuales', ayuda: 'El cliente puede añadir sesiones que hace por su cuenta.' },
