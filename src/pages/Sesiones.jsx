@@ -208,7 +208,8 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   const [feedbacks, setFeedbacks] = useState({}) // { sesion_id: feedback_data }
   useEffect(() => { cargarClientes() }, [])
   useEffect(() => { if (clienteSeleccionado) cargarSesiones() }, [clienteSeleccionado])
-  useEffect(() => { if (sesionAbierta) { cargarDetalle(sesionAbierta.id); setDirty(false); setAvisoSinGuardar(false) } }, [sesionAbierta])
+  // Solo al cambiar de sesión (no cada vez que se actualiza un campo de la abierta)
+  useEffect(() => { if (sesionAbierta) { cargarDetalle(sesionAbierta.id); setDirty(false); setAvisoSinGuardar(false) } }, [sesionAbierta?.id]) // eslint-disable-line
   useEffect(() => {
     if (esPlantilla && sesionInicialId && !sesionInicialCargada.current) {
       sesionInicialCargada.current = true
@@ -250,6 +251,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
 
   const [controlesCal, setControlesCal] = useState([])
   const [fases, setFases] = useState([])
+  const conversionesHechas = useRef(new Set()) // sesiones ya convertidas (fases sueltas → bloque) en esta visita
   const [carritos, setCarritos] = useState({}) // bloqueId → lista combinada fases sueltas + grupos (bloques de resistencia)
   const [draggingCarrito, setDraggingCarrito] = useState(null) // { idx, grupoId?, innerIdx? }
   const [ctxCarrito, setCtxCarrito] = useState(null) // { x, y, item, grupoId?, innerIdx? }
@@ -284,7 +286,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     return p
   }
   function cloneFasePayload(f) {
-    const { id, sesion_id, grupo_id, ...p } = f
+    const { id, sesion_id, grupo_id, bloque_id, type, ...p } = f
     return p
   }
   // Copy
@@ -296,7 +298,12 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   }
   function copiarBloqueFuerza(bloque) {
     const ejs = (ejercicios[bloque.id] || []).map(e => cloneEjercicioPayload(e))
-    guardarEnPortapapeles({ tipo: 'bloque_fuerza', nombre: bloque.nombre || 'Bloque', payload: { bloque: cloneBloquePayload(bloque), ejercicios: ejs } })
+    // Bloque de resistencia: también sus fases y grupos
+    const carrito = (carritos[bloque.id] || []).map(it => it.type === 'fase'
+      ? { type: 'fase', fase: cloneFasePayload(it) }
+      : { type: 'grupo', repeticiones: it.repeticiones, orden: it.orden, fases: it.fases.map(f => cloneFasePayload(f)) })
+    const bloquePayload = { ...cloneBloquePayload(bloque), biblioteca: bibDeBloque(bloque.id) }
+    guardarEnPortapapeles({ tipo: 'bloque_fuerza', nombre: bloque.nombre || 'Bloque', payload: { bloque: bloquePayload, ejercicios: ejs, carrito } })
   }
   // Paste
   async function pegarDesdePortapapeles() {
@@ -314,7 +321,28 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
         const { data: e } = await supabase.from('sesion_ejercicios').insert({ ...payload.ejercicios[i], bloque_id: nb.id, orden: i }).select().single()
         if (e) nuevosEjs.push(e)
       }
-      setBloques(bs => [...bs, nb]); setEjercicios(ej => ({ ...ej, [nb.id]: nuevosEjs })); setDirty(true)
+      const nuevoCarrito = []
+      for (const it of payload.carrito || []) {
+        const { type, ...rest } = it
+        if (type === 'fase') {
+          const { type: _t, ...fase } = rest.fase
+          const { data: f } = await supabase.from('sesion_fases').insert({ ...fase, sesion_id: sesionAbierta.id, bloque_id: nb.id, grupo_id: null }).select().single()
+          if (f) nuevoCarrito.push({ type: 'fase', ...f })
+        } else {
+          const { data: g } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, bloque_id: nb.id, repeticiones: rest.repeticiones, orden: rest.orden }).select().single()
+          if (!g) continue
+          const fs = []
+          for (let i = 0; i < rest.fases.length; i++) {
+            const { type: _t2, ...fase } = rest.fases[i]
+            const { data: f } = await supabase.from('sesion_fases').insert({ ...fase, sesion_id: sesionAbierta.id, bloque_id: nb.id, grupo_id: g.id, orden: i }).select().single()
+            if (f) fs.push(f)
+          }
+          nuevoCarrito.push({ type: 'grupo', ...g, fases: fs })
+        }
+      }
+      setBloques(bs => [...bs, nb]); setEjercicios(ej => ({ ...ej, [nb.id]: nuevosEjs }))
+      if (nuevoCarrito.length) setCarritos(c => ({ ...c, [nb.id]: nuevoCarrito }))
+      setDirty(true)
     }
   }
 
@@ -464,7 +492,8 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     ])
     // Fases sin bloque (formato antiguo "sesión de carrera"): se pasan a un
     // bloque de resistencia y se vuelve a cargar.
-    if ((fs || []).some(f => !f.bloque_id) || (grps || []).some(g => !g.bloque_id)) {
+    if (((fs || []).some(f => !f.bloque_id) || (grps || []).some(g => !g.bloque_id)) && !conversionesHechas.current.has(sesionId)) {
+      conversionesHechas.current.add(sesionId) // un solo intento por sesión
       if (await convertirFasesSueltas(sesionId, bls || [])) return cargarDetalle(sesionId)
     }
     setBloques(bls || [])
@@ -499,6 +528,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
       if (ses.biblioteca !== 'resistencia') {
         await supabase.from('sesiones').update({ biblioteca: 'resistencia' }).eq('id', sesionId)
         setSesiones(ss => ss.map(x => x.id === sesionId ? { ...x, biblioteca: 'resistencia' } : x))
+        // (setSesionAbierta ya no recarga el detalle: el efecto depende solo del id)
         setSesionAbierta(sa => sa && sa.id === sesionId ? { ...sa, biblioteca: 'resistencia' } : sa)
       }
     }
@@ -511,10 +541,11 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
       if (error || !nb) return false
       destino = nb
     }
-    await Promise.all([
+    const [r1, r2] = await Promise.all([
       supabase.from('sesion_fases').update({ bloque_id: destino.id }).eq('sesion_id', sesionId).is('bloque_id', null),
       supabase.from('sesion_fase_grupos').update({ bloque_id: destino.id }).eq('sesion_id', sesionId).is('bloque_id', null),
     ])
+    if (r1.error || r2.error) { console.error('No se pudieron pasar las fases al bloque', r1.error || r2.error); return false }
     return true
   }
 
@@ -758,13 +789,17 @@ async function guardarSesion() {
     if (!sesionAbierta) return
     const id = sesionAbierta.id
     setSesionAbierta(s => s ? { ...s, biblioteca: key } : s)
-    setSesiones(ss => ss.map(x => x.id === id ? { ...x, biblioteca: key } : x))
-    setBloques(bs => bs.map(b => b.sesion_id === id || b.sesion_id == null ? { ...b, biblioteca: null } : b))
+    const tipoEd = key === 'resistencia' ? 'carrera' : 'fuerza'
+    setSesiones(ss => ss.map(x => x.id === id ? { ...x, biblioteca: key, tipo_editor: tipoEd } : x))
+    // Los bloques con fases de resistencia se quedan como resistencia; el resto hereda
+    const conFases = new Set(Object.keys(carritos).filter(k => (carritos[k] || []).length > 0))
+    setBloques(bs => bs.map(b => conFases.has(b.id) ? { ...b, biblioteca: 'resistencia' } : { ...b, biblioteca: null }))
     const tipo_editor = key === 'resistencia' ? 'carrera' : 'fuerza' // lo usa el cuestionario de feedback
     setSesionAbierta(s => s ? { ...s, tipo_editor } : s)
     await Promise.all([
       supabase.from('sesiones').update({ biblioteca: key, tipo_editor }).eq('id', id),
-      supabase.from('sesion_bloques').update({ biblioteca: null }).eq('sesion_id', id),
+      supabase.from('sesion_bloques').update({ biblioteca: null }).eq('sesion_id', id).not('id', 'in', `(${[...conFases].join(',') || '00000000-0000-0000-0000-000000000000'})`),
+      conFases.size ? supabase.from('sesion_bloques').update({ biblioteca: 'resistencia' }).in('id', [...conFases]) : Promise.resolve(),
     ])
   }
 
@@ -2363,6 +2398,13 @@ async function guardarSesion() {
                     {b.nombre || `Bloque ${idx + 1}`}
                   </div>
                   {b.nota && <div style={{ padding: '0 14px 8px', fontSize: 12.5, color: 'var(--text2)' }}>{b.nota}</div>}
+                  {(carritos[b.id] || []).length > 0 && (
+                    <div style={{ padding: '0 14px 10px', fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', lineHeight: 1.8 }}>
+                      {(carritos[b.id] || []).map((it, i) => it.type === 'fase'
+                        ? <div key={i}>▸ {it.nombre || 'Fase'}{it.volumen_min ? ` · ${it.volumen_min} min` : it.volumen_km ? ` · ${it.volumen_km} km` : ''}{it.fc_zona ? ` · Z${it.fc_zona}` : ''}</div>
+                        : <div key={i}><strong style={{ color: '#4C82E8' }}>{it.repeticiones} ×</strong> ({it.fases.map(f => f.nombre || 'Fase').join(' + ')})</div>)}
+                    </div>
+                  )}
                   <div style={{ padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
                     {(ejercicios[b.id] || []).map((e, eIdx) => {
                       const activas = e.variables_activas || []
