@@ -531,5 +531,5 @@ $$;
 
 update public.clientes
 set portal_config = coalesce(portal_config, '{}'::jsonb)
-                    || '{"registrar_manual": false, "feedback": false}'::jsonb
+                    || '{"registrar_manual": false, "feedback": false, "strava": false}'::jsonb
 where id = '900cd59b-7771-49fc-be7a-b5e91b5935e5';

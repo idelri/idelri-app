@@ -11,6 +11,7 @@ const VISTAS = [
 const PERMISOS = [
   { key: 'registrar_manual', label: 'Registrar sesiones manuales', ayuda: 'El cliente puede añadir sesiones que hace por su cuenta.' },
   { key: 'feedback',         label: 'Feedback de las sesiones',    ayuda: 'El cliente puede marcar sesiones como hechas y contarte cómo le fueron.' },
+  { key: 'strava',           label: 'Conectar Strava',             ayuda: 'El cliente ve la opción de conectar su cuenta de Strava.' },
 ]
 const CLAVES = [...VISTAS, ...PERMISOS].map(o => o.key)
 

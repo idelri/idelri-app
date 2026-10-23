@@ -445,6 +445,7 @@ export default function ClientePortal({ token }) {
     // Permisos (si no existen, activados)
     registrar_manual:   cliente?.portal_config?.registrar_manual   ?? true,
     feedback:           cliente?.portal_config?.feedback           ?? true,
+    strava:             cliente?.portal_config?.strava             ?? true,
   }
   const TABS_TODAS = [['semana', 'Semana'], ['calendario', 'Calendario'], ['plan', 'Mi plan']]
   const TABS_VISIBLES = TABS_TODAS.filter(([id]) =>
@@ -1262,6 +1263,7 @@ export default function ClientePortal({ token }) {
       {modalRegistrar && portalConfig.registrar_manual && <ModalRegistrar />}
 
       {/* ── Conexión Strava ────────────────────────────────────────────── */}
+      {portalConfig.strava && (
       <div style={{
         maxWidth: isDesktop ? 1100 : 520, margin: '32px auto 48px',
         padding: isDesktop ? '0 24px' : '0 16px',
@@ -1366,6 +1368,7 @@ export default function ClientePortal({ token }) {
           )}
         </div>
       </div>
+      )}
     </div>
   )
 }
