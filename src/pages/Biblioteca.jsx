@@ -10,8 +10,15 @@ function ytId(url) {
 }
 
 const EMPTY = {
-  nombre: '', descripcion: '', media_tipo: '', media_url: '', video_url: '', notas: '',
+  nombre: '', descripcion: '', media_tipo: '', media_url: '', video_url: '', notas: '', carpeta: 'fuerza',
 }
+
+// Carpetas de la biblioteca de ejercicios (columna ejercicios_biblioteca.carpeta)
+const CARPETAS = [
+  { key: 'fuerza',      label: 'Ejercicios fuerza',                 icono: '🏋️' },
+  { key: 'campo',       label: 'Ejercicios/Tareas de campo',        icono: '⚽' },
+  { key: 'resistencia', label: 'Ejercicios/Bloques de resistencia', icono: '🏃' },
+]
 
 // ── BIBLIOTECA BLOQUES (sin cambios) ─────────────────────────────────────────
 function BibliotecaBloques() {
@@ -211,6 +218,8 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
   const [inlineSaving, setInlineSaving] = useState(false)
   const [toast, setToast] = useState(null)
   const [videoConflicto, setVideoConflicto] = useState(null)
+  const [carpeta, setCarpeta] = useState(() => { try { return localStorage.getItem('bibCarpeta') || 'fuerza' } catch { return 'fuerza' } })
+  const elegirCarpeta = k => { setCarpeta(k); setInlineEj(null); try { localStorage.setItem('bibCarpeta', k) } catch {} }
 
   useEffect(() => { cargar() }, [])
 
@@ -242,7 +251,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
     setVideoConflicto(conflicto || null)
   }
 
-  function abrirNuevo() { setForm(EMPTY); setModal('nuevo'); setVideoConflicto(null) }
+  function abrirNuevo() { setForm({ ...EMPTY, carpeta }); setModal('nuevo'); setVideoConflicto(null) }
 
   function abrirEditar(e) {
     setInlineEj(null)
@@ -250,7 +259,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
     setForm({
       nombre: e.nombre || '', descripcion: e.descripcion || '',
       media_tipo: e.media_tipo || '', media_url: e.media_url || '',
-      video_url: e.video_url || '', notas: e.notas || '',
+      video_url: e.video_url || '', notas: e.notas || '', carpeta: e.carpeta || 'fuerza',
     })
     setModal(e)
   }
@@ -272,6 +281,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       nombre: form.nombre.trim(), descripcion: form.descripcion || null,
       media_tipo: form.media_tipo || null, media_url: form.media_url || null,
       video_url: form.video_url || null, notas: form.notas || null,
+      carpeta: form.carpeta || 'fuerza',
     }
     const { error } = modal === 'nuevo'
       ? await supabase.from('ejercicios_biblioteca').insert(datos)
@@ -304,7 +314,8 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
   }
 
   const textoBusqueda = busquedaTexto.toLowerCase()
-  const filtrados = ejercicios.filter(e => {
+  const enCarpeta = ejercicios.filter(e => (e.carpeta || 'fuerza') === carpeta)
+  const filtrados = enCarpeta.filter(e => {
     if (!textoBusqueda) return true
     return e.nombre.toLowerCase().includes(textoBusqueda) || (e.descripcion || '').toLowerCase().includes(textoBusqueda)
   }).sort((a, b) => {
@@ -348,8 +359,26 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       {tabPrincipal === 'bloques' && <BibliotecaBloques />}
 
       {tabPrincipal === 'ejercicios' && (<>
+        {/* Carpetas */}
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 16 }}>
+          {CARPETAS.map(c => {
+            const activa = carpeta === c.key
+            const n = ejercicios.filter(e => (e.carpeta || 'fuerza') === c.key).length
+            return (
+              <button key={c.key} onClick={() => elegirCarpeta(c.key)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 16px', borderRadius: 10, cursor: 'pointer', border: `1.5px solid ${activa ? 'var(--accent)' : 'var(--border)'}`, background: activa ? 'var(--accent-light)' : 'var(--bg)', color: activa ? 'var(--accent)' : 'var(--text)', fontSize: 13, fontWeight: activa ? 600 : 500, textAlign: 'left' }}>
+                <span style={{ fontSize: 18 }}>{activa ? '📂' : '📁'}</span>
+                <span>
+                  {c.label}
+                  <span style={{ display: 'block', fontSize: 11, fontWeight: 400, color: 'var(--text3)', fontFamily: 'var(--mono)' }}>{n} ejercicio{n === 1 ? '' : 's'}</span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
         <div className="page-header" style={{ marginTop: 0, paddingTop: 0 }}>
-          <p className="page-subtitle">{filtrados.length} de {ejercicios.length} ejercicios</p>
+          <p className="page-subtitle">{filtrados.length} de {enCarpeta.length} ejercicios</p>
           <button className="btn btn-primary" onClick={abrirNuevo}><Plus size={14} /> Nuevo ejercicio</button>
         </div>
 
@@ -375,7 +404,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
         {loading ? (
           <div className="empty"><p>Cargando...</p></div>
         ) : filtrados.length === 0 ? (
-          <div className="empty"><p>No hay ejercicios{busquedaTexto ? ' con esa búsqueda' : ''}.</p></div>
+          <div className="empty"><p>No hay ejercicios{busquedaTexto ? ' con esa búsqueda' : ' en esta carpeta'}.</p></div>
         ) : vista === 'cards' ? (
           /* ── CARDS ── */
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
@@ -569,6 +598,12 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                   <div className="form-group">
                     <label className="form-label">Nombre *</label>
                     <input className="form-input" value={form.nombre} onChange={e => fd('nombre', e.target.value)} placeholder="Ej: Sentadilla búlgara" autoFocus />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Carpeta</label>
+                    <select className="form-select" value={form.carpeta} onChange={e => fd('carpeta', e.target.value)}>
+                      {CARPETAS.map(c => <option key={c.key} value={c.key}>{c.label}</option>)}
+                    </select>
                   </div>
                   <div className="form-group">
                     <label className="form-label">Descripción</label>
