@@ -162,6 +162,52 @@ const METODO_LABEL = {
 
 const METODOS_SERIES_BLOQUE = ['superserie','triserie','circuito','complejo','contrast','cluster','emom','amrap']
 
+const EJEC_LABEL = { maxima: 'Máxima vel. contracción', medio: 'Ritmo medio', excentrico: 'Foco excéntrico' }
+const RIR_COLOR = { '4+': '#16a34a', '2-3': '#ca8a04', '1-0': '#dc2626' }
+const RIR_BG    = { '4+': '#f0fdf4', '2-3': '#fffbeb', '1-0': '#fef2f2' }
+
+// Prescripción de un ejercicio en piezas cortas, en el mismo orden que el
+// resumen compacto del editor: "3 × 10 · 80 kg · RIR 2-3 · ⏱ 90s"
+function partesEjercicio(e, metodo) {
+  const activas = e.variables_activas || []
+  const seriesBloque = METODOS_SERIES_BLOQUE.includes(metodo)
+  const lado = e.reps_por_lado ? ' c/lado' : ''
+  const p = []
+  if (!seriesBloque && e.series && e.reps) p.push({ t: `${e.series} × ${e.reps}${lado}`, principal: true })
+  else if (!seriesBloque && e.series)      p.push({ t: `${e.series} series`, principal: true })
+  else if (e.reps)                         p.push({ t: `${e.reps} reps${lado}`, principal: true })
+  if (e.num_mini && e.reps_mini) p.push({ t: `${e.num_mini} × ${e.reps_mini} mini` })
+  if (e.microdescanso_seg)       p.push({ t: `pausa ${e.microdescanso_seg}s` })
+  if (activas.includes('Peso') && e.peso) p.push({ t: `${e.peso} kg` })
+  if (activas.includes('Peso/lado') && (e.peso_der || e.peso_izq)) p.push({ t: `D ${e.peso_der || '–'} / I ${e.peso_izq || '–'} kg` })
+  if (activas.includes('Duración') && e.duracion)   p.push({ t: `${e.duracion}s${lado}` })
+  if (activas.includes('Distancia') && e.distancia) p.push({ t: `${e.distancia} m` })
+  if (activas.includes('Altura') && e.altura)       p.push({ t: `${e.altura} cm` })
+  if (activas.includes('RIR') && e.rpe)             p.push({ t: `RIR ${e.rpe}`, color: RIR_COLOR[e.rpe], bg: RIR_BG[e.rpe] })
+  if (activas.includes('Descanso') && e.descanso)   p.push({ t: `⏱ ${e.descanso}` })
+  const ejec = e.ejecucion_tipo === 'libre' ? e.ejecucion_texto : (EJEC_LABEL[e.ejecucion_tipo] || e.ejecucion_tipo)
+  if (ejec) p.push({ t: ejec, texto: true })
+  return p
+}
+
+function FilaPrescripcion({ e, metodo, size = 13 }) {
+  const partes = partesEjercicio(e, metodo)
+  if (!partes.length) return null
+  return (
+    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, alignItems: 'center' }}>
+      {partes.map((x, i) => (
+        <span key={i} style={{
+          fontSize: x.principal ? size + 1 : x.texto ? size - 1.5 : size,
+          fontWeight: x.principal ? 800 : x.texto ? 600 : 700,
+          fontFamily: x.texto ? 'inherit' : "'JetBrains Mono', monospace",
+          color: x.color || T.ink, background: x.bg || T.paper,
+          padding: '3px 8px', borderRadius: 6, lineHeight: 1.3, whiteSpace: x.texto ? 'normal' : 'nowrap',
+        }}>{x.t}</span>
+      ))}
+    </div>
+  )
+}
+
 const getLabelVueltas = (metodo) => {
   if (metodo === 'circuito' || metodo === 'amrap') return 'vueltas'
   if (metodo === 'emom') return 'min'
@@ -292,14 +338,6 @@ export default function SesionPublica({ token }) {
     setProgreso(progInit)
     setValoresReales(vrInit)
     setLoading(false)
-  }
-
-  async function actualizarValorReal(ejId, campo, valor) {
-    setValoresReales(vr => {
-      const next = { ...vr, [ejId]: { ...(vr[ejId] || {}), [campo]: valor } }
-      supabase.rpc('actualizar_valor_real_por_token', { p_token: token, p_ejercicio_id: ejId, p_valor: next[ejId] })
-      return next
-    })
   }
 
   function marcarTodas() {
@@ -587,12 +625,8 @@ export default function SesionPublica({ token }) {
             const esVideoArchivo = e.media_tipo === 'video' && e.media_url
             const esImagen = (e.media_tipo === 'imagen' || e.media_tipo === 'gif') && e.media_url
             const videoLink = !yid && e.video_url ? e.video_url : null
-            const activas = e.variables_activas || []
             const prog = progreso[e.id] || { series: [false], hecho: false }
-            const vrEj = valoresReales[e.id] || {}
             const hecho = prog.hecho
-            const rirColorMap = { '4+': '#16a34a', '2-3': '#ca8a04', '1-0': '#dc2626' }
-            const rirBgMap   = { '4+': '#f0fdf4', '2-3': '#fffbeb', '1-0': '#fef2f2' }
             const label = `${idx + 1}${getLabelEjercicio(b.metodo, eIdx)}`
             const isLast = eIdx === totalEjs - 1
             const locked = sesionFlexibleGuardada || sesionFijaGuardada || clonToken
@@ -610,10 +644,16 @@ export default function SesionPublica({ token }) {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '9px 14px', background: `${bc}12`, borderBottom: `0.5px solid ${bc}30` }}>
                   <span style={{ fontSize: 13, fontWeight: 700, fontFamily: 'monospace', color: bc, background: `${bc}20`, padding: '3px 8px', borderRadius: 4, flexShrink: 0, minWidth: 24, textAlign: 'center' }}>{label}</span>
                   <span style={{ fontSize: 14, fontWeight: 700, flex: 1, lineHeight: 1.25, color: T.ink }}>{e.nombre}</span>
+                  {!hasMedia && videoLink && (
+                    <a href={videoLink} target="_blank" rel="noopener noreferrer"
+                      style={{ fontSize: 11, fontWeight: 700, color: T.accent, textDecoration: 'none', padding: '3px 9px', border: `1px solid ${T.accent}`, borderRadius: 6, flexShrink: 0 }}>
+                      ▶ Ver vídeo
+                    </a>
+                  )}
                 </div>
-                {/* 2-col: media + data */}
+                {/* Con foto/vídeo: 2 columnas (media + datos). Sin media: solo datos, compacto */}
                 <div style={{ display: 'flex', alignItems: 'stretch', background: hecho ? '#f6fef9' : T.card, transition: 'background 0.2s' }}>
-                  {/* Media col 42% */}
+                  {hasMedia && (
                   <div style={{ flex: '0 0 42%', borderRight: `0.5px solid ${T.line}`, overflow: 'hidden', position: 'relative' }}>
                     {esVideoArchivo ? (
                       <video src={e.media_url} controls muted preload="metadata"
@@ -639,114 +679,13 @@ export default function SesionPublica({ token }) {
                     ) : esImagen ? (
                       <img src={e.media_url} alt={e.nombre}
                         style={{ width: '100%', aspectRatio: '3/4', objectFit: 'cover', display: 'block' }} />
-                    ) : (
-                      <div style={{ width: '100%', aspectRatio: '3/4', background: T.paper, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-                        <span style={{ fontSize: 24, opacity: 0.18 }}>▶</span>
-                        {videoLink && (
-                          <a href={videoLink} target="_blank" rel="noopener noreferrer"
-                            style={{ fontSize: 10.5, fontWeight: 700, color: T.accent, textDecoration: 'none', padding: '4px 10px', border: `1px solid ${T.accent}`, borderRadius: 6 }}>
-                            Ver vídeo
-                          </a>
-                        )}
-                      </div>
-                    )}
+                    ) : null}
                   </div>
-                  {/* Data col 58% */}
-                  <div style={{ flex: 1, padding: '10px 11px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    {/* Chips + inputs — zona superior */}
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, flex: 1 }}>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-                      {e.series && !METODOS_SERIES_BLOQUE.includes(b.metodo) && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>Series</span>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.series}</span>
-                        </div>
-                      )}
-                      {e.reps && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>{e.reps_por_lado ? 'R/lado' : 'Reps'}</span>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.reps}{e.reps_por_lado ? '/l' : ''}</span>
-                        </div>
-                      )}
-                      {activas.includes('Peso') && e.peso && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>kg</span>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.peso}</span>
-                        </div>
-                      )}
-                      {activas.includes('Duración') && e.duracion && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>seg</span>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.duracion}</span>
-                        </div>
-                      )}
-                      {activas.includes('Distancia') && e.distancia && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>m</span>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.distancia}</span>
-                        </div>
-                      )}
-                      {activas.includes('Altura') && e.altura && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>cm</span>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.altura}</span>
-                        </div>
-                      )}
-                      {activas.includes('RIR') && e.rpe && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: rirBgMap[e.rpe] || T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: rirColorMap[e.rpe] || T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>RIR</span>
-                          <span style={{ fontSize: 15, fontWeight: 700, color: rirColorMap[e.rpe] || T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.rpe}</span>
-                        </div>
-                      )}
-                      {activas.includes('Descanso') && e.descanso && (
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 8, padding: '5px 9px' }}>
-                          <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>desc</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: T.ink }}>{e.descanso}</span>
-                        </div>
-                      )}
-                      {(e.ejecucion_tipo || e.ejecucion_texto) && (() => {
-                        const EJEC_LABEL = { maxima: 'Máxima vel. contracción', medio: 'Ritmo medio', excentrico: 'Foco excéntrico' }
-                        const label = e.ejecucion_tipo === 'libre' ? e.ejecucion_texto : (EJEC_LABEL[e.ejecucion_tipo] || e.ejecucion_tipo)
-                        return label ? (
-                          <div style={{ display: 'flex', flexDirection: 'column', background: T.paper, borderRadius: 8, padding: '5px 9px', maxWidth: '100%' }}>
-                            <span style={{ fontSize: 8, fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>Ejec.</span>
-                            <span style={{ fontSize: 11, fontWeight: 600, color: T.ink }}>{label}</span>
-                          </div>
-                        ) : null
-                      })()}
-                    </div>
-                    {/* Inputs valores reales */}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                      {e.reps && (
-                        <input type="number" min="0" step="1" value={vrEj.reps || ''} onChange={ev => actualizarValorReal(e.id, 'reps', ev.target.value)}
-                          placeholder={e.reps_por_lado ? 'r/l real' : 'reps real'}
-                          style={{ fontSize: 11, border: `1px solid ${T.line}`, borderRadius: 6, padding: '3px 7px', outline: 'none', background: '#fff', color: T.ink2, width: 72 }} />
-                      )}
-                      {activas.includes('Peso') && e.peso && (
-                        <input type="number" min="0" step="0.5" value={vrEj.peso || ''} onChange={ev => actualizarValorReal(e.id, 'peso', ev.target.value)}
-                          placeholder="kg real"
-                          style={{ fontSize: 11, border: `1px solid ${T.line}`, borderRadius: 6, padding: '3px 7px', outline: 'none', background: '#fff', color: T.ink2, width: 68 }} />
-                      )}
-                      {activas.includes('Peso/lado') && (e.peso_der || e.peso_izq) && (<>
-                        <input type="number" min="0" step="0.5" value={vrEj.peso_der || ''} onChange={ev => actualizarValorReal(e.id, 'peso_der', ev.target.value)}
-                          placeholder="D kg"
-                          style={{ fontSize: 11, border: `1px solid ${T.line}`, borderRadius: 6, padding: '3px 7px', outline: 'none', background: '#fff', color: T.ink2, width: 56 }} />
-                        <input type="number" min="0" step="0.5" value={vrEj.peso_izq || ''} onChange={ev => actualizarValorReal(e.id, 'peso_izq', ev.target.value)}
-                          placeholder="I kg"
-                          style={{ fontSize: 11, border: `1px solid ${T.line}`, borderRadius: 6, padding: '3px 7px', outline: 'none', background: '#fff', color: T.ink2, width: 56 }} />
-                      </>)}
-                      {activas.includes('Duración') && e.duracion && (
-                        <input type="number" min="0" step="1" value={vrEj.duracion || ''} onChange={ev => actualizarValorReal(e.id, 'duracion', ev.target.value)}
-                          placeholder="seg real"
-                          style={{ fontSize: 11, border: `1px solid ${T.line}`, borderRadius: 6, padding: '3px 7px', outline: 'none', background: '#fff', color: T.ink2, width: 72 }} />
-                      )}
-                      {activas.includes('Distancia') && e.distancia && (
-                        <input type="number" min="0" step="0.5" value={vrEj.distancia || ''} onChange={ev => actualizarValorReal(e.id, 'distancia', ev.target.value)}
-                          placeholder="m real"
-                          style={{ fontSize: 11, border: `1px solid ${T.line}`, borderRadius: 6, padding: '3px 7px', outline: 'none', background: '#fff', color: T.ink2, width: 72 }} />
-                      )}
-                    </div>
-                    </div>{/* /chips+inputs */}
+                  )}
+                  {/* Datos */}
+                  <div style={{ flex: 1, padding: hasMedia ? '10px 11px' : '9px 14px', display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                    {/* Prescripción en una fila (como en el editor) */}
+                    <FilaPrescripcion e={e} metodo={b.metodo} />
                     {/* Series — parte inferior separada */}
                     {parseInt(e.series) > 0 && (
                       <div style={{ marginTop: 'auto', paddingTop: 6, marginTop: 6, borderTop: `0.5px solid ${T.line}`, display: 'flex', flexDirection: 'column', gap: 5 }}>
@@ -869,9 +808,7 @@ export default function SesionPublica({ token }) {
                       const yid2 = e.media_tipo === 'youtube' ? ytId(e.media_url) : null
                       const esVideo2 = e.media_tipo === 'video' && e.media_url
                       const esImg2 = (e.media_tipo === 'imagen' || e.media_tipo === 'gif') && e.media_url
-                      const activas2 = e.variables_activas || []
                       const prog2 = progreso[e.id] || { series: [false], hecho: false }
-                      const vrEj2 = valoresReales[e.id] || {}
                       const hecho2 = prog2.hecho
                       const label2 = `${idx + 1}${getLabelEjercicio(b.metodo, eIdx)}`
                       const locked = sesionFlexibleGuardada || sesionFijaGuardada || clonToken
@@ -881,11 +818,7 @@ export default function SesionPublica({ token }) {
                             <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: bc, flexShrink: 0 }}>{label2}</span>
                             <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1, lineHeight: 1.2, color: T.ink, minWidth: 0 }}>{e.nombre}</span>
                           </div>
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                            {e.series && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 7, padding: '4px 8px' }}><span style={{ fontSize: 7.5, fontWeight: 700, textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>S</span><span style={{ fontSize: 14, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.series}</span></div>}
-                            {e.reps && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 7, padding: '4px 8px' }}><span style={{ fontSize: 7.5, fontWeight: 700, textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>R</span><span style={{ fontSize: 14, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.reps}</span></div>}
-                            {activas2.includes('Peso') && e.peso && <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', background: T.paper, borderRadius: 7, padding: '4px 8px' }}><span style={{ fontSize: 7.5, fontWeight: 700, textTransform: 'uppercase', color: T.ink3, fontFamily: "'JetBrains Mono', monospace" }}>kg</span><span style={{ fontSize: 14, fontWeight: 700, color: T.ink, fontFamily: "'JetBrains Mono', monospace" }}>{e.peso}</span></div>}
-                          </div>
+                          <FilaPrescripcion e={e} metodo={b.metodo} size={12} />
                           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
                             {prog2.series.map((hecha, sIdx) => (
                               <div key={sIdx}
