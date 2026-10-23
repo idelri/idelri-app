@@ -64,7 +64,7 @@ function prescripcion(e) {
 }
 
 /* ── Contenido de la previsualización (bloques + ejercicios) ─────────────── */
-function DetalleSesion({ T, detalle }) {
+export function DetalleSesion({ T, detalle }) {
   if (!detalle) {
     return <div style={{ fontSize: 11.5, color: T.ink3, padding: '6px 0' }}>Cargando ejercicios…</div>
   }
