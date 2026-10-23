@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import FeedbackForm from '../components/FeedbackForm'
 import CalendarioPortal from '../components/CalendarioPortal'
 import PlanPortal from '../components/PlanPortal'
+import RecursosPortal from '../components/RecursosPortal'
 import { format, startOfWeek, endOfWeek,
   isSameDay, addDays, isToday, parseISO, startOfDay, addWeeks } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -136,6 +137,7 @@ export default function ClientePortal({ token }) {
   const [controles, setControles] = useState([])
   const [packs, setPacks] = useState([])
   const [packSesiones, setPackSesiones] = useState([])
+  const [recursos, setRecursos] = useState([])
   const [tab, setTab] = useState('semana')
   const [tabInicializada, setTabInicializada] = useState(false)
   const [semanaOffset, setSemanaOffset] = useState(0)
@@ -203,6 +205,9 @@ export default function ClientePortal({ token }) {
     setCompeticiones(comps || [])
     const { data: ctrls } = await supabase.rpc('get_controles_por_token_cliente', { p_token: token })
     setControles(ctrls || [])
+
+    const { data: recs } = await supabase.rpc('get_recursos_por_token_cliente', { p_token: token })
+    setRecursos(recs || [])
 
     const { data: pks } = await supabase.rpc('get_packs_por_token_cliente', { p_token: token })
     setPacks(pks || [])
@@ -379,15 +384,17 @@ export default function ClientePortal({ token }) {
     mostrar_semana:     cliente?.portal_config?.mostrar_semana     ?? true,
     mostrar_calendario: cliente?.portal_config?.mostrar_calendario ?? true,
     mostrar_plan:       cliente?.portal_config?.mostrar_plan       ?? true,
+    mostrar_recursos:  (cliente?.portal_config?.mostrar_recursos   ?? true) && recursos.length > 0,
     // Permisos (si no existen, activados)
     registrar_manual:   cliente?.portal_config?.registrar_manual   ?? true,
     feedback:           cliente?.portal_config?.feedback           ?? true,
     strava:             cliente?.portal_config?.strava             ?? true,
   }
-  const TABS_TODAS = [['semana', 'Semana'], ['calendario', 'Calendario'], ['plan', 'Mi plan']]
+  const TABS_TODAS = [['semana', 'Semana'], ['calendario', 'Calendario'], ['plan', 'Mi plan'], ['recursos', 'Recursos']]
   const TABS_VISIBLES = TABS_TODAS.filter(([id]) =>
     id === 'semana'     ? portalConfig.mostrar_semana :
     id === 'calendario' ? portalConfig.mostrar_calendario :
+    id === 'recursos'   ? portalConfig.mostrar_recursos :
     portalConfig.mostrar_plan
   )
 
@@ -1181,6 +1188,9 @@ export default function ClientePortal({ token }) {
         {tab === 'semana'     && portalConfig.mostrar_semana     && <TabSemana />}
         {tab === 'calendario' && portalConfig.mostrar_calendario && <TabCalendario />}
         {tab === 'plan'       && portalConfig.mostrar_plan       && <TabPlan />}
+        {tab === 'recursos'   && portalConfig.mostrar_recursos   && (
+          <RecursosPortal T={T} isDesktop={isDesktop} recursos={recursos} card={card} abrirSesion={abrirSesion} />
+        )}
       </div>
 
       {modalRegistrar && portalConfig.registrar_manual && <ModalRegistrar />}
