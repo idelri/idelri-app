@@ -8,6 +8,7 @@ import { ResumenCuestionario, RespuestasCompletas } from '../components/Cuestion
 import PortalClienteModal from '../components/PortalClienteModal'
 import PerfilEditor from '../components/PerfilEditor'
 import TabSeguimientoCliente from '../components/TabSeguimientoCliente'
+import TabPerfilZonas from '../components/TabPerfilZonas'
 import { calcularSeguimiento, CAT_LABEL } from '../lib/seguimientoMotor'
 import { cargarSeguimientoCliente } from '../lib/seguimientoService'
 
@@ -18,6 +19,7 @@ const TABS = [
   { id: 'planificacion', label: 'Planificación' },
   { id: 'seguimiento',   label: 'Seguimiento' },
   { id: 'evaluaciones',  label: 'Evaluaciones' },
+  { id: 'zonas',         label: 'Perfil y zonas' },
   { id: 'informacion',   label: 'Información' },
 ]
 
@@ -339,6 +341,7 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
       {tab === 'planificacion' && <TabPlanificacion planes={planes} hoy={hoy} irAPlanificacion={irAPlanificacion} />}
       {tab === 'seguimiento'   && <TabSeguimientoCliente clienteId={clienteId} clienteEmail={cliente?.email || null} onNavSalud={() => cambiarTab('informacion')} />}
       {tab === 'evaluaciones'  && <TabEvaluaciones controles={controles} clienteId={clienteId} onRecargar={recargarControles} />}
+      {tab === 'zonas' && <TabPerfilZonas clienteId={clienteId} cliente={cliente} setCliente={setCliente} />}
       {tab === 'informacion' && (
         <PerfilEditor
           clienteId={clienteId}
