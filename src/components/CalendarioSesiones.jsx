@@ -2,6 +2,10 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
+import { DetalleSesion } from './CalendarioPortal'
+
+// Colores del panel de previsualización (mismo diseño que el portal del cliente)
+const T_TOOLTIP = { ink: 'var(--text)', ink2: 'var(--text2)', ink3: 'var(--text3)', green: 'var(--accent)', mono: 'var(--mono)' }
 
 const TIPOS_ACTIVIDAD = [
   { value: 'fuerza',     label: 'Fuerza',     icono: '💪' },
@@ -134,13 +138,17 @@ export default function CalendarioSesiones({
     const cache = tooltipCache.current
     if (cache.has(sesion.id)) return cache.get(sesion.id)
     // Bloques con sus ejercicios; en los de resistencia, sus fases
+    // Mismo contenido que la previsualización del portal del cliente
     const [{ data: bloques }, { data: fases }] = await Promise.all([
-      supabase.from('sesion_bloques').select('id, nombre, color, sesion_ejercicios(nombre, orden)').eq('sesion_id', sesion.id).order('orden'),
-      supabase.from('sesion_fases').select('nombre, orden, bloque_id').eq('sesion_id', sesion.id).order('orden'),
+      supabase.from('sesion_bloques').select('id, nombre, color, nota, orden, vueltas, sesion_ejercicios(id, bloque_id, nombre, series, reps, duracion, distancia, reps_por_lado, orden)').eq('sesion_id', sesion.id).order('orden'),
+      supabase.from('sesion_fases').select('id, nombre, orden, bloque_id, volumen_min, volumen_km').eq('sesion_id', sesion.id).order('orden'),
     ])
     const contenido = {
-      bloques: (bloques || []).map(b => ({ ...b, fasesNombres: (fases || []).filter(f => f.bloque_id === b.id).map(f => f.nombre).filter(Boolean) })),
-      fases: [],
+      detalle: {
+        bloques: bloques || [],
+        ejercicios: (bloques || []).flatMap(b => (b.sesion_ejercicios || []).slice().sort((a, z) => (a.orden ?? 0) - (z.orden ?? 0))),
+        fases: fases || [],
+      },
     }
     cache.set(sesion.id, contenido)
     return contenido
@@ -149,6 +157,7 @@ export default function CalendarioSesiones({
   async function mostrarTooltip(e, sesion) {
     const rect = e.currentTarget.getBoundingClientRect()
     const x = rect.right + 8
+    const xIzq = rect.left
     const y = rect.top
     clearTimeout(tooltipTimer.current)
     const peticion = ++tooltipPeticion.current
@@ -160,7 +169,7 @@ export default function CalendarioSesiones({
       const contenido = await cargarContenidoTooltip(sesion)
       // Si el ratón ya se ha ido (o ha pasado a otra sesión), no mostrar
       if (peticion !== tooltipPeticion.current) return
-      setTooltip({ x, y, sesion, ...contenido })
+      setTooltip({ x, xIzq, y, sesion, ...contenido })
     }, 300)
   }
 
@@ -582,7 +591,9 @@ export default function CalendarioSesiones({
 
       {tooltip && (
         <div onMouseEnter={() => clearTimeout(tooltipTimer.current)} onMouseLeave={ocultarTooltip}
-          style={{ position: 'fixed', top: Math.min(tooltip.y, window.innerHeight - 300), left: Math.min(tooltip.x, window.innerWidth - 240), zIndex: 200, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.15)', minWidth: 200, maxWidth: 260, padding: '10px 12px', pointerEvents: tooltip.sesion._tipo === 'nota' ? 'auto' : 'none', cursor: tooltip.sesion._tipo === 'nota' ? 'pointer' : 'default' }}
+          style={tooltip.sesion._tipo === 'nota'
+            ? { position: 'fixed', top: Math.min(tooltip.y, window.innerHeight - 300), left: Math.min(tooltip.x, window.innerWidth - 240), zIndex: 200, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.15)', minWidth: 200, maxWidth: 260, padding: '10px 12px', cursor: 'pointer' }
+            : { position: 'fixed', top: Math.max(12, Math.min(tooltip.y, window.innerHeight - 400)), left: tooltip.x + 320 > window.innerWidth - 12 ? Math.max(12, tooltip.xIzq - 328) : tooltip.x, zIndex: 200, width: 320, maxHeight: 380, overflowY: 'auto', background: 'var(--bg)', border: '1px solid var(--border2, var(--border))', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,.14)', padding: '12px 14px' }}
           onClick={() => { if (tooltip.sesion._tipo === 'nota' && onAbrirNota) { onAbrirNota(tooltip.sesion); ocultarTooltip() } }}>
           {tooltip.sesion._tipo === 'nota' ? (
             <>
@@ -592,59 +603,21 @@ export default function CalendarioSesiones({
             </>
           ) : (
           <>
-          <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--text)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span>{iconoSesion(tooltip.sesion)}</span>
-            <span>{tooltip.sesion.titulo}</span>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
+            <span style={{ fontSize: 18 }}>{iconoSesion(tooltip.sesion)}</span>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3, color: 'var(--text)' }}>{tooltip.sesion.titulo}</div>
+              <div style={{ fontFamily: 'var(--mono)', fontSize: 9.5, color: 'var(--text3)', marginTop: 2 }}>
+                <span style={{ textTransform: 'capitalize' }}>{tooltip.sesion.fecha ? format(new Date(tooltip.sesion.fecha + 'T12:00:00'), "EEEE d MMM", { locale: es }) : 'Sin fecha'}</span>
+                {tooltip.sesion.duracion_min ? ` · ${tooltip.sesion.duracion_min} min` : ''}
+              </div>
+            </div>
           </div>
-          {tooltip.sesion.duracion_min && (
-            <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 6 }}>⏱ {tooltip.sesion.duracion_min} min</div>
-          )}
-          {tooltip.fases?.length > 0 ? (() => {
-            const gruposMap = {}
-            for (const g of tooltip.grupos || []) gruposMap[g.id] = { ...g, fases: [] }
-            const sueltas = []
-            for (const f of tooltip.fases) {
-              if (f.grupo_id && gruposMap[f.grupo_id]) gruposMap[f.grupo_id].fases.push(f)
-              else sueltas.push(f)
-            }
-            const items = [
-              ...Object.values(gruposMap).sort((a, b) => a.orden - b.orden),
-              ...sueltas,
-            ].sort((a, b) => (a.orden ?? 999) - (b.orden ?? 999))
-            return items.map((item, i) => item.fases ? (
-              <div key={i} style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)' }}>🔁 {item.repeticiones}×</div>
-                {item.fases.map((f, j) => (
-                  <div key={j} style={{ paddingLeft: 10 }}>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>▸ {f.nombre || 'Fase'}</div>
-                    {f.descripcion && <div style={{ fontSize: 10.5, color: 'var(--text2)', paddingLeft: 10, lineHeight: 1.5 }}>{f.descripcion}</div>}
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div key={i} style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>▸ {item.nombre || 'Fase'}</div>
-                {item.descripcion && <div style={{ fontSize: 10.5, color: 'var(--text2)', paddingLeft: 10, lineHeight: 1.5 }}>{item.descripcion}</div>}
-              </div>
-            ))
-          })() : tooltip.bloques.length === 0 ? (
-            <div style={{ fontSize: 11, color: 'var(--text3)', fontStyle: 'italic' }}>Sin contenido</div>
-          ) : (
-            tooltip.bloques.map(b => (
-              <div key={b.id} style={{ marginBottom: 6 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 2 }}>
-                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: b.color || '#888', flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)' }}>{b.nombre || 'Bloque'}</span>
-                </div>
-                {(b.sesion_ejercicios || []).sort((a,z) => a.orden - z.orden).map((e, i) => (
-                  <div key={i} style={{ fontSize: 10.5, color: 'var(--text2)', paddingLeft: 13, lineHeight: 1.6 }}>· {e.nombre || '—'}</div>
-                ))}
-                {(b.fasesNombres || []).map((n, i) => (
-                  <div key={'f' + i} style={{ fontSize: 10.5, color: 'var(--text2)', paddingLeft: 13, lineHeight: 1.6 }}>▸ {n}</div>
-                ))}
-              </div>
-            ))
-          )}
+          {tooltip.detalle && <DetalleSesion T={T_TOOLTIP} detalle={tooltip.detalle} />}
+          <button onClick={() => { onAbrirSesion(tooltip.sesion); ocultarTooltip() }}
+            style={{ marginTop: 10, width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: 'var(--accent)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+            Abrir en el editor →
+          </button>
           </>
           )}
         </div>
