@@ -14,7 +14,9 @@ import { supabase } from '../lib/supabase'
 export const CATEGORIAS_RECURSO = [
   { key: 'activacion', label: 'Activaciones', icono: '⚡', color: '#E29A2E', ejemplo: 'Activación pre-partido' },
   { key: 'movilidad',  label: 'Movilidad',    icono: '🤸', color: '#2FAE76', ejemplo: 'Movilidad y estiramientos' },
-  { key: 'protocolo',  label: 'Protocolos',   icono: '🩹', color: '#E24B4A', ejemplo: 'Protocolo individual · Tobillo' },
+  { key: 'protocolo',  label: 'Protocolos',   icono: '🩹', color: '#E24B4A', ejemplo: 'Protocolo individual · Tobillo', anadir: 'protocolo' },
+  { key: 'compensatoria', label: 'Sesiones compensatorias', icono: '🔄', color: '#7C5CD6', ejemplo: 'Sesión compensatoria', anadir: 'compensatoria',
+    explicacion: 'Para cuando no se pueda ir al partido o al entreno en el campo: sustituye esa sesión, salvando las distancias.' },
 ]
 
 export default function RecursosEntrenadora({ clienteId, sesiones, setSesiones, onAbrir, onEliminar }) {
@@ -75,6 +77,9 @@ export default function RecursosEntrenadora({ clienteId, sesiones, setSesiones, 
                 <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{cat.label}</span>
                 <span style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--text3)' }}>{lista.length}</span>
               </div>
+              {cat.explicacion && (
+                <div style={{ padding: '8px 14px', fontSize: 11.5, color: 'var(--text3)', borderBottom: '1px solid var(--border)', lineHeight: 1.4 }}>{cat.explicacion}</div>
+              )}
               <div style={{ display: 'flex', flexDirection: 'column' }}>
                 {lista.length === 0 && creando !== cat.key && (
                   <div style={{ padding: '14px', fontSize: 12, color: 'var(--text3)' }}>Todavía no hay ninguna.</div>
@@ -109,7 +114,7 @@ export default function RecursosEntrenadora({ clienteId, sesiones, setSesiones, 
                 ) : (
                   <button className="btn btn-ghost btn-sm" onClick={() => { setCreando(cat.key); setTitulo('') }}
                     style={{ margin: '8px 10px', alignSelf: 'flex-start' }}>
-                    + Añadir {cat.key === 'activacion' ? 'activación' : cat.key === 'movilidad' ? 'movilidad' : 'protocolo'}
+                    + Añadir {cat.key === 'activacion' ? 'activación' : cat.key === 'movilidad' ? 'movilidad' : cat.anadir}
                   </button>
                 )}
               </div>
