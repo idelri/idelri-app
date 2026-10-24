@@ -15,6 +15,7 @@
  * la vista de sesión), solo cuando hacen falta, y se guardan en memoria.
  */
 import { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import {
   format, startOfMonth, endOfMonth, startOfWeek, addDays, addWeeks, addMonths, subMonths,
@@ -133,6 +134,13 @@ export default function CalendarioPortal({
   const [diaSelec, setDiaSelec] = useState(null)       // móvil: día abierto
   const [hover, setHover] = useState(null)             // escritorio: { id, rect }
   const [semInfo, setSemInfo] = useState(null)         // semana con el texto completo abierto (clave del lunes)
+  const [semRect, setSemRect] = useState(null)         // escritorio: posición de la franja para el recuadro
+  useEffect(() => {
+    if (!semInfo) return
+    const cerrarSem = () => setSemInfo(null)
+    window.addEventListener('scroll', cerrarSem, { passive: true })
+    return () => window.removeEventListener('scroll', cerrarSem)
+  }, [semInfo])
   const [detalles, setDetalles] = useState({})         // token → { bloques, ejercicios } | { error }
   const pedidos = useRef(new Set())
   const cerrarTimer = useRef(null)
@@ -293,8 +301,8 @@ export default function CalendarioPortal({
             return (
               <div key={key(lun)} style={{ display: 'grid', gridTemplateColumns: '150px repeat(7, minmax(0, 1fr))', borderTop: fi > 0 ? `1px solid ${T.border}` : 'none', outline: actual ? `2px solid ${color || T.green}` : 'none', outlineOffset: -2, position: 'relative' }}>
                 {/* Franja de fase: al pasar el ratón o al hacer clic se ve el texto completo */}
-                <div onMouseEnter={() => (sem?.objetivo || bloque?.objetivo) && setSemInfo(key(lun))} onMouseLeave={() => setSemInfo(null)}
-                  onClick={() => (sem?.objetivo || bloque?.objetivo) && setSemInfo(v => v === key(lun) ? null : key(lun))}
+                <div onMouseEnter={ev => { if (sem?.objetivo || bloque?.objetivo) { setSemRect(ev.currentTarget.getBoundingClientRect()); setSemInfo(key(lun)) } }} onMouseLeave={() => setSemInfo(null)}
+                  onClick={ev => { if (sem?.objetivo || bloque?.objetivo) { setSemRect(ev.currentTarget.getBoundingClientRect()); setSemInfo(v => v === key(lun) ? null : key(lun)) } }}
                   style={{ background: color || T.bg, color: color ? '#fff' : T.ink3, padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, cursor: sem?.objetivo || bloque?.objetivo ? 'pointer' : 'default', position: 'relative' }}>
                   {numero ? (
                     <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>S{numero}{actual && <span style={{ marginLeft: 6, fontSize: 8.5, fontWeight: 600, background: 'rgba(255,255,255,.25)', padding: '2px 6px', borderRadius: 8, verticalAlign: 'middle', fontFamily: T.mono }}>ESTÁS AQUÍ</span>}</div>
@@ -304,10 +312,12 @@ export default function CalendarioPortal({
                   {bloque && <div style={{ fontSize: 10.5, fontWeight: 600, opacity: .95, lineHeight: 1.25 }}>{bloque.nombre}</div>}
                   {sem?.objetivo && <div style={{ fontSize: 10, opacity: .88, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{sem.objetivo}</div>}
                   {(sem?.objetivo || bloque?.objetivo) && <div style={{ fontSize: 9.5, fontWeight: 600, opacity: .8, marginTop: 1 }}>Ver más ›</div>}
-                  {semInfo === key(lun) && (
-                    <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', left: '100%', top: 0, marginLeft: 6, zIndex: 30, width: 320, background: T.surface || '#fff', border: `1px solid ${T.border}`, borderLeft: `4px solid ${color || T.green}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.15)', padding: '12px 14px', cursor: 'default' }}>
+                  {semInfo === key(lun) && semRect && createPortal(
+                    // Fuera del calendario (en el body) para que no se corte
+                    <div onClick={e => e.stopPropagation()} style={{ position: 'fixed', left: Math.min(semRect.right + 6, window.innerWidth - 352), top: Math.max(8, Math.min(semRect.top, window.innerHeight - 340)), zIndex: 1000, width: 340, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto', background: T.surface || '#fff', border: `1px solid ${T.border}`, borderLeft: `4px solid ${color || T.green}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.15)', padding: '12px 14px', cursor: 'default', pointerEvents: 'none', fontFamily: 'inherit' }}>
                       <InfoFase T={T} bloque={bloque} sem={sem} numero={numero} />
-                    </div>
+                    </div>,
+                    document.body
                   )}
                 </div>
                 {/* Días */}
