@@ -532,7 +532,7 @@ export default function SesionPublica({ token }) {
             const series = parseInt(e.series) || 0, reps = parseInt(e.reps) || 0
             const fm = m => (m >= 100 ? Math.round(m) : Math.round(m * 2) / 2).toLocaleString('es-ES') + ' m'
             const chips = [
-              series && reps ? `${series} × ${reps}` : reps ? `${reps} reps` : series ? `${series} series` : null,
+              series && reps ? `${series} × ${reps}${e.reps_por_lado ? ' por lado' : ''}` : reps ? `${reps} reps${e.reps_por_lado ? ' por lado' : ''}` : series ? `${series} series` : null,
               met.metros ? `${fm(met.metros)} / rep` : null,
               met.cod ? `${met.cod} COD` : null,
               pr.intensidad ? `⚡ ${pr.intensidad}` : null,
