@@ -23,11 +23,16 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import {
-  TIPOS_PASO, OBJETIVOS, colorTipoPaso, labelTipoPaso, duracionPaso, distanciaPaso, esRampa,
+  TIPOS_PASO, OBJETIVOS, labelTipoPaso, duracionPaso, distanciaPaso, esRampa,
   fmtDuracionPaso, parseDuracionPaso, fmtDistancia, objetivoPersonal, intensidadesRampa, segundosEstimados, etiquetaObjetivo,
 } from '../lib/zonas'
 
-const AZUL = '#4C82E8'
+// Un solo color (el azul de las piezas). Por tiempo: relleno liso;
+// por distancia: rayado. Las repeticiones se distinguen por su recuadro.
+const AZUL = '#1f2d8a'
+const fondoPaso = f => (distanciaPaso(f) && !duracionPaso(f))
+  ? `repeating-linear-gradient(135deg, ${AZUL} 0 4px, #5b67b3 4px 7px)`
+  : AZUL
 const TIPO_DND = 'application/x-idelri-paso'
 
 function parseDistancia(txt) {
@@ -387,7 +392,7 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
                     onDrop={e => { const antes = segDrop?.id === it.id ? segDrop.antes : true; setSegDrop(null); alSoltar(e, { grupoId: null, idx: antes ? idx : idx + 1 }) }}
                     onMouseEnter={() => !arrastrando && setSegHover(it.id)} onMouseLeave={() => setSegHover(h => h === it.id ? null : h)}
                     style={{ flex: `${pesoItem} 1 0`, minWidth: 8, height: '100%', display: 'flex', alignItems: 'flex-end', gap: 1, position: 'relative', cursor: 'grab',
-                      background: it.type === 'grupo' ? 'rgba(76,130,232,.10)' : 'transparent', borderRadius: 4,
+                      background: it.type === 'grupo' ? 'rgba(31,45,138,.09)' : 'transparent', borderRadius: 4,
                       outline: activo ? '2px solid rgba(31,45,138,.55)' : 'none', outlineOffset: 1,
                       boxShadow: drop ? (drop.antes ? 'inset 3px 0 0 #1f2d8a' : 'inset -3px 0 0 #1f2d8a') : 'none' }}>
                     {it.type === 'grupo' && <span style={{ position: 'absolute', top: 1, left: 3, fontSize: 10, fontWeight: 800, color: AZUL, fontFamily: 'var(--mono)' }}>{it.repeticiones}×</span>}
@@ -396,7 +401,7 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
                       const alto = Math.max(ini, fin)
                       const clip = esRampa(f.tipo_paso) ? `polygon(0 100%, 0 ${100 - (ini / alto) * 100}%, 100% ${100 - (fin / alto) * 100}%, 100% 100%)` : undefined
                       return (
-                        <div key={k} style={{ flex: `${Math.max(segundosEstimados(f, perfil), 20)} 1 0`, minWidth: 1, height: `${Math.round(alto * 82)}%`, background: colorTipoPaso(f.tipo_paso), borderRadius: clip ? 0 : '3px 3px 0 0', opacity: r > 0 ? 0.78 : 1, clipPath: clip }} />
+                        <div key={k} style={{ flex: `${Math.max(segundosEstimados(f, perfil), 20)} 1 0`, minWidth: 1, height: `${Math.round(alto * 82)}%`, background: fondoPaso(f), borderRadius: clip ? 0 : '3px 3px 0 0', opacity: r > 0 ? 0.8 : 1, clipPath: clip }} />
                       )
                     })}
                     {activo && (
@@ -420,6 +425,11 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginTop: 8, fontSize: 11.5, color: 'var(--text2)', alignItems: 'center' }}>
               {totalSeg > 0 && <span><strong>{hayEstimados ? '~' : ''}{fmtDuracionPaso(totalSeg)}</strong></span>}
               {totalM > 0 && <span><strong>{fmtDistancia(totalM)}</strong></span>}
+              <span style={{ marginLeft: 'auto', display: 'flex', gap: 10, fontSize: 10.5, color: 'var(--text3)', alignItems: 'center' }}>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 12, height: 9, borderRadius: 2, background: AZUL }} />Por tiempo</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 12, height: 9, borderRadius: 2, background: fondoPaso({ distancia_m: 1 }) }} />Por distancia</span>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}><span style={{ width: 12, height: 9, borderRadius: 2, background: 'rgba(31,45,138,.15)', border: `1px solid ${AZUL}55` }} />Repetición</span>
+              </span>
             </div>
           </>
         )}
@@ -427,7 +437,7 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
 
       {/* Barra de selección → repetir */}
       {seleccion.length > 0 && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#eef2ff', border: `1px solid ${AZUL}55`, borderRadius: 8, padding: '6px 10px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', background: '#e9ebf6', border: `1px solid ${AZUL}55`, borderRadius: 8, padding: '6px 10px' }}>
           <span style={{ fontSize: 12.5, color: AZUL, fontWeight: 600 }}>{seleccion.length} paso{seleccion.length > 1 ? 's' : ''} seleccionado{seleccion.length > 1 ? 's' : ''}</span>
           <span style={{ fontSize: 12.5 }}>Repetir</span>
           <input type="number" min={1} value={veces} onChange={e => setVeces(parseInt(e.target.value, 10) || '')}
@@ -449,9 +459,9 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
               onCambio={patch => cambiarPaso(it.id, patch, null)}
               onEliminar={() => eliminarPaso(it.id, null)} onDuplicar={() => duplicarPaso(it, null)} />
           ) : (
-            <div style={{ border: `1.5px solid ${AZUL}`, borderRadius: 12, background: '#f3f6ff', overflow: 'hidden' }}>
+            <div style={{ border: `1.5px solid ${AZUL}`, borderRadius: 12, background: '#f1f2f9', overflow: 'hidden' }}>
               <div draggable onDragStart={e => { e.dataTransfer.setData(TIPO_DND, JSON.stringify({ mover: { id: it.id, grupoId: null } })); e.dataTransfer.effectAllowed = 'move'; setArrastrando(true) }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#e3ebff', cursor: 'grab' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#e2e5f3', cursor: 'grab' }}>
                 <span style={{ color: AZUL, opacity: .6 }}>⠿</span>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: AZUL }}>Repetir</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => cambiarRepeticiones(it.id, (it.repeticiones || 1) - 1)} style={{ padding: '0 7px' }}>−</button>
@@ -500,7 +510,7 @@ function LineaPaso({ f, perfil, n }) {
   const vol = fmtDuracionPaso(duracionPaso(f)) || fmtDistancia(distanciaPaso(f))
   return (
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '5px 0' }}>
-      <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, background: colorTipoPaso(f.tipo_paso), flexShrink: 0 }} />
+      <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, background: fondoPaso(f), flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)' }}>
           {n ? <span style={{ color: 'var(--text3)', fontWeight: 600 }}>Paso {n} · </span> : null}{f.nombre || labelTipoPaso(f.tipo_paso)}
@@ -508,7 +518,7 @@ function LineaPaso({ f, perfil, n }) {
         </div>
         {(f.objetivo_tipo || personal) && (
           <div style={{ fontSize: 11.5, color: 'var(--text2)', marginTop: 1 }}>
-            {personal && <strong style={{ color: colorTipoPaso(f.tipo_paso), fontFamily: 'var(--mono)' }}>{personal}</strong>}
+            {personal && <strong style={{ color: AZUL, fontFamily: 'var(--mono)' }}>{personal}</strong>}
             {personal && f.objetivo_tipo ? ' · ' : ''}{f.objetivo_tipo ? etiquetaObjetivo(f) : ''}
           </div>
         )}
@@ -538,7 +548,7 @@ function DetalleSegmento({ it, perfil, alDerecha }) {
 
 /* ── Un paso ─────────────────────────────────────────────────────────── */
 function Paso({ f, perfil, abierto, setAbierto, seleccionado, onSeleccionar, onArrastrar, onCambio, onEliminar, onDuplicar }) {
-  const color = colorTipoPaso(f.tipo_paso)
+  const color = AZUL
   const dist = distanciaPaso(f)
   const modo = dist && !f.duracion_seg ? 'dist' : 'tiempo'
   const rampa = esRampa(f.tipo_paso)
@@ -568,7 +578,8 @@ function Paso({ f, perfil, abierto, setAbierto, seleccionado, onSeleccionar, onA
   }
 
   return (
-    <div style={{ background: 'var(--bg)', border: `1px solid ${seleccionado ? AZUL : 'var(--border)'}`, borderLeft: `5px solid ${color}`, borderRadius: 10, padding: '8px 10px', boxShadow: seleccionado ? `0 0 0 2px ${AZUL}33` : 'none' }}>
+    <div style={{ position: 'relative', background: 'var(--bg)', border: `1px solid ${seleccionado ? AZUL : 'var(--border)'}`, borderRadius: 10, padding: '8px 10px 8px 15px', boxShadow: seleccionado ? `0 0 0 2px ${AZUL}33` : 'none', overflow: 'hidden' }}>
+      <span title={modo === 'dist' ? 'Por distancia' : 'Por tiempo'} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: fondoPaso(f) }} />
       <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
         <span draggable onDragStart={onArrastrar} title="Arrastrar" style={{ cursor: 'grab', color: 'var(--text3)', userSelect: 'none', padding: '0 2px' }}>⠿</span>
         {onSeleccionar && (
