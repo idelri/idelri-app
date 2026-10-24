@@ -162,9 +162,10 @@ export default function ClientePortal({ token }) {
       mostrar_calendario: cliente.portal_config?.mostrar_calendario ?? true,
       mostrar_plan:       cliente.portal_config?.mostrar_plan       ?? true,
     }
-    if (cfg.mostrar_semana) setTab('semana')
+    // Orden: Mi plan → Recursos → Calendario → Semana
+    if (cfg.mostrar_plan) setTab('plan')
     else if (cfg.mostrar_calendario) setTab('calendario')
-    else setTab('plan')
+    else setTab('semana')
     setTabInicializada(true)
   }, [cliente])
 
@@ -329,6 +330,9 @@ export default function ClientePortal({ token }) {
     const lunesKey = lunes.toISOString().slice(0, 10)
     const semHoy = semanas.find(s => s.fecha_inicio_semana === lunesKey)
     if (semHoy?.numero_cliente) return semHoy.numero_cliente
+    // Antes de que empiece el plan: semana 0 (no "completado")
+    const inicios = bloques.filter(b => b.fecha_inicio).map(b => parseISO(b.fecha_inicio + 'T12:00:00'))
+    if (inicios.length && hoy < new Date(Math.min(...inicios))) return 0
     // Fallback legacy: acumulado por bloques
     let total = 0
     for (const b of bloques) {
@@ -399,7 +403,7 @@ export default function ClientePortal({ token }) {
     feedback:           cliente?.portal_config?.feedback           ?? true,
     strava:             cliente?.portal_config?.strava             ?? true,
   }
-  const TABS_TODAS = [['semana', 'Semana'], ['calendario', 'Calendario'], ['plan', 'Mi plan'], ['recursos', 'Recursos']]
+  const TABS_TODAS = [['plan', 'Mi plan'], ['recursos', 'Recursos'], ['calendario', 'Calendario'], ['semana', 'Semana']]
   const TABS_VISIBLES = TABS_TODAS.filter(([id]) =>
     id === 'semana'     ? portalConfig.mostrar_semana :
     id === 'calendario' ? portalConfig.mostrar_calendario :
@@ -1157,7 +1161,7 @@ export default function ClientePortal({ token }) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
               <div style={{ textAlign: 'right' }}>
                 <div style={{ fontFamily: T.mono, fontSize: 14, fontWeight: 600, color: colA }}>{semanaNum > 0 ? <>S{semanaNum}<span style={{ color: T.ink3, fontWeight: 400 }}>/{totalSem}</span></> : `${totalSem} sem`}</div>
-                <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, marginTop: 1 }}>{progreso}% completado</div>
+                <div style={{ fontFamily: T.mono, fontSize: 9, color: T.ink3, marginTop: 1 }}>{semanaNum > 0 ? `${progreso}% completado` : (() => { const ini = bloques.filter(b => b.fecha_inicio).map(b => b.fecha_inicio).sort()[0]; return ini && parseISO(ini + 'T12:00:00') > new Date() ? `Empieza el ${format(parseISO(ini + 'T12:00:00'), 'd MMM', { locale: es })}` : `${progreso}% completado` })()}</div>
               </div>
               {/* Toggle vista */}
               <div style={{ display: 'flex', gap: 3 }}>
