@@ -1756,7 +1756,9 @@ async function guardarSesion() {
                       items={carritos[b.id] || []}
                       setItems={fn => setCarritos(c => ({ ...c, [b.id]: typeof fn === 'function' ? fn(c[b.id] || []) : fn }))}
                       perfil={clientes.find(c => c.id === sesionAbierta.cliente_id)?.perfil_zonas || null}
-                      onDirty={() => setDirty(true)} />
+                      onDirty={() => setDirty(true)}
+                      descripcion={b.nota || ''}
+                      onDescripcion={v => actualizarBloque(b.id, 'nota', v)} />
                     {(ejercicios[b.id] || []).length > 0 && renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}
                   </div>
                 ) : renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}

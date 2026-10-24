@@ -125,7 +125,7 @@ function leerArrastre(e) {
   try { return JSON.parse(e.dataTransfer.getData(TIPO_DND) || 'null') } catch { return null }
 }
 
-export default function ConstructorResistencia({ sesionId, bloqueId, items, setItems, perfil, onDirty }) {
+export default function ConstructorResistencia({ sesionId, bloqueId, items, setItems, perfil, onDirty, descripcion, onDescripcion }) {
   const [abierto, setAbierto] = useState(null)        // paso con notas/pendiente abiertas
   const [hoverPieza, setHoverPieza] = useState(null)  // nombre de la pieza bajo el ratón
   const [seleccion, setSeleccion] = useState([])      // ids de pasos sueltos seleccionados
@@ -342,12 +342,16 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
     <div onDragOver={e => { e.preventDefault(); e.stopPropagation(); if (zonaActiva !== id) setZonaActiva(id) }}
       onDragLeave={() => setZonaActiva(z => z === id ? null : z)}
       onDrop={e => alSoltar(e, destino)}
-      style={{ height: arrastrando ? (zonaActiva === id ? 30 : (alto || 10)) : 2, transition: 'height .12s', borderRadius: 6,
-        background: zonaActiva === id ? `${AZUL}22` : 'transparent', border: zonaActiva === id ? `1.5px dashed ${AZUL}` : '1.5px dashed transparent' }} />
+      style={{ height: arrastrando ? (zonaActiva === id ? 26 : (alto || 8)) : 0, transition: 'height .12s', borderRadius: 6,
+        background: zonaActiva === id ? `${AZUL}22` : 'transparent', border: zonaActiva === id ? `1.5px dashed ${AZUL}` : 'none' }} />
   )
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}
+    <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+      {/* Descripción de la sesión (texto libre para el cliente) */}
+      <Descripcion valor={descripcion} onGuardar={onDescripcion} />
+
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, flex: '2.4 1 460px', minWidth: 0 }}
       onDragEnd={() => { setArrastrando(false); setZonaActiva(null) }}>
 
       {/* Paleta de piezas */}
@@ -448,10 +452,11 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
         </div>
       )}
 
-      {/* Pasos */}
+      {/* Pasos (lista compacta, como los ejercicios de fuerza) */}
+      {items.length > 0 && <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg)' }}>
       <Zona id="t:0" destino={{ grupoId: null, idx: 0 }} />
       {items.map((it, idx) => (
-        <div key={it.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        <div key={it.id} style={{ display: 'flex', flexDirection: 'column' }}>
           {it.type === 'fase' ? (
             <Paso f={it} perfil={perfil} abierto={abierto === it.id} setAbierto={v => setAbierto(v ? it.id : null)}
               seleccionado={seleccion.includes(it.id)} onSeleccionar={v => setSeleccion(s => v ? [...s, it.id] : s.filter(x => x !== it.id))}
@@ -459,14 +464,14 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
               onCambio={patch => cambiarPaso(it.id, patch, null)}
               onEliminar={() => eliminarPaso(it.id, null)} onDuplicar={() => duplicarPaso(it, null)} />
           ) : (
-            <div style={{ border: `1.5px solid ${AZUL}`, borderRadius: 12, background: '#f1f2f9', overflow: 'hidden' }}>
+            <div style={{ borderLeft: `4px solid ${AZUL}`, background: '#f1f2f9', borderBottom: '1px solid var(--border)' }}>
               <div draggable onDragStart={e => { e.dataTransfer.setData(TIPO_DND, JSON.stringify({ mover: { id: it.id, grupoId: null } })); e.dataTransfer.effectAllowed = 'move'; setArrastrando(true) }}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', background: '#e2e5f3', cursor: 'grab' }}>
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 8px', background: '#e2e5f3', cursor: 'grab' }}>
                 <span style={{ color: AZUL, opacity: .6 }}>⠿</span>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: AZUL }}>Repetir</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => cambiarRepeticiones(it.id, (it.repeticiones || 1) - 1)} style={{ padding: '0 7px' }}>−</button>
                 <input type="number" value={it.repeticiones || 1} min={1} onChange={e => cambiarRepeticiones(it.id, parseInt(e.target.value, 10))}
-                  style={{ width: 46, textAlign: 'center', fontSize: 15, fontWeight: 800, color: AZUL, border: `1px solid ${AZUL}55`, borderRadius: 6, padding: '2px 4px', background: '#fff' }} />
+                  style={{ width: 40, textAlign: 'center', fontSize: 13, fontWeight: 800, color: AZUL, border: `1px solid ${AZUL}55`, borderRadius: 5, padding: '1px 3px', background: '#fff' }} />
                 <button className="btn btn-ghost btn-sm" onClick={() => cambiarRepeticiones(it.id, (it.repeticiones || 1) + 1)} style={{ padding: '0 7px' }}>+</button>
                 <span style={{ fontSize: 12.5, fontWeight: 700, color: AZUL }}>veces</span>
                 <span style={{ marginLeft: 'auto', display: 'flex', gap: 2 }}>
@@ -475,10 +480,10 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
                   <button className="btn btn-ghost btn-sm" title="Eliminar repetición" onClick={() => eliminarGrupo(it.id)} style={{ padding: '2px 6px', color: 'var(--danger)' }}>×</button>
                 </span>
               </div>
-              <div style={{ padding: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: 10 }}>
                 <Zona id={`g:${it.id}:0`} destino={{ grupoId: it.id, idx: 0 }} />
                 {it.fases.map((f, fi) => (
-                  <div key={f.id} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <div key={f.id} style={{ display: 'flex', flexDirection: 'column' }}>
                     <Paso f={f} perfil={perfil} abierto={abierto === f.id} setAbierto={v => setAbierto(v ? f.id : null)}
                       onArrastrar={e => { e.stopPropagation(); e.dataTransfer.setData(TIPO_DND, JSON.stringify({ mover: { id: f.id, grupoId: it.id } })); e.dataTransfer.effectAllowed = 'move'; setArrastrando(true) }}
                       onCambio={patch => cambiarPaso(f.id, patch, it.id)}
@@ -486,13 +491,14 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
                     <Zona id={`g:${it.id}:${fi + 1}`} destino={{ grupoId: it.id, idx: fi + 1 }} />
                   </div>
                 ))}
-                {!arrastrando && <span style={{ fontSize: 11, color: AZUL, opacity: .7 }}>Arrastra aquí más pasos o piezas para añadirlos a la repetición</span>}
+
               </div>
             </div>
           )}
           <Zona id={`t:${idx + 1}`} destino={{ grupoId: null, idx: idx + 1 }} />
         </div>
       ))}
+      </div>}
 
       {items.some(it => it.type === 'fase') && seleccion.length === 0 && (
         <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>Marca la casilla de varios pasos para repetirlos N veces sin tener que añadirlos uno a uno.</div>
@@ -500,6 +506,22 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
       {!perfil?.fc_max && !perfil?.fc_umbral && !perfil?.ritmo_umbral_seg && (
         <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>Rellena la ficha «Perfil y zonas» del cliente para ver sus pulsaciones y ritmos en cada paso.</div>
       )}
+    </div>
+    </div>
+  )
+}
+
+/* ── Descripción de la sesión (columna izquierda) ─────────────────────── */
+function Descripcion({ valor, onGuardar }) {
+  const [txt, setTxt] = useState(valor || '')
+  useEffect(() => { setTxt(valor || '') }, [valor])
+  return (
+    <div style={{ flex: '1 1 220px', minWidth: 200, maxWidth: 320, display: 'flex', flexDirection: 'column', gap: 5 }}>
+      <label style={{ fontSize: 10.5, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Descripción de la sesión</label>
+      <textarea value={txt} onChange={e => setTxt(e.target.value)} onBlur={() => { if ((txt || '') !== (valor || '') && onGuardar) onGuardar(txt.trim() ? txt : null) }}
+        placeholder="Ej.: Corre libremente 32 minutos por terreno llano, sin mirar el ritmo." rows={7}
+        style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', fontFamily: 'inherit', fontSize: 13, lineHeight: 1.5, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--bg)', color: 'var(--text)' }} />
+      <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.4 }}>El cliente la ve encima de los bloques. Puedes usar solo la descripción, solo los bloques o las dos cosas.</div>
     </div>
   )
 }
@@ -566,7 +588,7 @@ function Paso({ f, perfil, abierto, setAbierto, seleccionado, onSeleccionar, onA
   const personal = objetivoPersonal(f, perfil)
   const legado = !f.objetivo_tipo && (f.fc_zona || f.ritmo_inicio || f.ritmo_fin || f.rpe)
   const lim = LIMITES[f.objetivo_tipo]
-  const inp = { padding: '4px 6px', fontSize: 12.5, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text)' }
+  const inp = { padding: '2px 5px', fontSize: 12, border: '1px solid var(--border)', borderRadius: 5, background: 'var(--bg)', color: 'var(--text)', height: 24, boxSizing: 'border-box' }
 
   function guardarRango(a, b) {
     const n = v => (v === '' || v == null ? null : Number(v))
@@ -578,9 +600,9 @@ function Paso({ f, perfil, abierto, setAbierto, seleccionado, onSeleccionar, onA
   }
 
   return (
-    <div style={{ position: 'relative', background: 'var(--bg)', border: `1px solid ${seleccionado ? AZUL : 'var(--border)'}`, borderRadius: 10, padding: '8px 10px 8px 15px', boxShadow: seleccionado ? `0 0 0 2px ${AZUL}33` : 'none', overflow: 'hidden' }}>
+    <div style={{ position: 'relative', background: seleccionado ? '#e9ebf6' : 'var(--bg)', borderBottom: '1px solid var(--border)', padding: '3px 6px 3px 12px' }}>
       <span title={modo === 'dist' ? 'Por distancia' : 'Por tiempo'} style={{ position: 'absolute', left: 0, top: 0, bottom: 0, width: 5, background: fondoPaso(f) }} />
-      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 8 }}>
+      <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 4, minWidth: 0 }}>
         <span draggable onDragStart={onArrastrar} title="Arrastrar" style={{ cursor: 'grab', color: 'var(--text3)', userSelect: 'none', padding: '0 2px' }}>⠿</span>
         {onSeleccionar && (
           <input type="checkbox" checked={!!seleccionado} onChange={e => onSeleccionar(e.target.checked)} title="Seleccionar para repetir" style={{ accentColor: AZUL, cursor: 'pointer' }} />
@@ -589,15 +611,11 @@ function Paso({ f, perfil, abierto, setAbierto, seleccionado, onSeleccionar, onA
         {/* Nombre (por defecto, el del tipo) + tipo */}
         <input value={nombre} onChange={e => setNombre(e.target.value)} onBlur={() => nombre !== (f.nombre || '') && onCambio({ nombre })}
           placeholder={labelTipoPaso(f.tipo_paso)}
-          style={{ ...inp, width: 150, fontWeight: 700, color, borderColor: `${color}55`, background: `${color}10` }} />
-        <select value={f.tipo_paso || ''} onChange={e => onCambio({ tipo_paso: e.target.value || null })} title="Tipo de paso"
-          style={{ ...inp, fontSize: 11.5, color: 'var(--text3)', maxWidth: 130 }}>
-          {!f.tipo_paso && <option value="">Tipo</option>}
-          {TIPOS_PASO.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
-        </select>
+          style={{ ...inp, width: 130, minWidth: 80, flexShrink: 1, fontWeight: 700, color, borderColor: 'transparent', background: 'transparent' }} />
+
 
         {/* Duración / distancia */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0 }}>
           <div style={{ display: 'flex', background: 'var(--bg2)', borderRadius: 6, padding: 1 }}>
             {[['tiempo', '⏱'], ['dist', '📏']].map(([k, ic]) => (
               <button key={k} title={k === 'tiempo' ? 'Por tiempo' : 'Por distancia'}
@@ -606,51 +624,51 @@ function Paso({ f, perfil, abierto, setAbierto, seleccionado, onSeleccionar, onA
                   if (k === 'tiempo') onCambio({ distancia_m: null, volumen_km: null, duracion_seg: 300 })
                   else onCambio({ duracion_seg: null, volumen_min: null, distancia_m: 1000 })
                 }}
-                style={{ border: 'none', borderRadius: 5, padding: '2px 6px', fontSize: 11, cursor: 'pointer', background: modo === k ? 'var(--bg)' : 'transparent', boxShadow: modo === k ? '0 1px 2px rgba(0,0,0,.1)' : 'none' }}>{ic}</button>
+                style={{ border: 'none', borderRadius: 5, padding: '1px 4px', fontSize: 10.5, cursor: 'pointer', background: modo === k ? 'var(--bg)' : 'transparent', boxShadow: modo === k ? '0 1px 2px rgba(0,0,0,.1)' : 'none' }}>{ic}</button>
             ))}
           </div>
           {modo === 'tiempo' ? (
             <input value={txtDur} onChange={e => setTxtDur(e.target.value)} placeholder="10:00" title="min:seg (o 45s, o 1:05:00)"
               onBlur={() => { const s = parseDuracionPaso(txtDur); if (s !== duracionPaso(f)) onCambio({ duracion_seg: s, volumen_min: null }); setTxtDur(fmtDuracionPaso(s)) }}
-              style={{ ...inp, width: 66, textAlign: 'center', fontFamily: 'var(--mono)', fontWeight: 600 }} />
+              style={{ ...inp, width: 58, textAlign: 'center', fontFamily: 'var(--mono)', fontWeight: 600 }} />
           ) : (
             <input value={txtDist} onChange={e => setTxtDist(e.target.value)} placeholder="400 · 1,5 km"
               onBlur={() => { const m = parseDistancia(txtDist); if (m !== distanciaPaso(f)) onCambio({ distancia_m: m, volumen_km: null }); setTxtDist(m ? String(m) : '') }}
-              style={{ ...inp, width: 76, textAlign: 'center', fontFamily: 'var(--mono)', fontWeight: 600 }} />
+              style={{ ...inp, width: 66, textAlign: 'center', fontFamily: 'var(--mono)', fontWeight: 600 }} title={dist ? fmtDistancia(dist) : 'metros o km'} />
           )}
-          {modo === 'dist' && dist ? <span style={{ fontSize: 11, color: 'var(--text3)' }}>{fmtDistancia(dist)}</span> : null}
+
         </div>
 
         {/* Intensidad (en las rampas: inicio → final) */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 3, flexWrap: 'nowrap', minWidth: 0, flexShrink: 1 }}>
           <select value={f.objetivo_tipo || ''} onChange={e => {
             const t = e.target.value || null
             const def = { fcmax: [70, 80], fcumbral: [85, 90], ritmo_umbral: [95, 100], ritmo_maraton: [100, 100], zona_fc: [2, 2], zona_ritmo: [2, 2], rpe: [5, 6] }[t] || [null, null]
             const v = rampa && f.tipo_paso === 'rampa_baja' ? [def[1], def[0]] : def
             onCambio({ objetivo_tipo: t, objetivo_min: v[0], objetivo_max: v[1] })
-          }} style={inp}>
+          }} style={{ ...inp, width: 108, flexShrink: 1, minWidth: 60 }}>
             <option value="">Sin intensidad</option>
             {OBJETIVOS.map(o => <option key={o.key} value={o.key}>{o.label}</option>)}
           </select>
           {f.objetivo_tipo && (
             <>
-              <input type="number" value={min} onChange={e => setMin(e.target.value)} onBlur={() => guardarRango(min, max)} style={{ ...inp, width: 52, textAlign: 'center' }} title={rampa ? 'Al empezar' : 'Mínimo'} />
+              <input type="number" value={min} onChange={e => setMin(e.target.value)} onBlur={() => guardarRango(min, max)} style={{ ...inp, width: 42, padding: '0 2px', textAlign: 'center' }} title={rampa ? 'Al empezar' : 'Mínimo'} />
               <span style={{ color: 'var(--text3)' }}>{rampa ? '→' : '–'}</span>
-              <input type="number" value={max} onChange={e => setMax(e.target.value)} onBlur={() => guardarRango(min, max)} style={{ ...inp, width: 52, textAlign: 'center' }} title={rampa ? 'Al terminar' : 'Máximo'} />
+              <input type="number" value={max} onChange={e => setMax(e.target.value)} onBlur={() => guardarRango(min, max)} style={{ ...inp, width: 42, padding: '0 2px', textAlign: 'center' }} title={rampa ? 'Al terminar' : 'Máximo'} />
             </>
           )}
-          {personal && <span style={{ fontFamily: 'var(--mono)', fontSize: 12, fontWeight: 700, color, background: `${color}14`, borderRadius: 6, padding: '3px 7px' }}>{personal}</span>}
+          {personal && <span title={personal} style={{ fontFamily: 'var(--mono)', fontSize: 11.5, fontWeight: 700, color, background: `${color}12`, borderRadius: 5, padding: '2px 6px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{personal}</span>}
         </div>
 
-        <span style={{ marginLeft: 'auto', display: 'flex', gap: 1 }}>
-          <button className="btn btn-ghost btn-sm" title="Indicaciones y pendiente" onClick={() => setAbierto(!abierto)} style={{ padding: '2px 6px', color: abierto || f.descripcion ? 'var(--accent)' : 'var(--text3)' }}>✎</button>
-          <button className="btn btn-ghost btn-sm" title="Duplicar" onClick={onDuplicar} style={{ padding: '2px 6px' }}>⎘</button>
-          <button className="btn btn-ghost btn-sm" title="Eliminar" onClick={onEliminar} style={{ padding: '2px 6px', color: 'var(--danger)' }}>×</button>
+        <span style={{ marginLeft: 'auto', display: 'flex', gap: 1, flexShrink: 0 }}>
+          <button className="btn btn-ghost btn-sm" title="Tipo de paso, indicaciones y pendiente" onClick={() => setAbierto(!abierto)} style={{ padding: '0 5px', height: 22, color: abierto || f.descripcion ? 'var(--accent)' : 'var(--text3)' }}>✎</button>
+          <button className="btn btn-ghost btn-sm" title="Duplicar" onClick={onDuplicar} style={{ padding: '0 5px', height: 22 }}>⎘</button>
+          <button className="btn btn-ghost btn-sm" title="Eliminar" onClick={onEliminar} style={{ padding: '0 5px', height: 22, color: 'var(--danger)' }}>×</button>
         </span>
       </div>
 
       {f.descripcion && !abierto && (
-        <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 5, lineHeight: 1.4 }}>{f.descripcion}</div>
+        <div style={{ fontSize: 11.5, color: 'var(--text2)', margin: '1px 0 2px 22px', lineHeight: 1.35 }}>{f.descripcion}</div>
       )}
 
       {legado && (
@@ -662,6 +680,13 @@ function Paso({ f, perfil, abierto, setAbierto, seleccionado, onSeleccionar, onA
 
       {abierto && (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 8, marginTop: 8 }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text3)' }}>
+            Tipo de paso
+            <select value={f.tipo_paso || ''} onChange={e => onCambio({ tipo_paso: e.target.value || null })} style={{ ...inp, width: 'auto' }}>
+              {!f.tipo_paso && <option value="">—</option>}
+              {TIPOS_PASO.map(t => <option key={t.key} value={t.key}>{t.label}</option>)}
+            </select>
+          </label>
           <textarea value={notas} onChange={e => setNotas(e.target.value)} onBlur={() => notas !== (f.descripcion || '') && onCambio({ descripcion: notas || null })}
             placeholder="Indicaciones para el cliente" rows={2} style={{ ...inp, resize: 'vertical', fontFamily: 'inherit' }} />
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 12, color: 'var(--text3)' }}>

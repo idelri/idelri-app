@@ -652,7 +652,8 @@ export default function SesionPublica({ token }) {
           const bc = b.color || '#E29A2E'
           const metodoLabel = METODO_LABEL[b.metodo || 'individual']
           const fasesBloque = fasesPorBloque[b.id] || []
-          const esResistencia = fasesBloque.length > 0 && ejsBloque.length === 0
+          // Bloque sin ejercicios (resistencia: pasos y/o descripción): sin método ni series
+          const esResistencia = ejsBloque.length === 0
           const descTexto = esResistencia ? null : (b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual'])
 
           function renderEj(e, eIdx, totalEjs) {
@@ -779,11 +780,13 @@ export default function SesionPublica({ token }) {
                       </span>
                     )}
                   </div>
-                  {b.nota && (
+                  {b.nota && (esResistencia ? (
+                    <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.55, color: T.ink, whiteSpace: 'pre-wrap' }}>{b.nota}</div>
+                  ) : (
                     <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 8, padding: '8px 10px', borderRadius: 8, background: `${bc}18`, fontSize: 12, lineHeight: 1.4, color: bc }}>
                       <span>📝</span><span>{b.nota}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
 
                 {/* Descripción del método */}
