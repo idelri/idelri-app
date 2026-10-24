@@ -20,6 +20,7 @@ import {
   format, startOfMonth, endOfMonth, startOfWeek, addDays, addWeeks, addMonths, subMonths,
   isSameDay, isSameMonth, isToday, parseISO,
 } from 'date-fns'
+import { colorTipoPaso, labelTipoPaso, duracionPaso, distanciaPaso, fmtDuracionPaso, fmtDistancia, etiquetaObjetivo } from '../lib/zonas'
 import { es } from 'date-fns/locale'
 
 const DIAS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
@@ -89,8 +90,12 @@ export function DetalleSesion({ T, detalle }) {
             </div>
             {fs.map(x => (
               <div key={x.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
-                <span style={{ flex: 1, minWidth: 0, color: T.ink }}>▸ {x.nombre || 'Fase'}</span>
-                {(x.volumen_min || x.volumen_km) && <span style={{ fontFamily: T.mono, fontSize: 10.5, color: T.ink3, whiteSpace: 'nowrap' }}>{x.volumen_min ? `${x.volumen_min} min` : `${x.volumen_km} km`}</span>}
+                <span style={{ flex: 1, minWidth: 0, color: T.ink }}>
+                  <span style={{ display: 'inline-block', width: 7, height: 7, borderRadius: 2, background: colorTipoPaso(x.tipo_paso), marginRight: 6 }} />
+                  {x.nombre || (x.tipo_paso ? labelTipoPaso(x.tipo_paso) : 'Fase')}
+                  {x.objetivo_tipo && <span style={{ color: T.ink3 }}> · {etiquetaObjetivo(x)}</span>}
+                </span>
+                {(duracionPaso(x) || distanciaPaso(x)) && <span style={{ fontFamily: T.mono, fontSize: 10.5, color: T.ink3, whiteSpace: 'nowrap' }}>{duracionPaso(x) ? fmtDuracionPaso(duracionPaso(x)) : fmtDistancia(distanciaPaso(x))}</span>}
               </div>
             ))}
             {ejs.length === 0 && fs.length === 0 && b.nota && (
@@ -131,7 +136,7 @@ export default function CalendarioPortal({
     Promise.all([
       supabase.rpc('get_bloques_por_token_sesion', { p_token: token }),
       supabase.rpc('get_ejercicios_por_token_sesion', { p_token: token }),
-      supabase.rpc('get_fases_bloque_por_token_sesion', { p_token: token }),
+      supabase.rpc('get_pasos_por_token_sesion', { p_token: token }),
     ]).then(([b, e, f]) => {
       if (b.error || e.error) {
         pedidos.current.delete(token)

@@ -1,3 +1,4 @@
+import { colorTipoPaso, labelTipoPaso, duracionPaso, distanciaPaso, fmtDuracionPaso, fmtDistancia, objetivoPersonal, etiquetaObjetivo } from '../lib/zonas'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { format, parseISO } from 'date-fns'
@@ -250,6 +251,7 @@ export default function SesionPublica({ token }) {
   const [fases, setFases] = useState([])
   const [fasesItems, setFasesItems] = useState([]) // lista combinada fases sueltas + grupos (sin bloque)
   const [fasesPorBloque, setFasesPorBloque] = useState({}) // bloqueId → fases sueltas + grupos
+  const [perfilZonas, setPerfilZonas] = useState(null) // FC y ritmos del cliente para traducir las intensidades
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [feedbackEnviado, setFeedbackEnviado] = useState(null)
@@ -281,9 +283,9 @@ export default function SesionPublica({ token }) {
   }, [])
 
   async function cargar() {
-    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr] = await Promise.all([
+    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr, perfilZ] = await Promise.all([
       supabase.rpc('get_sesion_por_token',              { p_token: token }).then(r => r.data),
-      supabase.rpc('get_fases_bloque_por_token_sesion',  { p_token: token }).then(r => r.data),
+      supabase.rpc('get_pasos_por_token_sesion',         { p_token: token }).then(r => r.data),
       supabase.rpc('get_grupos_bloque_por_token_sesion', { p_token: token }).then(r => r.data),
       supabase.rpc('get_nombre_por_token_sesion',       { p_token: token }).then(r => r.data),
       supabase.rpc('get_bloques_por_token_sesion',      { p_token: token }).then(r => r.data),
@@ -291,7 +293,9 @@ export default function SesionPublica({ token }) {
       supabase.rpc('get_feedback_por_token_sesion',     { p_token: token }).then(r => r.data),
       supabase.rpc('get_clon_pendiente_feedback_por_token_original', { p_token: token }).then(r => r.data),
       supabase.rpc('get_permisos_por_token_sesion',     { p_token: token }).then(r => r.data),
+      supabase.rpc('get_perfil_zonas_por_token_sesion', { p_token: token }).then(r => r.data),
     ])
+    setPerfilZonas(perfilZ || null)
     const s = sesArr?.[0] ?? null
     if (!s) { setError(true); setLoading(false); return }
     setSesion(s)
@@ -407,27 +411,41 @@ export default function SesionPublica({ token }) {
           const FC_LABELS = ['Zona 1 – Muy suave','Zona 2 – Suave','Zona 3 – Moderada','Zona 4 – Dura','Zona 5 – Máxima']
 
           function renderFaseCliente(f, key) {
-            const zonaColor = f.fc_zona ? FC_COLORS[f.fc_zona - 1] : T.accent
+            const zonaColor = f.tipo_paso ? colorTipoPaso(f.tipo_paso) : f.fc_zona ? FC_COLORS[f.fc_zona - 1] : T.accent
+            const durP = duracionPaso(f), distP = distanciaPaso(f)
+            const personal = objetivoPersonal(f, perfilZonas)
             const zonaLabel = f.fc_zona ? FC_LABELS[f.fc_zona - 1] : null
             const rpeColor = !f.rpe ? '#929ba8' : f.rpe <= 4 ? '#10b981' : f.rpe <= 6 ? '#f59e0b' : '#ef4444'
             return (
               <div key={key} style={{ borderLeft: `3px solid ${zonaColor}`, paddingLeft: 14, marginBottom: 4 }}>
-                {f.nombre && <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 8 }}>{f.nombre}</div>}
+                {(f.tipo_paso || f.nombre) && (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                    {f.tipo_paso && <span style={{ fontSize: 10.5, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: zonaColor, background: zonaColor + '18', borderRadius: 6, padding: '3px 8px' }}>{labelTipoPaso(f.tipo_paso)}</span>}
+                    {f.nombre && <span style={{ fontSize: 15, fontWeight: 800, color: T.ink }}>{f.nombre}</span>}
+                  </div>
+                )}
                 {f.descripcion && (
                   <div style={{ background: zonaColor + '12', border: `1px solid ${zonaColor}33`, borderRadius: 11, padding: '11px 14px', marginBottom: 10, fontSize: 13.5, lineHeight: 1.55, color: '#374151' }}>
                     {f.descripcion}
                   </div>
                 )}
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  {(f.volumen_min || f.volumen_km) && (
+                  {(durP || distP) && (
                     <div style={{ background: T.paper, borderRadius: 10, padding: '10px 14px', minWidth: 90 }}>
-                      <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Volumen</div>
+                      <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>{durP && !distP ? 'Duración' : !durP ? 'Distancia' : 'Volumen'}</div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>
-                        {f.volumen_min ? `${f.volumen_min} min` : ''}{f.volumen_min && f.volumen_km ? ' · ' : ''}{f.volumen_km ? `${f.volumen_km} km` : ''}
+                        {durP ? fmtDuracionPaso(durP) : ''}{durP && distP ? ' · ' : ''}{distP ? fmtDistancia(distP) : ''}
                       </div>
                     </div>
                   )}
-                  {(f.ritmo_inicio || f.ritmo_fin) && (
+                  {f.objetivo_tipo && (
+                    <div style={{ background: zonaColor + '14', border: `1px solid ${zonaColor}44`, borderRadius: 10, padding: '10px 14px', minWidth: 110 }}>
+                      <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Intensidad</div>
+                      {personal && <div style={{ fontSize: 17, fontWeight: 800, color: T.ink, marginBottom: 2 }}>{personal}</div>}
+                      <div style={{ fontSize: personal ? 11.5 : 15, fontWeight: personal ? 600 : 700, color: personal ? zonaColor : T.ink }}>{etiquetaObjetivo(f)}</div>
+                    </div>
+                  )}
+                  {!f.objetivo_tipo && (f.ritmo_inicio || f.ritmo_fin) && (
                     <div style={{ background: T.paper, borderRadius: 10, padding: '10px 14px', minWidth: 90 }}>
                       <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Ritmo (min/km)</div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>
@@ -435,7 +453,7 @@ export default function SesionPublica({ token }) {
                       </div>
                     </div>
                   )}
-                  {f.fc_zona && (
+                  {!f.objetivo_tipo && f.fc_zona && (
                     <div style={{ background: zonaColor + '18', border: `1px solid ${zonaColor}44`, borderRadius: 10, padding: '10px 14px', minWidth: 90 }}>
                       <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>FC Zona</div>
                       <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 2 }}>
@@ -446,7 +464,7 @@ export default function SesionPublica({ token }) {
                       <div style={{ fontSize: 11, fontWeight: 600, color: zonaColor }}>{zonaLabel}</div>
                     </div>
                   )}
-                  {f.rpe && (
+                  {!f.objetivo_tipo && f.rpe && (
                     <div style={{ background: T.paper, borderRadius: 10, padding: '10px 14px' }}>
                       <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>RPE</div>
                       <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 4 }}>

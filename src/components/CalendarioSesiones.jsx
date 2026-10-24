@@ -141,7 +141,7 @@ export default function CalendarioSesiones({
     // Mismo contenido que la previsualización del portal del cliente
     const [{ data: bloques }, { data: fases }] = await Promise.all([
       supabase.from('sesion_bloques').select('id, nombre, color, nota, orden, vueltas, sesion_ejercicios(id, bloque_id, nombre, series, reps, duracion, distancia, reps_por_lado, orden)').eq('sesion_id', sesion.id).order('orden'),
-      supabase.from('sesion_fases').select('id, nombre, orden, bloque_id, volumen_min, volumen_km').eq('sesion_id', sesion.id).order('orden'),
+      supabase.from('sesion_fases').select('id, nombre, orden, bloque_id, volumen_min, volumen_km, tipo_paso, duracion_seg, distancia_m, objetivo_tipo, objetivo_min, objetivo_max').eq('sesion_id', sesion.id).order('orden'),
     ])
     const contenido = {
       detalle: {
