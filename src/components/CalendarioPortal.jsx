@@ -111,6 +111,20 @@ export function DetalleSesion({ T, detalle }) {
   )
 }
 
+/* Texto completo de la fase y de la semana (al tocar o pasar por la franja) */
+function InfoFase({ T, bloque, sem, numero }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {bloque?.color && <span style={{ width: 10, height: 10, borderRadius: 3, background: bloque.color, flexShrink: 0 }} />}
+        <span style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{numero ? `Semana ${numero}` : 'Semana'}{bloque ? ` · ${bloque.nombre}` : ''}</span>
+      </div>
+      {bloque?.objetivo && <div style={{ fontSize: 12, color: T.ink2, lineHeight: 1.45, fontStyle: 'italic' }}>{bloque.objetivo}</div>}
+      {sem?.objetivo && <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{sem.objetivo}</div>}
+    </div>
+  )
+}
+
 export default function CalendarioPortal({
   T, isDesktop, sesiones, notas, competiciones, controles, bloques, semanas,
   fechaVisualSesion, iconoSesion, abrirSesion, conEstado, colorEstado,
@@ -118,6 +132,7 @@ export default function CalendarioPortal({
   const [mes, setMes] = useState(() => new Date())
   const [diaSelec, setDiaSelec] = useState(null)       // móvil: día abierto
   const [hover, setHover] = useState(null)             // escritorio: { id, rect }
+  const [semInfo, setSemInfo] = useState(null)         // semana con el texto completo abierto (clave del lunes)
   const [detalles, setDetalles] = useState({})         // token → { bloques, ejercicios } | { error }
   const pedidos = useRef(new Set())
   const cerrarTimer = useRef(null)
@@ -277,15 +292,23 @@ export default function CalendarioPortal({
             const actual = isSameDay(lun, lunesHoy)
             return (
               <div key={key(lun)} style={{ display: 'grid', gridTemplateColumns: '150px repeat(7, minmax(0, 1fr))', borderTop: fi > 0 ? `1px solid ${T.border}` : 'none', outline: actual ? `2px solid ${color || T.green}` : 'none', outlineOffset: -2, position: 'relative' }}>
-                {/* Franja de fase */}
-                <div style={{ background: color || T.bg, color: color ? '#fff' : T.ink3, padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0 }}>
+                {/* Franja de fase: al pasar el ratón o al hacer clic se ve el texto completo */}
+                <div onMouseEnter={() => (sem?.objetivo || bloque?.objetivo) && setSemInfo(key(lun))} onMouseLeave={() => setSemInfo(null)}
+                  onClick={() => (sem?.objetivo || bloque?.objetivo) && setSemInfo(v => v === key(lun) ? null : key(lun))}
+                  style={{ background: color || T.bg, color: color ? '#fff' : T.ink3, padding: '10px 10px', display: 'flex', flexDirection: 'column', gap: 3, minWidth: 0, cursor: sem?.objetivo || bloque?.objetivo ? 'pointer' : 'default', position: 'relative' }}>
                   {numero ? (
                     <div style={{ fontSize: 15, fontWeight: 700, lineHeight: 1 }}>S{numero}{actual && <span style={{ marginLeft: 6, fontSize: 8.5, fontWeight: 600, background: 'rgba(255,255,255,.25)', padding: '2px 6px', borderRadius: 8, verticalAlign: 'middle', fontFamily: T.mono }}>ESTÁS AQUÍ</span>}</div>
                   ) : (
                     <div style={{ fontSize: 11, fontFamily: T.mono }}>{format(lun, 'd MMM', { locale: es })}</div>
                   )}
                   {bloque && <div style={{ fontSize: 10.5, fontWeight: 600, opacity: .95, lineHeight: 1.25 }}>{bloque.nombre}</div>}
-                  {sem?.objetivo && <div title={sem.objetivo} style={{ fontSize: 10, opacity: .88, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{sem.objetivo}</div>}
+                  {sem?.objetivo && <div style={{ fontSize: 10, opacity: .88, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{sem.objetivo}</div>}
+                  {(sem?.objetivo || bloque?.objetivo) && <div style={{ fontSize: 9.5, fontWeight: 600, opacity: .8, marginTop: 1 }}>Ver más ›</div>}
+                  {semInfo === key(lun) && (
+                    <div onClick={e => e.stopPropagation()} style={{ position: 'absolute', left: '100%', top: 0, marginLeft: 6, zIndex: 30, width: 320, background: T.surface || '#fff', border: `1px solid ${T.border}`, borderLeft: `4px solid ${color || T.green}`, borderRadius: 10, boxShadow: '0 10px 30px rgba(0,0,0,.15)', padding: '12px 14px', cursor: 'default' }}>
+                      <InfoFase T={T} bloque={bloque} sem={sem} numero={numero} />
+                    </div>
+                  )}
                 </div>
                 {/* Días */}
                 {[0, 1, 2, 3, 4, 5, 6].map(i => {
@@ -379,11 +402,18 @@ export default function CalendarioPortal({
             <div key={key(lun)} style={{ background: T.surface, borderRadius: 10, overflow: 'hidden', border: actual ? `2px solid ${color || T.green}` : `1px solid ${T.border}` }}>
               {/* Franja de fase */}
               {(bloque || numero) && (
-                <div style={{ background: color || T.bg2, color: color ? '#fff' : T.ink2, padding: '5px 10px', display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+                <div onClick={() => (sem?.objetivo || bloque?.objetivo) && setSemInfo(v => v === key(lun) ? null : key(lun))}
+                  style={{ background: color || T.bg2, color: color ? '#fff' : T.ink2, padding: '5px 10px', display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0, cursor: 'pointer' }}>
                   {numero && <span style={{ fontSize: 12, fontWeight: 700 }}>S{numero}</span>}
                   {bloque && <span style={{ fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap' }}>{bloque.nombre}</span>}
                   {actual && <span style={{ fontSize: 8, fontFamily: T.mono, fontWeight: 600, background: 'rgba(255,255,255,.25)', padding: '1px 5px', borderRadius: 6 }}>AQUÍ</span>}
                   {sem?.objetivo && <span style={{ fontSize: 10, opacity: .88, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: 1 }}>· {sem.objetivo}</span>}
+                  {(sem?.objetivo || bloque?.objetivo) && <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{semInfo === key(lun) ? '▴' : 'ⓘ'}</span>}
+                </div>
+              )}
+              {semInfo === key(lun) && (
+                <div style={{ padding: '10px 12px', borderBottom: `1px solid ${T.border}`, background: color ? `${color}12` : T.bg }}>
+                  <InfoFase T={T} bloque={bloque} sem={sem} numero={numero} />
                 </div>
               )}
               {/* Días */}
