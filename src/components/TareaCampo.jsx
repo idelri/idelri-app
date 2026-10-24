@@ -436,12 +436,31 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
   const portapapeles = useRef([])
   const dRef = useRef(d); dRef.current = d
   const valorRef = useRef(null)
+  const lienzoRef = useRef(null)
+  const ultimoClic = useRef({ id: null, t: 0 })
+  // Edición de texto directamente sobre el dibujo: { id, original }
+  const [editTxt, setEditTxt] = useState(null)
 
   const f = d.fondo, u = unidad(f), mg = Math.max(f.ancho, f.alto) * 0.035
   const elemSel = d.elementos.filter(e => sel.includes(e.id))
   const uno = elemSel.length === 1 ? elemSel[0] : null
   const met = useMemo(() => metricasDiagrama(d), [d])
 
+  const EDITABLES = ['texto', 'jugador', 'atleta', 'zona', 'medida']
+  const campoTxt = e => (e.tipo === 'medida' ? 'valor' : 'texto')
+  function editarTexto(id) {
+    const e = dRef.current.elementos.find(x => x.id === id)
+    if (!e || !EDITABLES.includes(e.tipo)) return false
+    recordar(dRef.current)
+    setSel([id]); setHerr('mover'); setEditTxt({ id, original: e[campoTxt(e)] ?? '' })
+    return true
+  }
+  function terminarTexto(cancelar) {
+    setEditTxt(et => {
+      if (et && cancelar) setD(prev => ({ ...prev, elementos: prev.elementos.map(e => e.id === et.id ? { ...e, [campoTxt(e)]: et.original } : e) }))
+      return null
+    })
+  }
   const snap = useCallback(v => (ajustar ? Math.round(v * 2) / 2 : Math.round(v * 100) / 100), [ajustar])
   const recordar = useCallback(prev => { historia.current.pasado.push(prev); if (historia.current.pasado.length > 80) historia.current.pasado.shift(); historia.current.futuro = [] }, [])
   const cambiar = useCallback(fn => setD(prev => { const next = fn(prev); if (next !== prev) recordar(prev); return next }), [recordar])
@@ -509,6 +528,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
       const t = ev.target; if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT')) return
       const mod = ev.metaKey || ev.ctrlKey
       if (ev.key === 'Escape') { setHerr('mover'); setSel([]); return }
+      if ((ev.key === 'Enter' || ev.key === 'F2') && sel.length === 1) { ev.preventDefault(); editarTexto(sel[0]); return }
       if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); eliminar(); return }
       if (mod && ev.key.toLowerCase() === 'z') { ev.preventDefault(); ev.shiftKey ? rehacer() : deshacer(); return }
       if (mod && ev.key.toLowerCase() === 'y') { ev.preventDefault(); rehacer(); return }
@@ -531,6 +551,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
   function onDown(ev) {
     if (ev.button !== 0) return
     ev.preventDefault()
+    if (editTxt) { terminarTexto(false); document.activeElement?.blur?.() }
     const p = punto(ev)
     const hEl = ev.target.closest('[data-h]')
     const elEl = ev.target.closest('[data-id]')
@@ -562,12 +583,17 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
       const nJug = dRef.current.elementos.filter(e => e.tipo === 'jugador').length
       const e = { id: uid(), tipo: herr, x: sp.x, y: sp.y, rot: 0, escala: 1, opacidad: 1, color: def?.color, ...(herr === 'jugador' ? { texto: String(nJug + 1) } : {}), ...(herr === 'texto' ? { texto: 'Texto' } : {}) }
       cambiar(prev => ({ ...prev, elementos: [...prev.elementos, e] })); setSel([e.id])
+      if (herr === 'texto') { setHerr('mover'); setTimeout(() => setEditTxt({ id: e.id, original: 'Texto' }), 0); return }
       arrastre.current = { modo: 'mover', ids: [e.id], inicio: p, ultimo: p, previo: null, movido: false }
       return
     }
     // Mover / seleccionar
     if (elEl) {
       const id = elEl.dataset.id
+      // Doble clic (dos pulsaciones seguidas sobre el mismo elemento): editar su texto
+      const ahora = Date.now(), uc = ultimoClic.current
+      ultimoClic.current = { id, t: ahora }
+      if (uc.id === id && ahora - uc.t < 450 && editarTexto(id)) { ultimoClic.current = { id: null, t: 0 }; return }
       let ids = sel.includes(id) ? sel : [id]
       if (ev.shiftKey || ev.metaKey || ev.ctrlKey) { ids = sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]; setSel(ids); return }
       const previo = dRef.current
@@ -649,7 +675,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
       const vacia = e && ((e.p0 && dist(e.p0, e.p1) < 0.3) || (e.tipo === 'zona' && e.w < 0.6 && e.h < 0.6))
       if (vacia) { setD(a.previo); setSel([]); return }
       recordar(a.previo)
-      if (e?.tipo === 'medida') setTimeout(() => valorRef.current?.focus(), 30)
+      if (e?.tipo === 'medida') setTimeout(() => setEditTxt({ id: e.id, original: '' }), 0)
       return
     }
     if (a.movido && a.previo) recordar(a.previo)
@@ -712,7 +738,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
   const parar = ev => ev.stopPropagation()
   return createPortal(
     <div draggable={false} onDragStart={ev => { ev.preventDefault(); ev.stopPropagation() }}
-      onPointerDown={parar} onMouseDown={parar} onClick={parar} onDragOver={parar} onDrop={parar} onKeyDown={parar}
+      onPointerDown={parar} onMouseDown={parar} onClick={parar} onDragOver={parar} onDrop={parar}
       style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
       <div style={{ background: 'var(--bg, #fff)', borderRadius: 14, width: 'min(1400px, 100%)', height: 'min(900px, 100%)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
         {/* Cabecera + barra de herramientas */}
@@ -809,11 +835,12 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
 
           {/* Lienzo */}
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', background: '#eef0f3' }}>
-            <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+            <div ref={lienzoRef} style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12, position: 'relative' }}>
               <svg ref={svgRef} viewBox={`${-mg} ${-mg} ${f.ancho + 2 * mg} ${f.alto + 2 * mg}`}
                 preserveAspectRatio="xMidYMid meet"
                 style={{ width: '100%', height: '100%', cursor, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', fontFamily: 'Inter, system-ui, sans-serif' }}
                 onDragStart={ev => ev.preventDefault()}
+                onDoubleClick={ev => { const el = ev.target.closest('[data-id]'); if (el) editarTexto(el.dataset.id) }}
                 onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
                 <g opacity={f.opacidad ?? 1} pointerEvents="none"><FondoSVG fondo={f} /></g>
                 {f.rejilla && <g pointerEvents="none"><Rejilla fondo={f} fuerte={f.tipo === 'cuadricula' || f.tipo === 'blanco'} /></g>}
@@ -830,11 +857,27 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
                 {elemSel.filter(e => e.p0).map(e => <path key={'s' + e.id} d={e.tipo === 'flecha' ? trazoFlecha({ ...e, estilo: 'sprint' }) : `M ${e.p0.x} ${e.p0.y} L ${e.p1.x} ${e.p1.y}`} stroke="#2563eb" strokeOpacity={0.35} strokeWidth={u * 0.35} fill="none" pointerEvents="none" />)}
                 {marco && <rect x={Math.min(marco.x0, marco.x1)} y={Math.min(marco.y0, marco.y1)} width={Math.abs(marco.x1 - marco.x0)} height={Math.abs(marco.y1 - marco.y0)} fill="rgba(37,99,235,.08)" stroke="#2563eb" strokeWidth={u * 0.04} strokeDasharray={`${u * 0.2} ${u * 0.12}`} pointerEvents="none" />}
               </svg>
+              {editTxt && (() => {
+                const e = d.elementos.find(x => x.id === editTxt.id); const svg = svgRef.current, caja = lienzoRef.current
+                if (!e || !svg || !caja) return null
+                const ancla = e.p0 ? { x: (e.p0.x + e.p1.x) / 2, y: (e.p0.y + e.p1.y) / 2 } : e.tipo === 'zona' ? { x: e.x, y: e.y - e.h / 2 + u * 0.55 } : e.tipo === 'atleta' ? { x: e.x, y: e.y + (e.escala || 1) * u * 1.0 } : { x: e.x, y: e.y }
+                const pt = svg.createSVGPoint(); pt.x = ancla.x; pt.y = ancla.y
+                const sc = pt.matrixTransform(svg.getScreenCTM()), r = caja.getBoundingClientRect()
+                const campo = campoTxt(e)
+                return (
+                  <input autoFocus value={e[campo] ?? ''} onFocus={ev => ev.target.select()}
+                    placeholder={e.tipo === 'medida' ? `${String(Math.round(dist(e.p0, e.p1) * 2) / 2).replace('.', ',')} (auto)` : e.tipo === 'jugador' ? 'nº' : 'Escribe…'}
+                    onChange={ev => { const v = ev.target.value; setD(prev => ({ ...prev, elementos: prev.elementos.map(x => x.id === e.id ? { ...x, [campo]: v } : x) })) }}
+                    onKeyDown={ev => { ev.stopPropagation(); if (ev.key === 'Enter') terminarTexto(false); if (ev.key === 'Escape') terminarTexto(true) }}
+                    onBlur={() => terminarTexto(false)}
+                    style={{ position: 'absolute', left: sc.x - r.left, top: sc.y - r.top, transform: 'translate(-50%, -50%)', minWidth: e.tipo === 'jugador' || e.tipo === 'medida' ? 70 : 160, width: Math.max(e.tipo === 'jugador' || e.tipo === 'medida' ? 70 : 160, String(e[campo] ?? '').length * 9 + 30), padding: '6px 10px', fontSize: 15, fontWeight: 700, textAlign: 'center', borderRadius: 8, border: '2px solid #2563eb', boxShadow: '0 4px 14px rgba(0,0,0,.18)', outline: 'none', background: '#fff', color: '#111', zIndex: 5 }} />
+                )
+              })()}
             </div>
             <div style={{ padding: '6px 14px', fontSize: 11.5, color: 'var(--text2, #555)', borderTop: '1px solid var(--border, #e5e7eb)', background: 'var(--bg, #fff)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
               <span>Metros por repetición: <b style={{ color: '#1f2d8a' }}>{met.metros ? fmtM(met.metros) : '—'}</b></span>
               <span>Cambios de dirección: <b style={{ color: '#1f2d8a' }}>{met.cod}{met.angulos.length ? ` (${[...new Set(met.angulos)].map(a => a + '°').join(', ')})` : ''}</b></span>
-              <span style={{ marginLeft: 'auto', color: 'var(--text3, #9ca3af)' }}>Alt + arrastrar = duplicar · Shift + clic = varios · R = girar · flechas del teclado = mover</span>
+              <span style={{ marginLeft: 'auto', color: 'var(--text3, #9ca3af)' }}>Doble clic = editar texto · Alt + arrastrar = duplicar · Shift + clic = varios · R = girar · flechas del teclado = mover</span>
             </div>
           </div>
 
@@ -857,7 +900,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
                 <div style={{ fontSize: 10.5, color: 'var(--text3, #9ca3af)', marginTop: 3, lineHeight: 1.35 }}>Si no la marcas, el deportista ve el dibujo limpio, sin cuadrícula.</div>
                 <div style={{ ...lbl, marginTop: 18 }}>Atajos</div>
                 <div style={{ fontSize: 11, color: 'var(--text2, #555)', lineHeight: 1.6 }}>
-                  Arrastrar en vacío: seleccionar varios<br />Alt + arrastrar: duplicar<br />Ctrl+D duplicar · Ctrl+C / Ctrl+V<br />R / Shift+R: girar 15°<br />Supr: eliminar · Ctrl+Z: deshacer
+                  Doble clic en un texto: editarlo<br />Arrastrar en vacío: seleccionar varios<br />Alt + arrastrar: duplicar<br />Ctrl+D duplicar · Ctrl+C / Ctrl+V<br />R / Shift+R: girar 15°<br />Supr: eliminar · Ctrl+Z: deshacer
                 </div>
               </>
             )}
