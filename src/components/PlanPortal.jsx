@@ -4,14 +4,14 @@
  *  1. Cuenta atrás hasta el objetivo (competición) y progreso del plan.
  *  2. Línea de tiempo por semanas: fases con su color, semanas hechas,
  *     "estás aquí" y las competiciones colocadas en su semana.
- *  3. Esta semana y las próximas, con su objetivo.
+ *  3. Al tocar una semana de la línea de tiempo se ve desarrollada debajo.
  *  4. Competiciones / partidos que vienen.
  *
  * El objetivo de la cuenta atrás es la primera competición visible para el
  * cliente que cae en la última semana del plan o después; si no hay, la
  * última competición del plan; y si tampoco, el final del plan.
  */
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import TextoEstructurado, { textoPlano } from './TextoEstructurado'
 import { format, startOfWeek, addWeeks, addDays, differenceInCalendarDays, parseISO, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -21,6 +21,7 @@ const key = d => format(d, 'yyyy-MM-dd')
 
 export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, competiciones, card }) {
   const scRef = useRef(null)
+  const [semSel, setSemSel] = useState(null)   // semana abierta en la línea de tiempo (índice); null = la actual
   const hoy = new Date()
   const lunesHoy = startOfWeek(hoy, { weekStartsOn: 1 })
 
@@ -88,7 +89,9 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
     else if (f > finPlan) compsDespues.push(c)
   })
 
-  const proximas = (idxHoy >= 0 ? lista.slice(idxHoy, idxHoy + 4) : antes ? lista.slice(0, 3) : [])
+  // Semana desarrollada bajo la línea de tiempo: la que toque el cliente, o la actual (o la primera)
+  const iSel = semSel ?? (idxHoy >= 0 ? idxHoy : antes ? 0 : lista.length - 1)
+  const wSel = lista[iSel]
   const proxComps = visibles.filter(c => fechaLocal(c.fecha) >= startOfWeek(hoy, { weekStartsOn: 1 })).slice(0, 8)
 
   const anchoSem = isDesktop ? 0 : 34       // móvil: ancho mínimo por semana
@@ -173,7 +176,8 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
                   const comps = compsPorSemana[i]
                   return (
                     <div key={i} data-actual={esHoy ? '1' : undefined} title={textoPlano(w.sem?.objetivo)}
-                      style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 6, background: pasada || esHoy ? c : `${c}2e`, color: pasada || esHoy ? '#fff' : c, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', outline: esHoy ? `2px solid ${T.ink}` : 'none', outlineOffset: 1, position: 'relative' }}>
+                      onClick={() => setSemSel(i)}
+                      style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 6, background: pasada || esHoy ? c : `${c}2e`, color: pasada || esHoy ? '#fff' : c, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', outline: i === iSel ? `2px solid ${T.ink}` : 'none', outlineOffset: 1, position: 'relative', cursor: 'pointer', boxShadow: i === iSel ? '0 3px 8px rgba(0,0,0,.18)' : 'none', transform: i === iSel ? 'translateY(-1px)' : 'none' }}>
                       <span style={{ fontSize: 11, fontWeight: 700 }}>S{w.numero}</span>
                       {pasada && !esHoy && <span style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
                       {comps && <span title={comps.map(x => x.nombre).join(', ')} style={{ position: 'absolute', top: -7, right: -3, fontSize: 12 }}>🏆</span>}
@@ -201,44 +205,36 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
               </div>
             </div>
           </div>
+          {/* Semana elegida, desarrollada */}
+          {wSel && (() => {
+            const c = wSel.bloque.color || T.green
+            const comps = compsPorSemana[iSel] || []
+            return (
+              <div style={{ marginTop: 12, borderTop: `1px solid ${T.bg2}`, paddingTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 6 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: c }}>Semana {wSel.numero}</span>
+                  <span style={{ fontSize: 11.5, fontWeight: 600, color: c }}>{wSel.bloque.nombre}</span>
+                  <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.ink3 }}>{format(wSel.lunes, 'd MMM', { locale: es })} – {format(addDays(wSel.lunes, 6), 'd MMM', { locale: es })}</span>
+                  {iSel === idxHoy && <span style={{ fontSize: 8.5, fontFamily: T.mono, fontWeight: 700, color: '#fff', background: c, padding: '1px 6px', borderRadius: 6 }}>ESTA SEMANA</span>}
+                </div>
+                <div style={{ borderLeft: `3px solid ${c}`, paddingLeft: 10 }}>
+                  {wSel.sem?.objetivo
+                    ? <TextoEstructurado texto={wSel.sem.objetivo} T={T} color={c} size={12.5} conTitulo />
+                    : <div style={{ fontSize: 12.5, color: T.ink3 }}>{wSel.bloque.objetivo || 'Sin descripción para esta semana.'}</div>}
+                  {wSel.sem?.nota_cliente && <div style={{ fontSize: 11.5, color: T.ink2, lineHeight: 1.4, marginTop: 5, fontStyle: 'italic' }}>{wSel.sem.nota_cliente}</div>}
+                  {comps.map(cp => (
+                    <div key={cp.id} style={{ fontSize: 11.5, fontWeight: 600, color: '#7a4a00', marginTop: 5 }}>🏆 {cp.nombre} · {format(fechaLocal(cp.fecha), 'EEE d', { locale: es })}</div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 8 }}>Toca otra semana de la línea de tiempo para verla.</div>
+              </div>
+            )
+          })()}
         </div>
       </div>
 
-      {/* ── 3. Esta semana y próximas · 4. Competiciones ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isDesktop && proxComps.length ? '1.4fr 1fr' : '1fr', gap: isDesktop ? 16 : 12, alignItems: 'start' }}>
-        {proximas.length > 0 && (
-          <div style={card}>
-            <div style={{ padding: '13px 14px' }}>
-              <div style={{ ...mono, marginBottom: 8 }}>{antes ? 'Primeras semanas' : 'Esta semana y las próximas'}</div>
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                {proximas.map((w, i) => {
-                  const c = w.bloque.color || T.green
-                  const esHoy = isSameDay(w.lunes, lunesHoy)
-                  return (
-                    <div key={i} style={{ display: 'flex', gap: 10, padding: '9px 0', borderTop: i > 0 ? `1px solid ${T.bg2}` : 'none' }}>
-                      <div style={{ width: 38, flexShrink: 0, textAlign: 'center' }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: c }}>S{w.numero}</div>
-                        <div style={{ fontFamily: T.mono, fontSize: 8.5, color: T.ink3 }}>{format(w.lunes, 'd MMM', { locale: es })}</div>
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0, borderLeft: `3px solid ${c}`, paddingLeft: 10 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: c }}>{w.bloque.nombre}</span>
-                          {esHoy && <span style={{ fontSize: 8.5, fontFamily: T.mono, fontWeight: 700, color: '#fff', background: c, padding: '1px 6px', borderRadius: 6 }}>ESTA SEMANA</span>}
-                        </div>
-                        {w.sem?.objetivo && <div style={{ marginTop: 3 }}><TextoEstructurado texto={w.sem.objetivo} T={T} size={12.5} conTitulo /></div>}
-                        {w.sem?.nota_cliente && <div style={{ fontSize: 11.5, color: T.ink2, lineHeight: 1.4, marginTop: 3, fontStyle: 'italic' }}>{w.sem.nota_cliente}</div>}
-                        {(compsPorSemana[lista.indexOf(w)] || []).map(cp => (
-                          <div key={cp.id} style={{ fontSize: 11.5, fontWeight: 600, color: '#7a4a00', marginTop: 3 }}>🏆 {cp.nombre} · {format(fechaLocal(cp.fecha), 'EEE d', { locale: es })}</div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </div>
-        )}
-
+      {/* ── Competiciones ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: isDesktop ? 16 : 12, alignItems: 'start' }}>
         {proxComps.length > 0 && (
           <div style={card}>
             <div style={{ padding: '13px 14px' }}>
