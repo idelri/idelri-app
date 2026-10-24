@@ -115,7 +115,10 @@ export const TIPOS_PASO = [
   { key: 'recuperacion',  label: 'Recuperación',      color: '#34d399' },
   { key: 'vuelta_calma',  label: 'Vuelta a la calma', color: '#a78bfa' },
   { key: 'descanso',      label: 'Descanso',          color: '#cbd5e1' },
+  { key: 'rampa_sube',    label: 'Aumento progresivo', color: '#f97316' },
+  { key: 'rampa_baja',    label: 'Reducción gradual',  color: '#fb923c' },
 ]
+export const esRampa = t => t === 'rampa_sube' || t === 'rampa_baja'
 export const colorTipoPaso = t => (TIPOS_PASO.find(x => x.key === t)?.color) || '#4C82E8'
 export const labelTipoPaso = t => (TIPOS_PASO.find(x => x.key === t)?.label) || 'Paso'
 
@@ -234,7 +237,16 @@ export function intensidadPaso(f) {
   }
   if (f.fc_zona) return f.fc_zona / 5
   if (f.rpe) return f.rpe / 10
-  return { calentamiento: 0.35, activo: 0.75, recuperacion: 0.3, vuelta_calma: 0.3, descanso: 0.12 }[f.tipo_paso] || 0.45
+  return { calentamiento: 0.35, activo: 0.75, recuperacion: 0.3, vuelta_calma: 0.3, descanso: 0.12, rampa_sube: 0.55, rampa_baja: 0.55 }[f.tipo_paso] || 0.45
+}
+
+/** Intensidad al principio y al final del paso (para dibujar las rampas) */
+export function intensidadesRampa(f) {
+  if (!esRampa(f.tipo_paso)) { const i = intensidadPaso(f); return [i, i] }
+  if (f.objetivo_min == null && f.objetivo_max == null) return f.tipo_paso === 'rampa_sube' ? [0.3, 0.8] : [0.8, 0.3]
+  const ini = intensidadPaso({ ...f, objetivo_max: f.objetivo_min })
+  const fin = intensidadPaso({ ...f, objetivo_min: f.objetivo_max })
+  return [ini, fin]
 }
 
 /** Segundos estimados de un paso (si va por distancia, a ~5:30/km o su ritmo objetivo) */
