@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import TextoEstructurado, { ComoFuncionaPlan } from '../components/TextoEstructurado'
 import FeedbackForm from '../components/FeedbackForm'
 import CalendarioPortal from '../components/CalendarioPortal'
 import PlanPortal from '../components/PlanPortal'
@@ -138,6 +139,7 @@ export default function ClientePortal({ token }) {
   const [packs, setPacks] = useState([])
   const [packSesiones, setPackSesiones] = useState([])
   const [recursos, setRecursos] = useState([])
+  const [comoAbierto, setComoAbierto] = useState(false)
   const [recursoGrupos, setRecursoGrupos] = useState([])
   const [tab, setTab] = useState('semana')
   const [tabInicializada, setTabInicializada] = useState(false)
@@ -773,6 +775,11 @@ export default function ClientePortal({ token }) {
         ? { display: 'flex', flexDirection: 'column', gap: 16, padding: '20px 0 60px' }
         : { padding: '14px 16px 80px', display: 'flex', flexDirection: 'column', gap: 12 }}>
 
+        {/* Cómo funciona el plan: lo primero, plegable */}
+        {plan?.notas && (
+          <ComoFuncionaPlan texto={plan.notas} T={T} card={card} abierto={comoAbierto} onToggle={() => setComoAbierto(v => !v)} />
+        )}
+
         {/* Cuenta atrás, progreso, línea de tiempo y próximas semanas */}
         {tienePlanConFechas ? (
           <PlanPortal T={T} isDesktop={isDesktop} plan={plan} bloques={bloques} semanas={semanas} competiciones={competiciones} card={card} />
@@ -785,14 +792,6 @@ export default function ClientePortal({ token }) {
           </div>
         )}
 
-        {plan?.notas && (
-          <div style={card}>
-            <div style={{ padding: '13px 14px' }}>
-              <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 6 }}>Sobre el plan</div>
-              <div style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.55, whiteSpace: 'pre-line' }}>{plan.notas}</div>
-            </div>
-          </div>
-        )}
 
         {/* Bloques */}
         <div>
@@ -832,6 +831,16 @@ export default function ClientePortal({ token }) {
                             <div key={i} style={{ display: 'flex', gap: 8 }}>
                               <div style={{ width: 5, height: 5, borderRadius: '50%', background: col, flexShrink: 0, marginTop: 6 }} />
                               <span style={{ fontSize: 12.5, color: T.ink2, lineHeight: 1.5 }}>{l}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {semanas.filter(w => w.bloque_id === b.id && w.objetivo).length > 0 && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 12 }}>
+                          {semanas.filter(w => w.bloque_id === b.id && w.objetivo).sort((x, y) => (x.numero_cliente || x.numero || 0) - (y.numero_cliente || y.numero || 0)).map(w => (
+                            <div key={w.fecha_inicio_semana || w.numero} style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${col}`, borderRadius: 8, padding: '9px 11px' }}>
+                              <div style={{ fontFamily: T.mono, fontSize: 9.5, color: col, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>Semana {w.numero_cliente || w.numero}</div>
+                              <TextoEstructurado texto={w.objetivo} T={T} color={col} conTitulo />
                             </div>
                           ))}
                         </div>
