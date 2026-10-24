@@ -124,32 +124,79 @@ function newEntry() {
   return { id, intensity: null, details: '' }
 }
 
-// ── Átomo UI ──────────────────────────────────────────────────────────────────
-function Section({ children }) { return <div style={{ marginTop: 20 }}>{children}</div> }
+// ── Átomos UI (compactos) ─────────────────────────────────────────────────────
+function Section({ children }) { return <div style={{ marginTop: 16 }}>{children}</div> }
 function Q({ children, hint }) {
   return (
     <>
-      <p style={{ fontSize: 14, fontWeight: 600, color: T.ink, margin: '0 0 6px' }}>{children}</p>
-      {hint && <p style={{ fontSize: 12, color: T.ink3, margin: '-2px 0 10px' }}>{hint}</p>}
+      <p style={{ fontSize: 13.5, fontWeight: 600, color: T.ink, margin: '0 0 7px', lineHeight: 1.35 }}>{children}</p>
+      {hint && <p style={{ fontSize: 11.5, color: T.ink3, margin: '-4px 0 7px' }}>{hint}</p>}
     </>
   )
 }
-function OptionBtn({ active, onClick, children }) {
+// Botón tipo "pastilla": varias opciones en la misma fila
+function Chip({ active, onClick, children, color = T.accent }) {
   return (
     <button onClick={onClick} type="button" style={{
-      display: 'block', width: '100%', textAlign: 'left', padding: '11px 14px', marginBottom: 7,
-      borderRadius: 10, border: `1.5px solid ${active ? T.accent : T.line}`,
-      background: active ? T.accent + '14' : T.card, color: active ? T.accent : T.ink,
-      fontWeight: active ? 600 : 400, fontSize: 13.5, cursor: 'pointer',
+      padding: '7px 12px', borderRadius: 99, border: `1.5px solid ${active ? color : T.line}`,
+      background: active ? color + '16' : T.card, color: active ? color : T.ink2,
+      fontWeight: active ? 650 : 500, fontSize: 12.5, cursor: 'pointer', lineHeight: 1.2, whiteSpace: 'nowrap',
     }}>{children}</button>
+  )
+}
+function Chips({ children }) { return <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>{children}</div> }
+// Pregunta Sí/No en una sola fila
+function FilaSiNo({ pregunta, value, onSi, onNo }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+      <p style={{ flex: '1 1 200px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0, lineHeight: 1.35 }}>{pregunta}</p>
+      <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+        <Chip active={value === false} onClick={onNo}>No</Chip>
+        <Chip active={value === true} onClick={onSi}>Sí</Chip>
+      </div>
+    </div>
+  )
+}
+// Color de 0 a 10: verde → ámbar → rojo (o al revés)
+function colorEscala(n, max = 10, invertir = false) {
+  const t = (invertir ? max - n : n) / max
+  const hue = Math.round(140 - 135 * t)
+  return `hsl(${hue} 65% 42%)`
+}
+// Escala numérica en una fila; debajo, el texto del valor elegido
+function Escala({ value, onChange, min = 0, max = 10, etiquetas, invertir = false, extremos }) {
+  const nums = Array.from({ length: max - min + 1 }, (_, i) => min + i)
+  const etiqueta = value != null ? (etiquetas?.[value] ?? '') : null
+  return (
+    <div>
+      <div style={{ display: 'flex', gap: 3 }}>
+        {nums.map(n => {
+          const sel = value === n, c = colorEscala(n - min, max - min, invertir)
+          return (
+            <button key={n} type="button" onClick={() => onChange(sel ? null : n)}
+              style={{ flex: 1, minWidth: 0, height: 34, borderRadius: 7, border: `1.5px solid ${sel ? c : T.line}`, background: sel ? c : T.card, color: sel ? '#fff' : T.ink2, fontSize: 13, fontWeight: sel ? 800 : 500, cursor: 'pointer', padding: 0 }}>
+              {n}
+            </button>
+          )
+        })}
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4, fontSize: 11, color: T.ink3, minHeight: 15 }}>
+        {etiqueta != null
+          ? <span style={{ flex: 1, textAlign: 'center', fontWeight: 650, color: colorEscala(value - min, max - min, invertir) }}>{value}{etiqueta ? ` · ${etiqueta}` : ''}</span>
+          : extremos ? <><span>{extremos[0]}</span><span>{extremos[1]}</span></> : null}
+      </div>
+    </div>
   )
 }
 function TextArea({ value, onChange, placeholder }) {
   return (
-    <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder}
-      style={{ width: '100%', minHeight: 70, padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${T.line}`, fontSize: 13.5, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
+    <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} rows={2}
+      style={{ width: '100%', minHeight: 48, padding: '8px 11px', borderRadius: 9, border: `1.5px solid ${T.line}`, fontSize: 13, fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.4 }} />
   )
 }
+const SUENO_EMOJI = ['😫', '😕', '😐', '🙂', '😴']
+const TQR_ETIQUETAS = TQR_ANCHORS
+const RPE_ETIQUETAS = Object.fromEntries(RPE_LABELS.map((l, n) => [n, l]))
 
 // ── Componente principal ──────────────────────────────────────────────────────
 export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor, submitLabel }) {
@@ -209,290 +256,218 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
     return true
   }
 
+  // Qué falta por responder (texto bajo el botón)
+  function faltaParaEnviar() {
+    if ((status === 'completed' || status === 'partial') && fb.rpe.value == null) return 'Falta: cómo de dura te ha parecido'
+    if ((status === 'completed' || status === 'partial') && !fb.duration.minutes) return 'Falta: cuánto tiempo te llevó'
+    if (hayIncoherencia) return 'Revisa la pregunta de molestias'
+    if (fb.pain.hasPain === true && fb.pain.entries.some(e => e.intensity == null)) return 'Falta: intensidad de la molestia'
+    if (fb.pain.hasPain === true && fb.pain.entries.some(e => !e.details?.trim())) return 'Falta: describir la molestia'
+    return ''
+  }
+
   function enviar() {
     if (!puedeEnviar()) return
     onSubmit({ ...fb, submittedAt: new Date().toISOString() })
   }
 
+  const setPain = fn => setFb(f => ({ ...f, pain: fn(f.pain) }))
+
   return (
     <div>
-      {/* ── Bloque 0: Cómo llegabas ── */}
-      <div style={{ background: '#f0fdfa', border: '1.5px solid #99f6e4', borderRadius: 14, padding: '16px 16px 20px', marginBottom: 24 }}>
-        <p style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#0d9488', margin: '0 0 14px' }}>Antes de empezar</p>
+      {/* ── Antes de empezar ── */}
+      <div style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 12, padding: '12px 12px 10px', marginBottom: 4 }}>
+        <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#0d9488', margin: '0 0 10px' }}>Antes de empezar</p>
 
-        {/* Sueño */}
-        <p style={{ fontSize: 14, fontWeight: 600, color: T.ink, margin: '0 0 10px' }}>¿Cómo has dormido esta noche?</p>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 18 }}>
+        <Q>¿Cómo has dormido esta noche?</Q>
+        <div style={{ display: 'flex', gap: 5, marginBottom: 12 }}>
           {SUENO_LABELS.map((label, i) => {
             const n = i + 1; const sel = fb.sueno.value === n
             return (
-              <div key={n} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 5 }}>
-                <button type="button" onClick={() => set('sueno.value', n)}
-                  style={{ width: '100%', aspectRatio: '1', borderRadius: 10, border: `1.5px solid ${sel ? '#0d9488' : '#99f6e4'}`, background: sel ? '#0d9488' : '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: sel ? '#fff' : '#0d9488' }}>{n}</span>
-                </button>
-                <span style={{ fontSize: 9, color: '#0d9488', textAlign: 'center', lineHeight: 1.2 }}>{label}</span>
-              </div>
+              <button key={n} type="button" onClick={() => set('sueno.value', sel ? null : n)}
+                style={{ flex: 1, minWidth: 0, padding: '5px 2px 4px', borderRadius: 9, border: `1.5px solid ${sel ? '#0d9488' : '#c7f0e8'}`, background: sel ? '#0d9488' : '#fff', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                <span style={{ fontSize: 14, lineHeight: 1.1 }}>{SUENO_EMOJI[i]}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: sel ? '#fff' : '#0d9488', lineHeight: 1.1 }}>{n}</span>
+                <span style={{ fontSize: 9.5, color: sel ? '#fff' : '#0d9488', lineHeight: 1.15, whiteSpace: 'nowrap' }}>{label}</span>
+              </button>
             )
           })}
         </div>
 
-        {/* TQR */}
-        <p style={{ fontSize: 14, fontWeight: 600, color: T.ink, margin: '0 0 10px' }}>¿Cuánto te notabas de recuperado/a antes de empezar?</p>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          {Array.from({ length: 11 }, (_, n) => (
-            <button key={n} type="button" onClick={() => set('tqr.value', n)}
-              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '8px 12px', borderRadius: 9, border: `1.5px solid ${fb.tqr.value === n ? '#0d9488' : '#99f6e4'}`, background: fb.tqr.value === n ? '#0d948818' : '#fff', cursor: 'pointer', textAlign: 'left' }}>
-              <span style={{ width: 24, height: 24, borderRadius: 6, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: fb.tqr.value === n ? '#0d9488' : '#f0fdfa', color: fb.tqr.value === n ? '#fff' : '#0d9488', fontWeight: 700, fontSize: 12 }}>{n}</span>
-              <span style={{ fontSize: 13, color: fb.tqr.value === n ? '#0d9488' : T.ink2, fontWeight: fb.tqr.value === n ? 600 : 400 }}>{TQR_ANCHORS[n] || ''}</span>
+        <Q>¿Cómo de recuperado/a te notabas antes de empezar?</Q>
+        <Escala value={fb.tqr.value} onChange={v => set('tqr.value', v)} etiquetas={TQR_ETIQUETAS} invertir extremos={['0 · Nada', 'Totalmente · 10']} />
+      </div>
+
+      {/* ── 1. ¿Completada? ── */}
+      <Section>
+        <Q>¿Has completado la sesión?</Q>
+        <div style={{ display: 'flex', gap: 6 }}>
+          {[['completed', 'Completa', '#16a34a'], ['partial', 'Parcialmente', '#d97706'], ['missed', 'No la hice', T.accent]].map(([k, l, c]) => (
+            <button key={k} type="button" onClick={() => set('completion.status', k)}
+              style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: `1.5px solid ${status === k ? c : T.line}`, background: status === k ? c + '16' : T.card, color: status === k ? c : T.ink2, fontWeight: status === k ? 700 : 500, fontSize: 13, cursor: 'pointer' }}>
+              {l}
             </button>
           ))}
         </div>
-      </div>
-
-      {/* ── 1. Estado de finalización ── */}
-      <Section>
-        <Q>¿Has completado la sesión?</Q>
-        <OptionBtn active={status === 'completed'} onClick={() => set('completion.status', 'completed')}>Sí, completada al 100%</OptionBtn>
-        <OptionBtn active={status === 'partial'}   onClick={() => set('completion.status', 'partial')}>Parcialmente completada</OptionBtn>
-        <OptionBtn active={status === 'missed'}    onClick={() => set('completion.status', 'missed')}>No realizada</OptionBtn>
       </Section>
 
       {/* ── 2. Motivo (partial / missed) ── */}
       {(status === 'partial' || status === 'missed') && (
         <Section>
-          <Q>{status === 'partial' ? '¿Por qué no completaste la sesión al 100%?' : '¿Por qué no realizaste la sesión?'}</Q>
-          {motivosBC.map(m => (
-            <OptionBtn key={m} active={has(m)} onClick={() => toggleReason(m)}>{m}</OptionBtn>
-          ))}
+          <Q hint="Puedes marcar varios">{status === 'partial' ? '¿Por qué no la completaste?' : '¿Por qué no la hiciste?'}</Q>
+          <Chips>{motivosBC.map(m => <Chip key={m} active={has(m)} onClick={() => toggleReason(m)}>{m}</Chip>)}</Chips>
         </Section>
       )}
 
-      {/* Nota: "Molestia o dolor" como motivo NO despliega pregunta de detalle aquí.
-           La molestia se registra en el bloque único de abajo. */}
-
-      {/* ── Dificultad técnica (motivo) ── */}
       {status === 'partial' && has('Dificultad técnica con algún ejercicio') && (
         <Section>
-          <Q>¿Qué ejercicio te impidió completar la sesión o te hizo reducirla? ¿Qué problema técnico tuviste?</Q>
+          <Q>¿Qué ejercicio te impidió completarla y qué problema técnico tuviste?</Q>
           <TextArea value={fb.technical.mainTechnicalDetails} onChange={v => { set('technical.hasDifficulty', true); set('technical.mainTechnicalRelatedToIncompleteSession', true); set('technical.mainTechnicalDetails', v) }}
-            placeholder="Ej: no conseguí hacer bien el hip hinge, me costaba controlar la pelvis en el dead bug..." />
+            placeholder="Ej: no conseguí hacer bien el hip hinge…" />
         </Section>
       )}
       {status === 'missed' && (has('Dificultad técnica con algún ejercicio') || has('No entendí algún ejercicio')) && (
         <Section>
-          <Q>¿Qué ejercicio o parte de la sesión no entendiste o te generó dudas?</Q>
+          <Q>¿Qué ejercicio o parte te generó dudas?</Q>
           <TextArea value={fb.technical.mainTechnicalDetails} onChange={v => { set('technical.hasDifficulty', true); set('technical.mainTechnicalDetails', v) }}
-            placeholder="Cuéntame qué ejercicio o parte te generó dudas..." />
+            placeholder="Cuéntame qué te generó dudas…" />
         </Section>
       )}
-
-      {/* Material (motivo) */}
       {has('No tenía material disponible') && (
         <Section>
-          <Q>¿Qué material no tenías disponible?</Q>
+          <Q>¿Qué material no tenías?</Q>
           <TextArea value={fb.equipment.details} onChange={v => { set('equipment.missingEquipment', true); set('equipment.details', v) }}
-            placeholder="Ej: no tenía banda elástica, mancuerna, banco, fitball, polea..." />
+            placeholder="Ej: banda elástica, mancuerna, banco…" />
         </Section>
       )}
-
-      {/* No entendí (motivo, solo parcial) */}
       {status === 'partial' && has('No entendí algún ejercicio') && (
         <Section>
           <Q>¿Qué ejercicio no entendiste?</Q>
           <TextArea value={fb.understanding.details} onChange={v => { set('understanding.unclearExercise', true); set('understanding.details', v) }}
-            placeholder="Ej: no entendí el hip hinge, no sabía cómo colocarme en el Pallof press..." />
+            placeholder="Ej: no sabía cómo colocarme en el Pallof press…" />
         </Section>
       )}
-
-      {/* Otro motivo */}
-      {has('Otro motivo') && (
+      {has('Otro motivo') && status === 'missed' && (
         <Section>
           <Q>Cuéntame brevemente el motivo</Q>
-          <TextArea value={fb.completion.partialDetails} onChange={v => set('completion.partialDetails', v)} placeholder="Cuéntamelo brevemente..." />
+          <TextArea value={fb.completion.partialDetails} onChange={v => set('completion.partialDetails', v)} placeholder="Cuéntamelo brevemente…" />
         </Section>
       )}
-
-      {/* Parte no realizada (partial) */}
       {status === 'partial' && (
         <Section>
-          <Q>¿Qué parte de la sesión no realizaste?</Q>
+          <Q>¿Qué parte no hiciste?{has('Otro motivo') ? ' Cuéntame también el motivo.' : ''}</Q>
           <TextArea value={fb.completion.partialDetails} onChange={v => set('completion.partialDetails', v)}
-            placeholder="Ej: no hice el último bloque, quité una serie de cada ejercicio, no hice el ejercicio 4..." />
+            placeholder="Ej: no hice el último bloque, quité una serie…" />
         </Section>
       )}
 
-      {/* ── 3. RPE + Duración (completed / partial) ── */}
+      {/* ── 3. RPE + Duración ── */}
       {(status === 'completed' || status === 'partial') && (
         <>
           <Section>
-            <Q>¿Cómo de dura te ha parecido la sesión en global?</Q>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {Array.from({ length: 11 }, (_, n) => (
-                <button key={n} type="button" onClick={() => set('rpe.value', n)}
-                  style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', padding: '9px 12px', borderRadius: 9, border: `1.5px solid ${fb.rpe.value === n ? T.accent : T.line}`, background: fb.rpe.value === n ? T.accent + '14' : T.card, cursor: 'pointer', textAlign: 'left' }}>
-                  <span style={{ width: 26, height: 26, borderRadius: 7, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: fb.rpe.value === n ? T.accent : T.paper, color: fb.rpe.value === n ? '#fff' : T.ink, fontWeight: 700, fontSize: 13 }}>{n}</span>
-                  <span style={{ fontSize: 13, color: fb.rpe.value === n ? T.accent : T.ink2, fontWeight: fb.rpe.value === n ? 600 : 400 }}>{RPE_LABELS[n]}</span>
-                </button>
-              ))}
-            </div>
+            <Q>¿Cómo de dura te ha parecido en global?</Q>
+            <Escala value={fb.rpe.value} onChange={v => set('rpe.value', v)} etiquetas={RPE_ETIQUETAS} extremos={['0 · Nada', 'Máximo · 10']} />
           </Section>
-
           <Section>
-            <Q>¿Cuánto tiempo te llevó realizar la sesión? Responde en minutos.</Q>
-            <input type="number" min="1" max="240" value={fb.duration.minutes || ''} onChange={e => set('duration.minutes', e.target.value ? parseInt(e.target.value) : null)}
-              placeholder="Ej: 45"
-              style={{ width: 110, padding: '10px 12px', borderRadius: 10, border: `1.5px solid ${T.line}`, fontSize: 14 }} />
-            {fb.duration.minutes > 150 && <p style={{ fontSize: 11.5, color: T.accent, marginTop: 6 }}>Es un tiempo bastante alto, ¿confirmas que es correcto?</p>}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+              <p style={{ flex: '1 1 180px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0 }}>¿Cuánto tiempo te llevó?</p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <input type="number" inputMode="numeric" min="1" max="240" value={fb.duration.minutes || ''} onChange={e => set('duration.minutes', e.target.value ? parseInt(e.target.value) : null)}
+                  placeholder="45"
+                  style={{ width: 72, padding: '7px 10px', borderRadius: 9, border: `1.5px solid ${T.line}`, fontSize: 14, textAlign: 'center' }} />
+                <span style={{ fontSize: 13, color: T.ink2 }}>min</span>
+              </div>
+            </div>
+            {fb.duration.minutes > 150 && <p style={{ fontSize: 11.5, color: T.accent, margin: '6px 0 0' }}>Es un tiempo bastante alto, ¿confirmas que es correcto?</p>}
           </Section>
         </>
       )}
 
-      {/* ── 4. BLOQUE ÚNICO DE MOLESTIAS ── */}
+      {/* ── 4. Molestias ── */}
       {status && (
         <Section>
-          <Q>
-            {status === 'missed'
-              ? '¿Tuviste alguna molestia, dolor o síntoma ese día?'
-              : '¿Tuviste alguna molestia, dolor o síntoma durante la sesión?'}
-          </Q>
+          <FilaSiNo
+            pregunta={status === 'missed' ? '¿Tuviste alguna molestia o dolor ese día?' : '¿Alguna molestia o dolor durante la sesión?'}
+            value={fb.pain.hasPain}
+            onNo={() => set('pain.hasPain', false)}
+            onSi={() => setPain(p => ({ ...p, hasPain: true, entries: p.entries.length > 0 ? p.entries : [newEntry()] }))} />
 
-          {/* Si el motivo fue dolor, contexto informativo */}
-          {has('Molestia o dolor') && (
-            <p style={{ fontSize: 12, color: '#92400e', background: '#fef3c7', borderRadius: 8, padding: '7px 10px', marginBottom: 10 }}>
-              Indicaste que la molestia afectó al cumplimiento de la sesión. Describe aquí qué notaste.
+          {has('Molestia o dolor') && fb.pain.hasPain !== false && (
+            <p style={{ fontSize: 11.5, color: '#92400e', background: '#fef3c7', borderRadius: 8, padding: '6px 9px', margin: '8px 0 0' }}>
+              Indicaste que la molestia afectó a la sesión: cuéntame aquí qué notaste.
             </p>
           )}
-
-          <OptionBtn
-            active={fb.pain.hasPain === false}
-            onClick={() => set('pain.hasPain', false)}>
-            No
-          </OptionBtn>
-          <OptionBtn
-            active={fb.pain.hasPain === true}
-            onClick={() => setFb(f => ({
-              ...f,
-              pain: {
-                ...f.pain,
-                hasPain: true,
-                entries: f.pain.entries.length > 0 ? f.pain.entries : [newEntry()],
-              }
-            }))}>
-            Sí
-          </OptionBtn>
-
-          {/* Incoherencia */}
           {hayIncoherencia && (
-            <p style={{ fontSize: 12, color: T.accent, marginTop: 4 }}>
-              Has indicado que la molestia afectó a la sesión pero seleccionaste "No" aquí. Cambia el motivo de incumplimiento o selecciona "Sí".
+            <p style={{ fontSize: 11.5, color: T.accent, margin: '6px 0 0' }}>
+              Marcaste la molestia como motivo: selecciona "Sí" o quita ese motivo.
             </p>
           )}
 
-          {/* Entries de molestia */}
           {fb.pain.hasPain === true && (
-            <div style={{ marginTop: 12 }}>
-              {fb.pain.entries.map((entry, idx) => (
-                <div key={entry.id ?? `legacy-${idx}`} style={{ background: T.paper, borderRadius: 12, padding: '12px 14px', marginBottom: 10, position: 'relative' }}>
-                  {/* Cabecera de la entry */}
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: T.ink }}>
-                      {fb.pain.entries.length > 1 ? `Molestia ${idx + 1}` : 'Detalla la molestia'}
-                    </span>
-                    {fb.pain.entries.length > 1 && (
-                      <button type="button" onClick={() => {
-                        const next = fb.pain.entries.filter((_, i) => i !== idx)
-                        setFb(f => ({ ...f, pain: { ...f.pain, entries: next } }))
-                      }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: T.ink3, lineHeight: 1, padding: '0 4px' }}>×</button>
-                    )}
+            <div style={{ marginTop: 8 }}>
+              {fb.pain.entries.map((entry, idx) => {
+                const upd = campos => setPain(p => ({ ...p, entries: p.entries.map((e, i) => i === idx ? { ...e, ...campos } : e) }))
+                return (
+                  <div key={entry.id ?? `legacy-${idx}`} style={{ background: T.paper, borderRadius: 10, padding: '9px 10px', marginBottom: 6 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <span style={{ fontSize: 12, fontWeight: 650, color: T.ink }}>
+                        {fb.pain.entries.length > 1 ? `Molestia ${idx + 1} · ` : ''}Intensidad
+                      </span>
+                      {fb.pain.entries.length > 1 && (
+                        <button type="button" onClick={() => setPain(p => ({ ...p, entries: p.entries.filter((_, i) => i !== idx) }))}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 16, color: T.ink3, lineHeight: 1, padding: '0 4px' }}>×</button>
+                      )}
+                    </div>
+                    <Escala value={entry.intensity} onChange={v => upd({ intensity: v })} extremos={['0 · Mínima', 'Máxima · 10']} />
+                    <div style={{ marginTop: 6 }}>
+                      <TextArea value={entry.details} onChange={v => upd({ details: v })} placeholder="¿Qué notaste y dónde? Ej: Aquiles derecho al correr…" />
+                    </div>
                   </div>
-
-                  {/* Intensidad */}
-                  <p style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, margin: '0 0 6px' }}>Intensidad <span style={{ fontWeight: 400, color: T.ink3 }}>0 = mínima · 10 = máxima</span></p>
-                  <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginBottom: 10 }}>
-                    {[0,1,2,3,4,5,6,7,8,9,10].map(n => {
-                      const sel = entry.intensity === n
-                      return (
-                        <button key={n} type="button" onClick={() => {
-                          const next = fb.pain.entries.map((e, i) => i === idx ? { ...e, intensity: sel ? null : n } : e)
-                          setFb(f => ({ ...f, pain: { ...f.pain, entries: next } }))
-                        }} style={{ width: 34, height: 34, borderRadius: 8, border: `1.5px solid ${sel ? T.accent : T.line}`, background: sel ? T.accent + '18' : T.card, color: sel ? T.accent : T.ink2, fontSize: 13, fontWeight: sel ? 700 : 400, cursor: 'pointer' }}>
-                          {n}
-                        </button>
-                      )
-                    })}
-                  </div>
-                  {entry.intensity == null && (
-                    <p style={{ fontSize: 11.5, color: T.accent, marginBottom: 8 }}>Elige una intensidad para continuar.</p>
-                  )}
-
-                  {/* Detalle */}
-                  <p style={{ fontSize: 12.5, fontWeight: 600, color: T.ink, margin: '0 0 6px' }}>¿Qué notaste y dónde?</p>
-                  <TextArea
-                    value={entry.details}
-                    onChange={v => {
-                      const next = fb.pain.entries.map((e, i) => i === idx ? { ...e, details: v } : e)
-                      setFb(f => ({ ...f, pain: { ...f.pain, entries: next } }))
-                    }}
-                    placeholder="Ej: molestia en Aquiles derecho al correr, tensión en zona lumbar..."
-                  />
-                  {!entry.details?.trim() && (
-                    <p style={{ fontSize: 11.5, color: T.accent, marginTop: 4 }}>Describe la molestia para continuar.</p>
-                  )}
-                </div>
-              ))}
-
-              {/* Botón añadir otra molestia */}
-              <button type="button"
-                onClick={() => setFb(f => ({ ...f, pain: { ...f.pain, entries: [...f.pain.entries, newEntry()] } }))}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 9, border: `1.5px dashed ${T.line}`, background: 'transparent', color: T.ink2, fontSize: 13, cursor: 'pointer', marginTop: 4 }}>
-                <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> Añadir otra molestia
+                )
+              })}
+              <button type="button" onClick={() => setPain(p => ({ ...p, entries: [...p.entries, newEntry()] }))}
+                style={{ padding: '5px 10px', borderRadius: 8, border: `1px dashed ${T.line}`, background: 'transparent', color: T.ink2, fontSize: 12, cursor: 'pointer' }}>
+                + Otra molestia
               </button>
             </div>
           )}
         </Section>
       )}
 
-      {/* ── 5. Dificultad técnica general ── */}
+      {/* ── 5. Dificultad ── */}
       {(status === 'completed' || status === 'partial') && (tipoEditor === 'carrera' || (!has('Dificultad técnica con algún ejercicio') && !has('No entendí algún ejercicio'))) && (
         <Section>
-          {tipoEditor === 'carrera'
-            ? <Q>¿Hubo alguna parte de la sesión que te resultara especialmente difícil de completar según lo previsto?</Q>
-            : <Q>¿Hubo algún ejercicio difícil de ejecutar o entender?</Q>
-          }
-          <OptionBtn active={fb.technical.additionalTechnicalDifficulty === false && fb.technical._answered} onClick={() => { set('technical.additionalTechnicalDifficulty', false); set('technical._answered', true) }}>No</OptionBtn>
-          <OptionBtn active={fb.technical.additionalTechnicalDifficulty === true} onClick={() => { set('technical.additionalTechnicalDifficulty', true); set('technical.hasDifficulty', true); set('technical._answered', true) }}>Sí</OptionBtn>
+          <FilaSiNo
+            pregunta={tipoEditor === 'carrera' ? '¿Alguna parte te costó completar según lo previsto?' : '¿Algún ejercicio difícil de hacer o de entender?'}
+            value={fb.technical._answered ? fb.technical.additionalTechnicalDifficulty : null}
+            onNo={() => { set('technical.additionalTechnicalDifficulty', false); set('technical._answered', true) }}
+            onSi={() => { set('technical.additionalTechnicalDifficulty', true); set('technical.hasDifficulty', true); set('technical._answered', true) }} />
           {fb.technical.additionalTechnicalDifficulty === true && (
-            <div style={{ marginTop: 8 }}>
-              <TextArea
-                value={fb.technical.additionalTechnicalDetails}
-                onChange={v => set('technical.additionalTechnicalDetails', v)}
-                placeholder={tipoEditor === 'carrera'
-                  ? '¿Qué parte fue y qué notaste? Puedes indicar si te costó mantener el ritmo, la zona de FC, la duración, las recuperaciones o si apareció fatiga, molestias o sensación de esfuerzo excesivo.'
-                  : '¿Qué ejercicio te resultó difícil y qué problema tuviste?'}
-              />
+            <div style={{ marginTop: 7 }}>
+              <TextArea value={fb.technical.additionalTechnicalDetails} onChange={v => set('technical.additionalTechnicalDetails', v)}
+                placeholder={tipoEditor === 'carrera' ? '¿Qué parte y qué notaste? Ritmo, zona de FC, recuperaciones, fatiga…' : '¿Qué ejercicio y qué problema tuviste?'} />
             </div>
           )}
         </Section>
       )}
 
-      {/* ── 6. Observaciones generales ── */}
+      {/* ── 6. Observaciones ── */}
       {status && (
         <Section>
-          <Q>Observaciones generales</Q>
-          <p style={{ fontSize: 11.5, color: T.ink3, margin: '-6px 0 8px' }}>Puedes comentar cualquier cosa que quieras destacar: algo que te haya gustado, algo que no, dudas, ejercicios a revisar o cualquier detalle a tener en cuenta.</p>
-          <TextArea value={fb.generalComments} onChange={v => set('generalComments', v)} placeholder="Escribe aquí (opcional)..." />
+          <Q>Algo más que quieras contarme <span style={{ fontWeight: 400, color: T.ink3 }}>(opcional)</span></Q>
+          <TextArea value={fb.generalComments} onChange={v => set('generalComments', v)} placeholder="Lo que te ha gustado, lo que no, dudas…" />
         </Section>
       )}
 
       {/* ── Enviar ── */}
       {status && (
-        <Section>
+        <div style={{ marginTop: 14 }}>
           <button type="button" disabled={!puedeEnviar() || submitting} onClick={enviar}
-            style={{ width: '100%', padding: '13px', borderRadius: 12, border: 'none', background: puedeEnviar() ? T.accent : T.line, color: puedeEnviar() ? '#fff' : T.ink3, fontWeight: 700, fontSize: 14.5, cursor: puedeEnviar() ? 'pointer' : 'not-allowed' }}>
-            {submitting ? 'Guardando...' : (submitLabel || 'Enviar feedback')}
+            style={{ width: '100%', padding: '11px', borderRadius: 11, border: 'none', background: puedeEnviar() ? T.accent : T.line, color: puedeEnviar() ? '#fff' : T.ink3, fontWeight: 700, fontSize: 14, cursor: puedeEnviar() ? 'pointer' : 'not-allowed' }}>
+            {submitting ? 'Guardando…' : (submitLabel || 'Enviar feedback')}
           </button>
-        </Section>
+          {!puedeEnviar() && <p style={{ fontSize: 11, color: T.ink3, textAlign: 'center', margin: '5px 0 0' }}>{faltaParaEnviar()}</p>}
+        </div>
       )}
     </div>
   )

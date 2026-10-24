@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { clonarSesion } from '../lib/clonarSesion'
+import ConstructorResistencia from '../components/ConstructorResistencia'
 import { format, parseISO } from 'date-fns'
 import EmojiPicker from '../components/EmojiPicker'
 import ModalComentarioEntrenadora from '../components/ModalComentarioEntrenadora'
@@ -10,18 +11,6 @@ import { Plus, X, Trash2, Copy, Play } from 'lucide-react'
 
 const COLORES = ['#E29A2E', '#4C82E8', '#2FAE76', '#8B6CE0', '#34AEB8', '#DD6F97']
 
-const BORG_RPE = {
-  1:  { label: 'Muy, muy leve',     desc: 'Esfuerzo casi inapreciable. Conversación completamente fluida.' },
-  2:  { label: 'Leve',              desc: 'Esfuerzo ligero y cómodo. Puedes hablar sin ningún problema.' },
-  3:  { label: 'Moderado',          desc: 'Esfuerzo controlado. Conversación fácil en frases largas. Zona aeróbica baja.' },
-  4:  { label: 'Algo intenso',      desc: 'Esfuerzo notable pero sostenible. Puedes hablar en frases cortas.' },
-  5:  { label: 'Intenso',           desc: 'Claramente exigente. Conversación posible pero entrecortada. Zona aeróbica-umbral.' },
-  6:  { label: 'Intenso-alto',      desc: 'Esfuerzo elevado. Hablar cuesta. Solo frases muy cortas.' },
-  7:  { label: 'Muy intenso',       desc: 'Muy exigente. Solo palabras sueltas. Cerca del umbral anaeróbico.' },
-  8:  { label: 'Muy intenso-alto',  desc: 'Respiración forzada. Sin conversación posible. Difícil de sostener.' },
-  9:  { label: 'Muy, muy intenso',  desc: 'Casi insostenible. Esfuerzo máximo sostenido solo unos pocos minutos.' },
-  10: { label: 'Máximo absoluto',   desc: 'Esfuerzo total. No puedes más. Solo aguantable unos segundos.' },
-}
 const METODOS_SESION = [
   { id: 'individual', icono: '⬜', nombre: 'Individual',        desc: 'Completa todas las series de cada ejercicio antes de pasar al siguiente. Descansa entre series el tiempo indicado.' },
   { id: 'superserie', icono: '⇅',  nombre: 'Superserie',        desc: 'Haz el ejercicio A y pasa directamente al B sin descansar. Cuando termines los dos, descansa y repite.' },
@@ -239,7 +228,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   }, [colorPickerBloque])
 
   async function cargarClientes() {
-    const { data } = await supabase.from('clientes').select('id, nombre').eq('estado', 'activo').order('nombre')
+    const { data } = await supabase.from('clientes').select('id, nombre, perfil_zonas').eq('estado', 'activo').order('nombre')
     setClientes(data || [])
   }
 
@@ -253,8 +242,6 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   const [fases, setFases] = useState([])
   const conversionesHechas = useRef(new Set()) // sesiones ya convertidas (fases sueltas → bloque) en esta visita
   const [carritos, setCarritos] = useState({}) // bloqueId → lista combinada fases sueltas + grupos (bloques de resistencia)
-  const [draggingCarrito, setDraggingCarrito] = useState(null) // { idx, grupoId?, innerIdx? }
-  const [ctxCarrito, setCtxCarrito] = useState(null) // { x, y, item, grupoId?, innerIdx? }
   const [clipboardBloque, setClipboardBloque] = useState(() => {
     try { return JSON.parse(sessionStorage.getItem('idelri_clipboardBloque') || 'null') } catch { return null }
   })
@@ -290,12 +277,6 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     return p
   }
   // Copy
-  function copiarFase(fase) {
-    guardarEnPortapapeles({ tipo: 'bloque_carrera', nombre: fase.nombre || 'Bloque', payload: { fase: cloneFasePayload(fase) } })
-  }
-  function copiarGrupo(grupo) {
-    guardarEnPortapapeles({ tipo: 'grupo_carrera', nombre: `${grupo.repeticiones}× grupo`, payload: { grupo: { repeticiones: grupo.repeticiones }, fases: grupo.fases.map(f => cloneFasePayload(f)) } })
-  }
   function copiarBloqueFuerza(bloque) {
     const ejs = (ejercicios[bloque.id] || []).map(e => cloneEjercicioPayload(e))
     // Bloque de resistencia: también sus fases y grupos
@@ -419,13 +400,6 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     setDirty(true)
   }
 
-  // Cerrar menú contextual del carrito al hacer clic fuera
-  useEffect(() => {
-    if (!ctxCarrito) return
-    function handler() { setCtxCarrito(null) }
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [ctxCarrito])
 
   async function cargarSesiones() {
     setLoading(true)
@@ -549,167 +523,6 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     return true
   }
 
-  // ── Bloques de resistencia (fases + grupos de repetición) ─────────────
-  // crearOpsCarrito(bloqueId) devuelve la lista y las operaciones del bloque.
-  function nextCarritoOrden(ci) {
-    return ci.reduce((m, it) => Math.max(m, it.orden ?? 0), -1) + 1
-  }
-
-  function crearOpsCarrito(bloqueId) {
-  const carritoItems = carritos[bloqueId] || []
-  const setCarritoItems = fn => setCarritos(c => ({ ...c, [bloqueId]: typeof fn === 'function' ? fn(c[bloqueId] || []) : fn }))
-
-  async function añadirBloqueSuelto() {
-    const orden = nextCarritoOrden(carritoItems)
-    const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden, grupo_id: null }).select().single()
-    if (data) setCarritoItems(ci => [...ci, { type: 'fase', ...data }])
-    setDirty(true)
-  }
-
-  async function añadirGrupoCarrera() {
-    const orden = nextCarritoOrden(carritoItems)
-    const { data: grp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, repeticiones: 3, orden }).select().single()
-    if (!grp) return
-    const { data: f1 } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden: 0, grupo_id: grp.id }).select().single()
-    const { data: f2 } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden: 1, grupo_id: grp.id }).select().single()
-    setCarritoItems(ci => [...ci, { type: 'grupo', ...grp, fases: [f1, f2].filter(Boolean) }])
-    setDirty(true)
-  }
-
-  async function eliminarBloqueCarrito(id) {
-    setCarritoItems(ci => ci.filter(it => it.id !== id))
-    await supabase.from('sesion_fases').delete().eq('id', id)
-    setDirty(true)
-  }
-
-  async function eliminarGrupoCarrito(id) {
-    setCarritoItems(ci => ci.filter(it => it.id !== id))
-    await supabase.from('sesion_fase_grupos').delete().eq('id', id)
-    setDirty(true)
-  }
-
-  async function actualizarBloqueCarrito(id, campo, valor, grupoId) {
-    setCarritoItems(ci => ci.map(it => {
-      if (grupoId) return it.id === grupoId ? { ...it, fases: it.fases.map(f => f.id === id ? { ...f, [campo]: valor } : f) } : it
-      return it.id === id ? { ...it, [campo]: valor } : it
-    }))
-    await supabase.from('sesion_fases').update({ [campo]: valor }).eq('id', id)
-    setDirty(true)
-  }
-
-  async function cambiarRepeticionesGrupo(grupoId, delta) {
-    const grupo = carritoItems.find(it => it.id === grupoId && it.type === 'grupo')
-    if (!grupo) return
-    const next = Math.max(2, grupo.repeticiones + delta)
-    await supabase.from('sesion_fase_grupos').update({ repeticiones: next }).eq('id', grupoId)
-    setCarritoItems(ci => ci.map(it => it.id === grupoId && it.type === 'grupo' ? { ...it, repeticiones: next } : it))
-    setDirty(true)
-  }
-
-  async function añadirFaseAGrupoCarrito(grupoId) {
-    const grp = carritoItems.find(it => it.id === grupoId)
-    if (!grp) return
-    const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: '', orden: grp.fases.length, grupo_id: grupoId }).select().single()
-    if (data) setCarritoItems(ci => ci.map(it => it.id === grupoId ? { ...it, fases: [...it.fases, data] } : it))
-    setDirty(true)
-  }
-
-  async function eliminarFaseDeGrupoCarrito(faseId, grupoId) {
-    setCarritoItems(ci => ci.map(it => it.id === grupoId ? { ...it, fases: it.fases.filter(f => f.id !== faseId) } : it))
-    await supabase.from('sesion_fases').delete().eq('id', faseId)
-    setDirty(true)
-  }
-
-  async function duplicarBloqueCarrito(id, grupoId) {
-    if (grupoId) {
-      const grp = carritoItems.find(it => it.id === grupoId)
-      if (!grp) return
-      const src = grp.fases.find(f => f.id === id)
-      if (!src) return
-      const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: src.nombre, descripcion: src.descripcion, volumen_min: src.volumen_min, volumen_km: src.volumen_km, fc_zona: src.fc_zona, ritmo_inicio: src.ritmo_inicio, ritmo_fin: src.ritmo_fin, rpe: src.rpe, orden: grp.fases.length, grupo_id: grupoId }).select().single()
-      if (data) setCarritoItems(ci => ci.map(it => {
-        if (it.id !== grupoId) return it
-        const idx = it.fases.findIndex(f => f.id === id)
-        const nf = [...it.fases]; nf.splice(idx + 1, 0, data)
-        return { ...it, fases: nf }
-      }))
-    } else {
-      const src = carritoItems.find(it => it.id === id)
-      if (!src) return
-      const { data } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: src.nombre, descripcion: src.descripcion, volumen_min: src.volumen_min, volumen_km: src.volumen_km, fc_zona: src.fc_zona, ritmo_inicio: src.ritmo_inicio, ritmo_fin: src.ritmo_fin, rpe: src.rpe, orden: nextCarritoOrden(carritoItems), grupo_id: null }).select().single()
-      if (data) setCarritoItems(ci => { const idx = ci.findIndex(it => it.id === id); const n = [...ci]; n.splice(idx + 1, 0, { type: 'fase', ...data }); return n })
-    }
-    setDirty(true)
-  }
-
-  async function duplicarGrupoCarrito(grupoId) {
-    const src = carritoItems.find(it => it.id === grupoId)
-    if (!src) return
-    const { data: newGrp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, repeticiones: src.repeticiones, orden: nextCarritoOrden(carritoItems) }).select().single()
-    if (!newGrp) return
-    const newFases = []
-    for (const f of src.fases) {
-      const { data: nf } = await supabase.from('sesion_fases').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, nombre: f.nombre, descripcion: f.descripcion, volumen_min: f.volumen_min, volumen_km: f.volumen_km, fc_zona: f.fc_zona, ritmo_inicio: f.ritmo_inicio, ritmo_fin: f.ritmo_fin, rpe: f.rpe, orden: f.orden, grupo_id: newGrp.id }).select().single()
-      if (nf) newFases.push(nf)
-    }
-    setCarritoItems(ci => { const idx = ci.findIndex(it => it.id === grupoId); const n = [...ci]; n.splice(idx + 1, 0, { type: 'grupo', ...newGrp, fases: newFases }); return n })
-    setDirty(true)
-  }
-
-  async function reordenarCarrito(fromIdx, toIdx) {
-    if (fromIdx === toIdx) return
-    const n = [...carritoItems]; const [m] = n.splice(fromIdx, 1); n.splice(toIdx, 0, m)
-    setCarritoItems(n)
-    await Promise.all(n.map((it, i) =>
-      it.type === 'fase'
-        ? supabase.from('sesion_fases').update({ orden: i }).eq('id', it.id)
-        : supabase.from('sesion_fase_grupos').update({ orden: i }).eq('id', it.id)
-    ))
-    setDirty(true)
-  }
-
-  async function reordenarFasesEnGrupo(grupoId, fromIdx, toIdx) {
-    if (fromIdx === toIdx) return
-    setCarritoItems(ci => ci.map(it => {
-      if (it.id !== grupoId) return it
-      const f = [...it.fases]; const [m] = f.splice(fromIdx, 1); f.splice(toIdx, 0, m)
-      f.forEach((fase, i) => supabase.from('sesion_fases').update({ orden: i }).eq('id', fase.id))
-      return { ...it, fases: f }
-    }))
-    setDirty(true)
-  }
-
-  async function pegarCarrera() {
-    if (!clipboardBloque || !sesionAbierta) return false
-    const { tipo, payload } = clipboardBloque
-    if (tipo === 'bloque_carrera') {
-      const orden = nextCarritoOrden(carritoItems)
-      const { data } = await supabase.from('sesion_fases').insert({ ...payload.fase, sesion_id: sesionAbierta.id, bloque_id: bloqueId, orden, grupo_id: null }).select().single()
-      if (data) { setCarritoItems(ci => [...ci, { type: 'fase', ...data }]); setDirty(true) }
-      return true
-    }
-    if (tipo === 'grupo_carrera') {
-      const orden = nextCarritoOrden(carritoItems)
-      const { data: grp } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionAbierta.id, bloque_id: bloqueId, repeticiones: payload.grupo.repeticiones, orden }).select().single()
-      if (!grp) return true
-      const fases = []
-      for (let i = 0; i < payload.fases.length; i++) {
-        const { data: f } = await supabase.from('sesion_fases').insert({ ...payload.fases[i], sesion_id: sesionAbierta.id, bloque_id: bloqueId, orden: i, grupo_id: grp.id }).select().single()
-        if (f) fases.push(f)
-      }
-      setCarritoItems(ci => [...ci, { type: 'grupo', ...grp, fases }]); setDirty(true)
-      return true
-    }
-    return false
-  }
-
-  return {
-    carritoItems, añadirBloqueSuelto, añadirGrupoCarrera, eliminarBloqueCarrito, eliminarGrupoCarrito,
-    actualizarBloqueCarrito, cambiarRepeticionesGrupo, añadirFaseAGrupoCarrito, eliminarFaseDeGrupoCarrito,
-    duplicarBloqueCarrito, duplicarGrupoCarrito, reordenarCarrito, reordenarFasesEnGrupo,
-    pegarDesdePortapapeles: async () => { if (!(await pegarCarrera())) await pegarDesdePortapapeles() },
-  }
-  }
 
   function abrirNuevaSesion() {
     setFormSesion({ ...EMPTY_SESION, fecha: format(new Date(), 'yyyy-MM-dd') })
@@ -1009,415 +822,6 @@ async function guardarSesion() {
     const url = `${window.location.origin}/pack/${pack.token_publico}`
     navigator.clipboard.writeText(url).catch(() => {})
     alert(`Enlace del pack copiado:\n${url}`)
-  }
-
-  // Editor de un bloque de resistencia: fases y grupos de repetición con su
-  // gráfica (el antiguo "editor de carrera", ahora dentro de un bloque).
-  function renderEditorResistencia(bloqueId) {
-    const {
-      carritoItems, añadirBloqueSuelto, añadirGrupoCarrera, eliminarBloqueCarrito, eliminarGrupoCarrito,
-      actualizarBloqueCarrito, cambiarRepeticionesGrupo, añadirFaseAGrupoCarrito, eliminarFaseDeGrupoCarrito,
-      duplicarBloqueCarrito, duplicarGrupoCarrito, reordenarCarrito, reordenarFasesEnGrupo, pegarDesdePortapapeles,
-    } = crearOpsCarrito(bloqueId)
-            const FC_COLORS = ['#10b981','#84cc16','#f59e0b','#ef4444','#7c3aed']
-            function rpeC(r) { return !r ? 'var(--text3)' : r <= 4 ? '#10b981' : r <= 6 ? '#f59e0b' : '#ef4444' }
-
-            // Expanded blocks for chart (repetitions unrolled)
-            const expanded = []
-            carritoItems.forEach(item => {
-              if (item.type === 'fase') expanded.push({ ...item, grupoId: null })
-              else for (let r = 0; r < item.repeticiones; r++) item.fases.forEach(f => expanded.push({ ...f, grupoId: item.id }))
-            })
-            const widths = expanded.map(b => (b.volumen_min || 0) > 0 ? b.volumen_min : (b.volumen_km || 0) > 0 ? b.volumen_km * 2.5 : 2)
-            const totalW = widths.reduce((a, b) => a + b, 0) || 1
-            const maxH = 60
-
-            // Totals
-            const totMin = carritoItems.reduce((acc, it) => it.type === 'fase' ? acc + (it.volumen_min || 0) : acc + it.repeticiones * it.fases.reduce((a, f) => a + (f.volumen_min || 0), 0), 0)
-            const totKm  = carritoItems.reduce((acc, it) => it.type === 'fase' ? acc + (it.volumen_km  || 0) : acc + it.repeticiones * it.fases.reduce((a, f) => a + (f.volumen_km  || 0), 0), 0)
-
-            // Group bracket positions
-            const groupPos = {}
-            let cx = 0
-            expanded.forEach((b, i) => {
-              const w = Math.max(4, Math.round((widths[i] / totalW) * 560))
-              if (b.grupoId) {
-                if (!groupPos[b.grupoId]) groupPos[b.grupoId] = { startX: cx, endX: cx + w, grp: carritoItems.find(g => g.id === b.grupoId) }
-                else groupPos[b.grupoId].endX = cx + w
-              }
-              cx += w + 2
-            })
-
-            function renderFaseFields(f, grupoId) {
-              const rColor = rpeC(f.rpe)
-              return (
-                <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Descripción</div>
-                    <InlineInput value={f.descripcion || ''} placeholder="Describe este bloque..." textarea fontSize={12.5}
-                      onSave={v => actualizarBloqueCarrito(f.id, 'descripcion', v || null, grupoId)} />
-                  </div>
-                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Duración / Distancia</div>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        <InlineInput value={f.volumen_min != null ? String(f.volumen_min) : ''} placeholder="min" fontSize={12} style={{ width: 40 }}
-                          onSave={v => actualizarBloqueCarrito(f.id, 'volumen_min', v ? parseInt(v) : null, grupoId)} />
-                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>min</span>
-                        <span style={{ fontSize: 11, color: 'var(--border)' }}>/</span>
-                        <InlineInput value={f.volumen_km != null ? String(f.volumen_km) : ''} placeholder="km" fontSize={12} style={{ width: 40 }}
-                          onSave={v => actualizarBloqueCarrito(f.id, 'volumen_km', v ? parseFloat(v) : null, grupoId)} />
-                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>km</span>
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>Ritmo (min/km)</div>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-                        <InlineInput value={f.ritmo_inicio || ''} placeholder="4:00" fontSize={12} style={{ width: 44 }}
-                          onSave={v => actualizarBloqueCarrito(f.id, 'ritmo_inicio', v || null, grupoId)} />
-                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>–</span>
-                        <InlineInput value={f.ritmo_fin || ''} placeholder="4:30" fontSize={12} style={{ width: 44 }}
-                          onSave={v => actualizarBloqueCarrito(f.id, 'ritmo_fin', v || null, grupoId)} />
-                      </div>
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>FC zona</div>
-                      <div style={{ display: 'flex', gap: 4 }}>
-                        {[1,2,3,4,5].map(z => (
-                          <button key={z} title={`Zona ${z}`} onClick={() => actualizarBloqueCarrito(f.id, 'fc_zona', f.fc_zona === z ? null : z, grupoId)}
-                            style={{ width: 22, height: 22, borderRadius: '50%', border: `2px solid ${f.fc_zona >= z ? FC_COLORS[z-1] : 'var(--border)'}`, background: f.fc_zona >= z ? FC_COLORS[z-1] : 'var(--bg)', fontSize: 9, fontWeight: 700, color: f.fc_zona >= z ? '#fff' : 'var(--text3)', cursor: 'pointer' }}>{z}</button>
-                        ))}
-                      </div>
-                      {f.fc_zona && <div style={{ fontSize: 10, color: FC_COLORS[f.fc_zona - 1], marginTop: 2 }}>Zona {f.fc_zona}</div>}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase', marginBottom: 4 }}>RPE (1-10)</div>
-                      <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-                        {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                          <button key={n} title={`${n} – ${BORG_RPE[n].label}`} onClick={() => actualizarBloqueCarrito(f.id, 'rpe', f.rpe === n ? null : n, grupoId)}
-                            style={{ width: 22, height: 22, borderRadius: 6, border: `1.5px solid ${f.rpe === n ? rColor : 'var(--border)'}`, background: f.rpe === n ? rColor : 'var(--bg)', color: f.rpe === n ? '#fff' : 'var(--text3)', fontSize: 10, fontWeight: 600, cursor: 'pointer' }}>{n}</button>
-                        ))}
-                      </div>
-                      {f.rpe && (
-                        <div style={{ marginTop: 5 }}>
-                          <span style={{ fontSize: 11, fontWeight: 600, color: rColor }}>{f.rpe} – {BORG_RPE[f.rpe].label}</span>
-                          <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2, lineHeight: 1.4 }}>{BORG_RPE[f.rpe].desc}</div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* ── PENDIENTE / DESNIVEL ── */}
-                  {(() => {
-                    const PEND = {
-                      llano:      { label: 'Llano',      ref: '0–1 %',   desc: 'Desplazamiento prácticamente natural. La inclinación apenas condiciona la técnica ni aumenta la exigencia respecto al llano.' },
-                      suave:      { label: 'Suave',      ref: '2–4 %',   desc: 'Perceptible pero fluida. Aumenta ligeramente la exigencia muscular y cardiovascular.' },
-                      moderado:   { label: 'Moderado',   ref: '5–7 %',   desc: 'Condiciona claramente el desplazamiento. Obliga a reducir algo el ritmo y aumenta de forma clara el trabajo de piernas.' },
-                      fuerte:     { label: 'Fuerte',     ref: '8–12 %',  desc: 'Subida exigente. El ritmo debe reducirse claramente y aumenta mucho la demanda muscular y cardiovascular.' },
-                      muy_fuerte: { label: 'Muy fuerte', ref: '>12 %',   desc: 'Pendiente muy pronunciada. Adecuada para esfuerzos cortos o trote muy lento. Mantener carrera continua puede ser muy exigente.' },
-                    }
-                    function inferirNivelPct(min, max) {
-                      if (min == null) return null
-                      const v = max != null ? (Number(min) + Number(max)) / 2 : Number(min)
-                      if (v <= 1) return [{ key: 'llano', label: 'Llano' }]
-                      if (v <= 4) return [{ key: 'suave', label: 'Suave' }]
-                      if (v <= 7) return [{ key: 'moderado', label: 'Moderado' }]
-                      if (v <= 12) return [{ key: 'fuerte', label: 'Fuerte' }]
-                      return [{ key: 'muy_fuerte', label: 'Muy fuerte' }]
-                    }
-                    function inferirNivelRango(min, max) {
-                      if (min == null || max == null) return inferirNivelPct(min, max)
-                      const lo = inferirNivelPct(min, null)?.[0]?.key
-                      const hi = inferirNivelPct(max, null)?.[0]?.key
-                      if (lo === hi) return [{ key: lo, label: PEND[lo]?.label }]
-                      return [{ key: lo, label: PEND[lo]?.label }, { key: hi, label: PEND[hi]?.label }]
-                    }
-                    const hasPendiente = f.pendiente_cualitativa || f.pendiente_pct_min != null
-                    const [pendOpen, setPendOpen] = [hasPendiente, () => {}] // always open if has value
-                    const niveles = inferirNivelRango(f.pendiente_pct_min, f.pendiente_pct_max)
-                    const mostrarRefPct = f.pendiente_pct_min != null && niveles
-                    const mostrarCueCinta = f.pendiente_pct_min != null && Number(f.pendiente_pct_min) >= 6
-
-                    const [showPendForm, setShowPendForm] = [hasPendiente, (v) => {
-                      if (!v) {
-                        actualizarBloqueCarrito(f.id, 'pendiente_cualitativa', null, grupoId)
-                        actualizarBloqueCarrito(f.id, 'pendiente_pct_min', null, grupoId)
-                        actualizarBloqueCarrito(f.id, 'pendiente_pct_max', null, grupoId)
-                      }
-                    }]
-
-                    return (
-                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10, marginTop: 2 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: hasPendiente ? 8 : 0 }}>
-                          <div style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>Pendiente / Desnivel</div>
-                          <div style={{ position: 'relative', display: 'inline-block' }} className="tooltip-parent">
-                            <span style={{ fontSize: 11, color: 'var(--text3)', cursor: 'help', border: '1px solid var(--border)', borderRadius: '50%', width: 14, height: 14, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 9 }}>i</span>
-                            <div className="tooltip-content" style={{ position: 'absolute', left: 0, top: 18, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', fontSize: 11, color: 'var(--text2)', lineHeight: 1.5, width: 240, zIndex: 200, boxShadow: '0 4px 12px rgba(0,0,0,0.12)', display: 'none' }}>
-                              La pendiente indica la inclinación del terreno, no la intensidad total del ejercicio. Una misma pendiente puede resultar muy diferente según el ritmo, la duración y el nivel del deportista. Usa la opción cualitativa para indicar el tipo de terreno y el porcentaje cuando necesites una referencia más precisa, especialmente en cinta.
-                            </div>
-                          </div>
-                          {!hasPendiente && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '2px 8px', color: 'var(--text3)', marginLeft: 4 }}
-                              onClick={() => actualizarBloqueCarrito(f.id, 'pendiente_cualitativa', 'moderado', grupoId)}>
-                              + Añadir
-                            </button>
-                          )}
-                          {hasPendiente && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 10, padding: '2px 6px', color: 'var(--text3)', marginLeft: 'auto' }}
-                              onClick={() => { actualizarBloqueCarrito(f.id, 'pendiente_cualitativa', null, grupoId); actualizarBloqueCarrito(f.id, 'pendiente_pct_min', null, grupoId); actualizarBloqueCarrito(f.id, 'pendiente_pct_max', null, grupoId) }}>
-                              × quitar
-                            </button>
-                          )}
-                        </div>
-
-                        {hasPendiente && (
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                            {/* Pills cualitativo */}
-                            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                              {Object.entries(PEND).map(([k, p]) => {
-                                const sel = f.pendiente_cualitativa === k
-                                return (
-                                  <button key={k} onClick={() => actualizarBloqueCarrito(f.id, 'pendiente_cualitativa', sel ? null : k, grupoId)}
-                                    style={{ padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: sel ? 700 : 400, border: `1.5px solid ${sel ? '#6366f1' : 'var(--border)'}`, background: sel ? '#6366f1' : 'var(--bg)', color: sel ? '#fff' : 'var(--text2)', cursor: 'pointer', transition: 'all 0.12s' }}>
-                                    {p.label}
-                                  </button>
-                                )
-                              })}
-                            </div>
-                            {/* Descripción del nivel seleccionado */}
-                            {f.pendiente_cualitativa && PEND[f.pendiente_cualitativa] && (
-                              <div style={{ fontSize: 11, color: 'var(--text3)', lineHeight: 1.5, fontStyle: 'italic', paddingLeft: 2 }}>
-                                Ref. {PEND[f.pendiente_cualitativa].ref} — {PEND[f.pendiente_cualitativa].desc}
-                              </div>
-                            )}
-                            {/* Porcentaje */}
-                            <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                              <span style={{ fontSize: 10, color: 'var(--text3)', fontFamily: 'var(--mono)', textTransform: 'uppercase' }}>%</span>
-                              <InlineInput value={f.pendiente_pct_min != null ? String(f.pendiente_pct_min) : ''} placeholder="min" fontSize={12} style={{ width: 38 }}
-                                onSave={v => actualizarBloqueCarrito(f.id, 'pendiente_pct_min', v !== '' && v != null ? parseFloat(v) : null, grupoId)} />
-                              <span style={{ fontSize: 11, color: 'var(--text3)' }}>–</span>
-                              <InlineInput value={f.pendiente_pct_max != null ? String(f.pendiente_pct_max) : ''} placeholder="max" fontSize={12} style={{ width: 38 }}
-                                onSave={v => actualizarBloqueCarrito(f.id, 'pendiente_pct_max', v !== '' && v != null ? parseFloat(v) : null, grupoId)} />
-                              <span style={{ fontSize: 11, color: 'var(--text3)' }}>%</span>
-                            </div>
-                            {/* Referencia orientativa del % */}
-                            {mostrarRefPct && !f.pendiente_cualitativa && (
-                              <div style={{ fontSize: 11, color: '#6366f1', fontStyle: 'italic', paddingLeft: 2 }}>
-                                Referencia orientativa: {niveles.map(n => n.label).join('–').toLowerCase()}
-                              </div>
-                            )}
-                            {/* Cue cinta */}
-                            {mostrarCueCinta && (
-                              <div style={{ fontSize: 10.5, color: 'var(--text3)', lineHeight: 1.5, paddingLeft: 2, borderLeft: '2px solid var(--border)', paddingLeft: 8 }}>
-                                💡 Selecciona una pendiente que puedas mantener con técnica estable y sin agarrarte a la cinta.
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })()}
-                </div>
-              )
-            }
-
-            // Summary text
-            function fmtV(it) { const p = []; if (it.volumen_min) p.push(`${it.volumen_min}'`); if (it.volumen_km) p.push(`${it.volumen_km}km`); return p.join('+') || '—' }
-            function fmtR(it) { return it.ritmo_inicio ? (it.ritmo_fin ? ` @${it.ritmo_inicio}–${it.ritmo_fin}` : ` @${it.ritmo_inicio}`) : '' }
-
-            return (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-
-                {/* ── GRÁFICA ── */}
-                <div className="card" style={{ padding: '12px 14px' }}>
-                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 8, display: 'flex', justifyContent: 'space-between' }}>
-                    Estructura de la sesión
-                    <span style={{ fontSize: 9, fontWeight: 400, color: 'var(--text3)' }}>Clic dcho. → opciones</span>
-                  </div>
-                  <div style={{ position: 'relative', height: 86, display: 'flex', alignItems: 'flex-end', gap: 2, paddingBottom: 26 }}
-                    onContextMenu={e => e.preventDefault()}>
-                    {expanded.map((b, i) => {
-                      // RPE tiene prioridad sobre fc_zona cuando está presente
-                      const usaRPE = b.rpe != null && b.rpe > 0
-                      const zonaEq = usaRPE
-                        ? (b.rpe <= 2 ? 1 : b.rpe <= 4 ? 2 : b.rpe <= 6 ? 3 : b.rpe <= 8 ? 4 : 5)
-                        : (b.fc_zona || 1)
-                      const h = usaRPE
-                        ? Math.max(4, Math.round((b.rpe / 10) * maxH))
-                        : Math.round((zonaEq / 5) * maxH)
-                      const w = Math.max(4, Math.round((widths[i] / totalW) * 560))
-                      const color = FC_COLORS[zonaEq - 1]
-                      const tooltipLabel = usaRPE
-                        ? `${b.nombre || 'Bloque'} — RPE ${b.rpe}${b.fc_zona ? ` (Z${b.fc_zona})` : ''}${b.volumen_min ? ` · ${b.volumen_min}min` : ''}${b.volumen_km ? ` · ${b.volumen_km}km` : ''}`
-                        : `${b.nombre || 'Bloque'} — Z${zonaEq}${b.volumen_min ? ` · ${b.volumen_min}min` : ''}${b.volumen_km ? ` · ${b.volumen_km}km` : ''}`
-                      return (
-                        <div key={i} style={{ position: 'relative', flexShrink: 0, width: w, height: h, background: color, opacity: b.grupoId ? 0.72 : 0.92, borderRadius: '3px 3px 0 0', cursor: 'context-menu', transition: 'opacity 0.12s',
-                          // Barra estriada cuando usa RPE para distinguirla visualmente
-                          backgroundImage: usaRPE ? `repeating-linear-gradient(45deg, transparent, transparent 3px, rgba(255,255,255,0.15) 3px, rgba(255,255,255,0.15) 6px)` : 'none' }}
-                          title={tooltipLabel}
-                          onMouseEnter={e => e.currentTarget.style.opacity = '1'}
-                          onMouseLeave={e => e.currentTarget.style.opacity = b.grupoId ? '0.72' : '0.92'}
-                          onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setCtxCarrito({ x: e.clientX, y: e.clientY, item: b, grupoId: b.grupoId, bloqueId }) }} />
-                      )
-                    })}
-                    {/* Group brackets */}
-                    {Object.entries(groupPos).map(([gid, pos]) => (
-                      <div key={gid} style={{ position: 'absolute', bottom: 0, left: pos.startX, width: pos.endX - pos.startX, pointerEvents: 'none' }}>
-                        <div style={{ height: 6, border: '1.5px solid #4C82E8', borderTop: 'none', borderRadius: '0 0 4px 4px', marginBottom: 2 }} />
-                        <div style={{ fontSize: 9, fontWeight: 800, color: '#4C82E8', textAlign: 'center', fontFamily: 'var(--mono)' }}>{pos.grp?.repeticiones}×</div>
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ height: 3, background: 'var(--border)', borderRadius: 2, marginBottom: 8 }} />
-                  <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-                    {[['#10b981','Z1'],['#84cc16','Z2'],['#f59e0b','Z3'],['#ef4444','Z4'],['#7c3aed','Z5']].map(([c, l]) => (
-                      <div key={l} style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text3)' }}>
-                        <div style={{ width: 8, height: 8, borderRadius: '50%', background: c }} />{l}
-                      </div>
-                    ))}
-                    {expanded.some(b => b.rpe != null && b.rpe > 0) && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, color: 'var(--text3)', marginLeft: 4, paddingLeft: 8, borderLeft: '1px solid var(--border)' }}>
-                        <div style={{ width: 14, height: 8, borderRadius: 2, background: '#f59e0b', backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 2px, rgba(255,255,255,0.3) 2px, rgba(255,255,255,0.3) 4px)' }} />
-                        RPE
-                      </div>
-                    )}
-                    {(totMin > 0 || totKm > 0) && <div style={{ marginLeft: 'auto', fontSize: 11, color: 'var(--text2)', fontWeight: 600 }}>
-                      {totMin > 0 && `${totMin} min`}{totMin > 0 && totKm > 0 && ' · '}{totKm > 0 && `${totKm.toFixed(1)} km`}
-                    </div>}
-                  </div>
-                </div>
-
-                {/* ── BLOQUES ── */}
-                {carritoItems.map((item, idx) => {
-                  if (item.type === 'fase') {
-                    const zColor = item.fc_zona ? FC_COLORS[item.fc_zona - 1] : 'var(--border)'
-                    return (
-                      <div key={item.id} className="card" style={{ padding: 0, overflow: 'hidden', borderLeft: `4px solid ${zColor}`, cursor: 'default' }}
-                        draggable onDragStart={() => setDraggingCarrito({ idx, bloqueId })} onDragEnd={() => setDraggingCarrito(null)}
-                        onDragOver={e => e.preventDefault()} onDrop={() => { if (draggingCarrito && draggingCarrito.bloqueId === bloqueId && draggingCarrito.idx !== idx) reordenarCarrito(draggingCarrito.idx, idx) }}>
-                        <div style={{ padding: '10px 14px', background: 'var(--bg2)', display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ color: 'var(--text3)', cursor: 'grab', fontSize: 14, userSelect: 'none' }}>⠿</span>
-                          <div style={{ flex: 1 }}>
-                            <InlineInput value={item.nombre || ''} placeholder="Nombre del bloque..." fontSize={13} style={{ fontWeight: 600 }}
-                              onSave={v => actualizarBloqueCarrito(item.id, 'nombre', v, null)} />
-                          </div>
-                          <button className="btn btn-ghost btn-sm" title="Duplicar" onClick={() => duplicarBloqueCarrito(item.id, null)} style={{ color: 'var(--text3)' }}><Copy size={12} /></button>
-                          <button className="btn btn-ghost btn-sm" title="Copiar bloque a otra sesión" onClick={() => copiarFase(item)} style={{ color: 'var(--text3)', fontSize: 11 }}>📋</button>
-                          <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => eliminarBloqueCarrito(item.id)}><Trash2 size={12} /></button>
-                        </div>
-                        {renderFaseFields(item, null)}
-                      </div>
-                    )
-                  }
-                  // GRUPO
-                  return (
-                    <div key={item.id} style={{ border: '2px solid #4C82E8', borderRadius: 12, background: '#f5f8ff', overflow: 'hidden' }}
-                      draggable onDragStart={() => setDraggingCarrito({ idx, bloqueId })} onDragEnd={() => setDraggingCarrito(null)}
-                      onDragOver={e => e.preventDefault()} onDrop={() => { if (draggingCarrito && draggingCarrito.bloqueId === bloqueId && draggingCarrito.idx !== idx) reordenarCarrito(draggingCarrito.idx, idx) }}>
-                      {/* Group header */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 14px', background: '#eef2ff', borderBottom: '1px solid #dde6ff' }}>
-                        <span style={{ color: '#8fa8e8', cursor: 'grab', fontSize: 14, userSelect: 'none' }}>⠿</span>
-                        <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: '0.04em', textTransform: 'uppercase', color: '#4C82E8', flex: 1 }}>Repetir</span>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                          <button onClick={() => cambiarRepeticionesGrupo(item.id, -1)} style={{ width: 22, height: 22, borderRadius: 6, border: '1.5px solid #4C82E8', background: '#fff', color: '#4C82E8', fontWeight: 700, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>−</button>
-                          <span style={{ fontSize: 18, fontWeight: 900, color: '#4C82E8', minWidth: 24, textAlign: 'center', fontFamily: 'var(--mono)' }}>{item.repeticiones}</span>
-                          <button onClick={() => cambiarRepeticionesGrupo(item.id, +1)} style={{ width: 22, height: 22, borderRadius: 6, border: '1.5px solid #4C82E8', background: '#fff', color: '#4C82E8', fontWeight: 700, cursor: 'pointer', fontSize: 14, display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>+</button>
-                          <span style={{ fontSize: 11, color: '#7a98d8', fontWeight: 600 }}>veces</span>
-                        </div>
-                        <button className="btn btn-ghost btn-sm" title="Duplicar grupo" onClick={() => duplicarGrupoCarrito(item.id)} style={{ color: '#4C82E8' }}><Copy size={12} /></button>
-                        <button className="btn btn-ghost btn-sm" title="Copiar grupo a otra sesión" onClick={() => copiarGrupo(item)} style={{ color: '#4C82E8', fontSize: 11 }}>📋</button>
-                        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => eliminarGrupoCarrito(item.id)}><Trash2 size={12} /></button>
-                      </div>
-                      {/* Fases dentro del grupo */}
-                      <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-                        {item.fases.map((f, fi) => {
-                          const zColor = f.fc_zona ? FC_COLORS[f.fc_zona - 1] : '#dde6ff'
-                          return (
-                            <div key={f.id} style={{ background: '#fff', border: '1.5px solid #dde6ff', borderLeft: `4px solid ${zColor}`, borderRadius: 10, overflow: 'hidden' }}
-                              draggable onDragStart={e => { e.stopPropagation(); setDraggingCarrito({ idx, grupoId: item.id, innerIdx: fi, bloqueId }) }}
-                              onDragEnd={() => setDraggingCarrito(null)}
-                              onDragOver={e => e.preventDefault()}
-                              onDrop={e => { e.stopPropagation(); if (draggingCarrito?.grupoId === item.id && draggingCarrito.innerIdx !== fi) reordenarFasesEnGrupo(item.id, draggingCarrito.innerIdx, fi) }}>
-                              <div style={{ padding: '8px 12px', background: '#f5f8ff', display: 'flex', alignItems: 'center', gap: 8 }}>
-                                <span style={{ color: '#8fa8e8', cursor: 'grab', fontSize: 12, userSelect: 'none' }}>⠿</span>
-                                <div style={{ flex: 1 }}>
-                                  <InlineInput value={f.nombre || ''} placeholder="Nombre..." fontSize={12.5} style={{ fontWeight: 600 }}
-                                    onSave={v => actualizarBloqueCarrito(f.id, 'nombre', v, item.id)} />
-                                </div>
-                                <button className="btn btn-ghost btn-sm" title="Duplicar" onClick={() => duplicarBloqueCarrito(f.id, item.id)} style={{ color: 'var(--text3)' }}><Copy size={11} /></button>
-                                <button className="btn btn-ghost btn-sm" style={{ color: 'var(--danger)' }} onClick={() => eliminarFaseDeGrupoCarrito(f.id, item.id)}><Trash2 size={11} /></button>
-                              </div>
-                              {renderFaseFields(f, item.id)}
-                            </div>
-                          )
-                        })}
-                        <button className="btn btn-ghost btn-sm" onClick={() => añadirFaseAGrupoCarrito(item.id)} style={{ border: '1.5px dashed #a8bcf0', borderRadius: 8, color: '#7a98d8', alignSelf: 'stretch', justifyContent: 'center' }}>
-                          <Plus size={12} /> Añadir bloque al grupo
-                        </button>
-                      </div>
-                    </div>
-                  )
-                })}
-
-                {/* ── BOTONES AÑADIR ── */}
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button className="btn btn-ghost" onClick={añadirBloqueSuelto} style={{ flex: 1, justifyContent: 'center', border: '1.5px dashed var(--border)' }}>
-                    <Plus size={13} /> Añadir bloque
-                  </button>
-                  <button className="btn btn-ghost" onClick={añadirGrupoCarrera} style={{ flex: 1, justifyContent: 'center', border: '1.5px solid #c8d8f8', background: '#eef2ff', color: '#4C82E8' }}>
-                    <Plus size={13} /> Añadir grupo de repeticiones
-                  </button>
-                  {clipboardBloque && (
-                    <button className="btn btn-ghost" onClick={pegarDesdePortapapeles} style={{ flex: 1, justifyContent: 'center', border: '1.5px solid #d1fae5', background: '#ecfdf5', color: '#065f46', minWidth: 160 }}
-                      title={`Pegar: "${clipboardBloque.nombre}"`}>
-                      📋 Pegar: <em style={{ marginLeft: 4, maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{clipboardBloque.nombre}</em>
-                      <button onClick={e => { e.stopPropagation(); limpiarPortapapeles() }} style={{ marginLeft: 6, background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: '#065f46', lineHeight: 1 }}>×</button>
-                    </button>
-                  )}
-                </div>
-
-                {/* ── RESUMEN ── */}
-                {carritoItems.length > 0 && (
-                  <div className="card" style={{ padding: '10px 14px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '0.07em', textTransform: 'uppercase', color: 'var(--text3)', marginBottom: 8 }}>Resumen</div>
-                    <div style={{ fontFamily: 'var(--mono)', fontSize: 12, color: 'var(--text2)', lineHeight: 1.9 }}>
-                      {carritoItems.map((it, i) => it.type === 'fase'
-                        ? <div key={i}>{fmtV(it)}{fmtR(it)}{it.fc_zona ? ` Z${it.fc_zona}` : ''}{it.rpe ? ` RPE${it.rpe}` : ''}</div>
-                        : <div key={i}>
-                            <span style={{ color: '#4C82E8', fontWeight: 700 }}>{it.repeticiones} × (</span>
-                            {it.fases.map((f, fi) => <div key={fi} style={{ paddingLeft: 16, color: 'var(--text3)' }}>+ {fmtV(f)}{fmtR(f)}{f.fc_zona ? ` Z${f.fc_zona}` : ''}{f.rpe ? ` RPE${f.rpe}` : ''}</div>)}
-                            <span style={{ color: '#4C82E8', fontWeight: 700 }}>)</span>
-                          </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* ── MENÚ CONTEXTUAL (gráfica) ── */}
-                {ctxCarrito && ctxCarrito.bloqueId === bloqueId && (
-                  <div style={{ position: 'fixed', top: ctxCarrito.y, left: ctxCarrito.x, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 8px 28px rgba(0,0,0,0.15)', zIndex: 9999, minWidth: 170, overflow: 'hidden' }}
-                    onClick={e => e.stopPropagation()}>
-                    <div style={{ padding: '5px 14px 3px', fontSize: 10, fontWeight: 700, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.07em' }}>
-                      {ctxCarrito.item.nombre || 'Bloque'}
-                    </div>
-                    {[
-                      { label: '⎘ Duplicar bloque', action: () => { duplicarBloqueCarrito(ctxCarrito.item.id, ctxCarrito.grupoId); setCtxCarrito(null) } },
-                      ctxCarrito.grupoId ? { label: '⎘ Duplicar grupo', action: () => { duplicarGrupoCarrito(ctxCarrito.grupoId); setCtxCarrito(null) } } : null,
-                      ctxCarrito.grupoId ? { label: '+ Más repeticiones', action: () => { cambiarRepeticionesGrupo(ctxCarrito.grupoId, +1); setCtxCarrito(null) } } : null,
-                      ctxCarrito.grupoId ? { label: '− Menos repeticiones', action: () => { cambiarRepeticionesGrupo(ctxCarrito.grupoId, -1); setCtxCarrito(null) } } : null,
-                      { sep: true },
-                      { label: '× Eliminar bloque', danger: true, action: () => { ctxCarrito.grupoId ? eliminarFaseDeGrupoCarrito(ctxCarrito.item.id, ctxCarrito.grupoId) : eliminarBloqueCarrito(ctxCarrito.item.id); setCtxCarrito(null) } },
-                      ctxCarrito.grupoId ? { label: '× Eliminar grupo', danger: true, action: () => { eliminarGrupoCarrito(ctxCarrito.grupoId); setCtxCarrito(null) } } : null,
-                    ].filter(Boolean).map((opt, i) => opt.sep
-                      ? <div key={i} style={{ height: 1, background: 'var(--border)', margin: '3px 0' }} />
-                      : <button key={i} onClick={opt.action} style={{ display: 'flex', alignItems: 'center', width: '100%', padding: '9px 14px', fontSize: 12.5, background: 'none', border: 'none', cursor: 'pointer', color: opt.danger ? 'var(--danger)' : 'var(--text)', textAlign: 'left' }}
-                          onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'}
-                          onMouseLeave={e => e.currentTarget.style.background = 'none'}>{opt.label}</button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
   }
 
   return (
@@ -2348,7 +1752,13 @@ async function guardarSesion() {
                 })()}
                 {bibDeBloque(b.id) === 'resistencia' ? (
                   <div style={{ padding: '10px 10px 12px', display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    {renderEditorResistencia(b.id)}
+                    <ConstructorResistencia sesionId={sesionAbierta.id} bloqueId={b.id}
+                      items={carritos[b.id] || []}
+                      setItems={fn => setCarritos(c => ({ ...c, [b.id]: typeof fn === 'function' ? fn(c[b.id] || []) : fn }))}
+                      perfil={clientes.find(c => c.id === sesionAbierta.cliente_id)?.perfil_zonas || null}
+                      onDirty={() => setDirty(true)}
+                      descripcion={b.nota || ''}
+                      onDescripcion={v => actualizarBloque(b.id, 'nota', v)} />
                     {(ejercicios[b.id] || []).length > 0 && renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}
                   </div>
                 ) : renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}

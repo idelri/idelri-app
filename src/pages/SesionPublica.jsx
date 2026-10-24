@@ -1,7 +1,9 @@
+import { colorTipoPaso, labelTipoPaso, duracionPaso, distanciaPaso, fmtDuracionPaso, fmtDistancia, objetivoPersonal, etiquetaObjetivo } from '../lib/zonas'
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { format, parseISO } from 'date-fns'
 import FeedbackForm from '../components/FeedbackForm'
+import PasosCompactos, { GraficaPasos } from '../components/PasosCompactos'
 import { es } from 'date-fns/locale'
 
 const T = {
@@ -250,6 +252,7 @@ export default function SesionPublica({ token }) {
   const [fases, setFases] = useState([])
   const [fasesItems, setFasesItems] = useState([]) // lista combinada fases sueltas + grupos (sin bloque)
   const [fasesPorBloque, setFasesPorBloque] = useState({}) // bloqueId → fases sueltas + grupos
+  const [perfilZonas, setPerfilZonas] = useState(null) // FC y ritmos del cliente para traducir las intensidades
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(false)
   const [feedbackEnviado, setFeedbackEnviado] = useState(null)
@@ -281,9 +284,9 @@ export default function SesionPublica({ token }) {
   }, [])
 
   async function cargar() {
-    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr] = await Promise.all([
+    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr, perfilZ] = await Promise.all([
       supabase.rpc('get_sesion_por_token',              { p_token: token }).then(r => r.data),
-      supabase.rpc('get_fases_bloque_por_token_sesion',  { p_token: token }).then(r => r.data),
+      supabase.rpc('get_pasos_por_token_sesion',         { p_token: token }).then(r => r.data),
       supabase.rpc('get_grupos_bloque_por_token_sesion', { p_token: token }).then(r => r.data),
       supabase.rpc('get_nombre_por_token_sesion',       { p_token: token }).then(r => r.data),
       supabase.rpc('get_bloques_por_token_sesion',      { p_token: token }).then(r => r.data),
@@ -291,7 +294,9 @@ export default function SesionPublica({ token }) {
       supabase.rpc('get_feedback_por_token_sesion',     { p_token: token }).then(r => r.data),
       supabase.rpc('get_clon_pendiente_feedback_por_token_original', { p_token: token }).then(r => r.data),
       supabase.rpc('get_permisos_por_token_sesion',     { p_token: token }).then(r => r.data),
+      supabase.rpc('get_perfil_zonas_por_token_sesion', { p_token: token }).then(r => r.data),
     ])
+    setPerfilZonas(perfilZ || null)
     const s = sesArr?.[0] ?? null
     if (!s) { setError(true); setLoading(false); return }
     setSesion(s)
@@ -401,132 +406,9 @@ export default function SesionPublica({ token }) {
     })
   }
 
-  // Fases y grupos de repetición de un bloque de resistencia
+  // Pasos de un bloque de resistencia: lista compacta, una línea por paso
   function renderFasesLista(items) {
-          const FC_COLORS = ['#10b981','#84cc16','#f59e0b','#ef4444','#7c3aed']
-          const FC_LABELS = ['Zona 1 – Muy suave','Zona 2 – Suave','Zona 3 – Moderada','Zona 4 – Dura','Zona 5 – Máxima']
-
-          function renderFaseCliente(f, key) {
-            const zonaColor = f.fc_zona ? FC_COLORS[f.fc_zona - 1] : T.accent
-            const zonaLabel = f.fc_zona ? FC_LABELS[f.fc_zona - 1] : null
-            const rpeColor = !f.rpe ? '#929ba8' : f.rpe <= 4 ? '#10b981' : f.rpe <= 6 ? '#f59e0b' : '#ef4444'
-            return (
-              <div key={key} style={{ borderLeft: `3px solid ${zonaColor}`, paddingLeft: 14, marginBottom: 4 }}>
-                {f.nombre && <div style={{ fontSize: 15, fontWeight: 800, color: T.ink, marginBottom: 8 }}>{f.nombre}</div>}
-                {f.descripcion && (
-                  <div style={{ background: zonaColor + '12', border: `1px solid ${zonaColor}33`, borderRadius: 11, padding: '11px 14px', marginBottom: 10, fontSize: 13.5, lineHeight: 1.55, color: '#374151' }}>
-                    {f.descripcion}
-                  </div>
-                )}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-                  {(f.volumen_min || f.volumen_km) && (
-                    <div style={{ background: T.paper, borderRadius: 10, padding: '10px 14px', minWidth: 90 }}>
-                      <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Volumen</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>
-                        {f.volumen_min ? `${f.volumen_min} min` : ''}{f.volumen_min && f.volumen_km ? ' · ' : ''}{f.volumen_km ? `${f.volumen_km} km` : ''}
-                      </div>
-                    </div>
-                  )}
-                  {(f.ritmo_inicio || f.ritmo_fin) && (
-                    <div style={{ background: T.paper, borderRadius: 10, padding: '10px 14px', minWidth: 90 }}>
-                      <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>Ritmo (min/km)</div>
-                      <div style={{ fontSize: 15, fontWeight: 700, color: T.ink }}>
-                        {f.ritmo_inicio || '–'}{f.ritmo_fin ? ` – ${f.ritmo_fin}` : ''}
-                      </div>
-                    </div>
-                  )}
-                  {f.fc_zona && (
-                    <div style={{ background: zonaColor + '18', border: `1px solid ${zonaColor}44`, borderRadius: 10, padding: '10px 14px', minWidth: 90 }}>
-                      <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 4 }}>FC Zona</div>
-                      <div style={{ display: 'flex', gap: 4, alignItems: 'center', marginBottom: 2 }}>
-                        {[1,2,3,4,5].map(z => (
-                          <div key={z} style={{ width: 16, height: 16, borderRadius: '50%', background: f.fc_zona >= z ? FC_COLORS[z-1] : '#e5e7eb', border: `1.5px solid ${f.fc_zona >= z ? FC_COLORS[z-1] : '#d1d5db'}` }} />
-                        ))}
-                      </div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: zonaColor }}>{zonaLabel}</div>
-                    </div>
-                  )}
-                  {f.rpe && (
-                    <div style={{ background: T.paper, borderRadius: 10, padding: '10px 14px' }}>
-                      <div style={{ fontSize: 10, color: T.ink3, fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>RPE</div>
-                      <div style={{ display: 'flex', gap: 3, alignItems: 'center', marginBottom: 4 }}>
-                        {[1,2,3,4,5,6,7,8,9,10].map(n => (
-                          <div key={n} style={{ width: 18, height: 18, borderRadius: 5, background: n <= f.rpe ? rpeColor : '#e5e7eb', opacity: n <= f.rpe ? 1 : 0.3 }} />
-                        ))}
-                        <span style={{ marginLeft: 4, fontSize: 15, fontWeight: 800, color: rpeColor }}>{f.rpe}</span>
-                      </div>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: rpeColor }}>{BORG_RPE[f.rpe].label}</div>
-                      <div style={{ fontSize: 11, color: T.ink3, marginTop: 3, lineHeight: 1.4 }}>{BORG_RPE[f.rpe].desc}</div>
-                    </div>
-                  )}
-                  {(f.pendiente_cualitativa || f.pendiente_pct_min != null) && (() => {
-                    const PEND_CLI = {
-                      llano:      { label: 'Llano',      ref: '0–1 %',   desc: 'Busca un terreno prácticamente plano. La inclinación no debe condicionar tu técnica ni aumentar claramente la exigencia.' },
-                      suave:      { label: 'Suave',      ref: '2–4 %',   desc: 'Pendiente perceptible pero que permite mantener una carrera fluida. Notarás un ligero aumento en la exigencia muscular.' },
-                      moderado:   { label: 'Moderado',   ref: '5–7 %',   desc: 'La cuesta condiciona claramente el desplazamiento. Reduce algo tu ritmo habitual y trabaja con más intensidad de piernas.' },
-                      fuerte:     { label: 'Fuerte',     ref: '8–12 %',  desc: 'Busca una subida claramente pronunciada que te obligue a reducir el ritmo, pero que te permita mantener una técnica estable durante todo el intervalo.' },
-                      muy_fuerte: { label: 'Muy fuerte', ref: '>12 %',   desc: 'Pendiente muy pronunciada. Mantén una técnica estable; es normal ir a trote muy lento o incluso caminando rápido.' },
-                    }
-                    function inferPct(min, max) {
-                      if (min == null) return null
-                      const v = max != null ? (Number(min) + Number(max)) / 2 : Number(min)
-                      if (v <= 1) return 'llano'; if (v <= 4) return 'suave'; if (v <= 7) return 'moderado'; if (v <= 12) return 'fuerte'; return 'muy_fuerte'
-                    }
-                    function inferPctRango(min, max) {
-                      if (min == null || max == null) return inferPct(min, max) ? [inferPct(min, max)] : []
-                      const lo = inferPct(min, null); const hi = inferPct(max, null)
-                      return lo === hi ? [lo] : [lo, hi]
-                    }
-                    const cualLabel = f.pendiente_cualitativa ? PEND_CLI[f.pendiente_cualitativa]?.label : null
-                    const refNiveles = inferPctRango(f.pendiente_pct_min, f.pendiente_pct_max)
-                    const refLabel = refNiveles.map(k => PEND_CLI[k]?.label).filter(Boolean).join('–')
-                    const descKey = f.pendiente_cualitativa || (refNiveles.length === 1 ? refNiveles[0] : null)
-                    const desc = descKey ? PEND_CLI[descKey]?.desc : null
-                    const mostrarCue = f.pendiente_pct_min != null && Number(f.pendiente_pct_min) >= 6
-                    const pctStr = f.pendiente_pct_min != null
-                      ? (f.pendiente_pct_max != null ? `${f.pendiente_pct_min}–${f.pendiente_pct_max} %` : `${f.pendiente_pct_min} %`)
-                      : null
-                    return (
-                      <div style={{ background: '#f5f3ff', border: '1.5px solid #a5b4fc', borderRadius: 10, padding: '10px 14px', minWidth: 120 }}>
-                        <div style={{ fontSize: 10, color: '#6366f1', fontFamily: 'monospace', textTransform: 'uppercase', letterSpacing: '0.5px', marginBottom: 6 }}>Pendiente</div>
-                        <div style={{ fontSize: 15, fontWeight: 800, color: '#4338ca', marginBottom: 2 }}>
-                          {cualLabel || (refLabel ? refLabel : pctStr)}
-                        </div>
-                        {pctStr && <div style={{ fontSize: 12, color: '#6366f1', fontWeight: 600, marginBottom: 4 }}>{pctStr}</div>}
-                        {!f.pendiente_cualitativa && refLabel && <div style={{ fontSize: 11, color: '#6366f1', fontStyle: 'italic', marginBottom: 4 }}>Ref. orientativa: {refLabel.toLowerCase()}</div>}
-                        {desc && <div style={{ fontSize: 12, color: '#374151', lineHeight: 1.5, marginTop: 4 }}>{desc}</div>}
-                        {mostrarCue && <div style={{ marginTop: 8, fontSize: 11, color: '#6b7280', fontStyle: 'italic', lineHeight: 1.4 }}>Selecciona una pendiente que puedas mantener con técnica estable y sin agarrarte a la cinta.</div>}
-                      </div>
-                    )
-                  })()}
-                </div>
-              </div>
-            )
-          }
-
-          return items.map((item, idx) => {
-            if (item.type === 'fase') {
-              return (
-                <section key={item.id} style={{ marginTop: 26 }}>
-                  {renderFaseCliente(item, item.id)}
-                </section>
-              )
-            }
-            // GRUPO
-            return (
-              <section key={item.id} style={{ marginTop: 26 }}>
-                <div style={{ background: '#eef2ff', border: '2px solid #4C82E8', borderRadius: 14, overflow: 'hidden' }}>
-                  <div style={{ padding: '10px 16px', background: '#dde8ff', display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span style={{ fontSize: 22, fontWeight: 900, color: '#4C82E8', fontFamily: 'monospace' }}>{item.repeticiones}×</span>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: '#4C82E8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>repeticiones</span>
-                  </div>
-                  <div style={{ padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: 16 }}>
-                    {item.fases.map((f, fi) => renderFaseCliente(f, f.id))}
-                  </div>
-                </div>
-              </section>
-            )
-          })
+    return <PasosCompactos items={items} perfil={perfilZonas} T={{ ...T, mono: "'JetBrains Mono', monospace" }} grande />
   }
 
   if (loading) return (
@@ -625,7 +507,9 @@ export default function SesionPublica({ token }) {
         )}
 
         {/* FASES sin bloque (formato antiguo) */}
-        {fasesItems.length > 0 && renderFasesLista(fasesItems)}
+        {fasesItems.length > 0 && (
+          <section style={{ marginTop: 22, background: T.card, borderRadius: 16, border: `1px solid ${T.line}`, padding: '4px 14px' }}>{renderFasesLista(fasesItems)}</section>
+        )}
 
         {/* BLOQUES */}
         {bloques.map((b, idx) => {
@@ -634,7 +518,8 @@ export default function SesionPublica({ token }) {
           const bc = b.color || '#E29A2E'
           const metodoLabel = METODO_LABEL[b.metodo || 'individual']
           const fasesBloque = fasesPorBloque[b.id] || []
-          const esResistencia = fasesBloque.length > 0 && ejsBloque.length === 0
+          // Bloque sin ejercicios (resistencia: pasos y/o descripción): sin método ni series
+          const esResistencia = ejsBloque.length === 0
           const descTexto = esResistencia ? null : (b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual'])
 
           function renderEj(e, eIdx, totalEjs) {
@@ -761,11 +646,18 @@ export default function SesionPublica({ token }) {
                       </span>
                     )}
                   </div>
-                  {b.nota && (
+                  {fasesBloque.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <GraficaPasos items={fasesBloque} perfil={perfilZonas} T={{ ...T, mono: "'JetBrains Mono', monospace" }} />
+                    </div>
+                  )}
+                  {b.nota && (esResistencia ? (
+                    <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.55, color: T.ink, whiteSpace: 'pre-wrap' }}>{b.nota}</div>
+                  ) : (
                     <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 8, padding: '8px 10px', borderRadius: 8, background: `${bc}18`, fontSize: 12, lineHeight: 1.4, color: bc }}>
                       <span>📝</span><span>{b.nota}</span>
                     </div>
-                  )}
+                  ))}
                 </div>
 
                 {/* Descripción del método */}
@@ -776,7 +668,7 @@ export default function SesionPublica({ token }) {
                 )}
 
                 {fasesBloque.length > 0 && (
-                  <div style={{ padding: '0 14px 16px' }}>{renderFasesLista(fasesBloque)}</div>
+                  <div style={{ padding: '2px 14px 4px' }}>{renderFasesLista(fasesBloque)}</div>
                 )}
 
                 {!esResistencia && METODOS_SERIES_BLOQUE.includes(b.metodo) && (

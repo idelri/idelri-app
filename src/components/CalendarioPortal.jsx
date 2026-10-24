@@ -20,6 +20,8 @@ import {
   format, startOfMonth, endOfMonth, startOfWeek, addDays, addWeeks, addMonths, subMonths,
   isSameDay, isSameMonth, isToday, parseISO,
 } from 'date-fns'
+import { estructurarPasos } from '../lib/zonas'
+import PasosCompactos from './PasosCompactos'
 import { es } from 'date-fns/locale'
 
 const DIAS = ['L', 'M', 'X', 'J', 'V', 'S', 'D']
@@ -71,7 +73,9 @@ export function DetalleSesion({ T, detalle }) {
   if (detalle.error) {
     return <div style={{ fontSize: 11.5, color: T.ink3, padding: '6px 0' }}>No se han podido cargar los ejercicios.</div>
   }
-  const { bloques, ejercicios, fases = [] } = detalle
+  const { bloques, ejercicios, fases = [], grupos = [], perfil = null } = detalle
+  // Pasos en el mismo orden que en el constructor (las repeticiones en su sitio)
+  const pasosPorBloque = estructurarPasos(fases, grupos)
   if (bloques.length === 0) {
     return <div style={{ fontSize: 11.5, color: T.ink3, padding: '6px 0' }}>Abre la sesión para ver el detalle.</div>
   }
@@ -79,7 +83,7 @@ export function DetalleSesion({ T, detalle }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       {bloques.map(b => {
         const ejs = ejercicios.filter(e => e.bloque_id === b.id)
-        const fs = fases.filter(x => x.bloque_id === b.id)
+        const fs = pasosPorBloque[b.id] || []
         const color = b.color || T.green
         const vueltas = b.vueltas > 1 ? ` · ${b.vueltas} vueltas` : ''
         return (
@@ -87,15 +91,10 @@ export function DetalleSesion({ T, detalle }) {
             <div style={{ fontSize: 10.5, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '.3px' }}>
               {b.nombre || 'Bloque'}<span style={{ fontWeight: 500, textTransform: 'none', letterSpacing: 0, color: T.ink3 }}>{vueltas}</span>
             </div>
-            {fs.map(x => (
-              <div key={x.id} style={{ display: 'flex', gap: 8, alignItems: 'baseline', fontSize: 12, lineHeight: 1.35, marginTop: 2 }}>
-                <span style={{ flex: 1, minWidth: 0, color: T.ink }}>▸ {x.nombre || 'Fase'}</span>
-                {(x.volumen_min || x.volumen_km) && <span style={{ fontFamily: T.mono, fontSize: 10.5, color: T.ink3, whiteSpace: 'nowrap' }}>{x.volumen_min ? `${x.volumen_min} min` : `${x.volumen_km} km`}</span>}
-              </div>
-            ))}
-            {ejs.length === 0 && fs.length === 0 && b.nota && (
-              <div style={{ fontSize: 11.5, color: T.ink2, marginTop: 2, lineHeight: 1.35 }}>{b.nota}</div>
+            {ejs.length === 0 && b.nota && (
+              <div style={{ fontSize: 11.5, color: T.ink2, marginTop: 2, lineHeight: 1.35, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{b.nota}</div>
             )}
+            {fs.length > 0 && <div style={{ marginTop: 2 }}><PasosCompactos items={fs} perfil={perfil} T={T} /></div>}
             {ejs.map(e => {
               const p = prescripcion(e)
               return (
@@ -131,8 +130,10 @@ export default function CalendarioPortal({
     Promise.all([
       supabase.rpc('get_bloques_por_token_sesion', { p_token: token }),
       supabase.rpc('get_ejercicios_por_token_sesion', { p_token: token }),
-      supabase.rpc('get_fases_bloque_por_token_sesion', { p_token: token }),
-    ]).then(([b, e, f]) => {
+      supabase.rpc('get_pasos_por_token_sesion', { p_token: token }),
+      supabase.rpc('get_grupos_bloque_por_token_sesion', { p_token: token }),
+      supabase.rpc('get_perfil_zonas_por_token_sesion', { p_token: token }),
+    ]).then(([b, e, f, g, pz]) => {
       if (b.error || e.error) {
         pedidos.current.delete(token)
         setDetalles(d => ({ ...d, [token]: { error: true } }))
@@ -141,7 +142,7 @@ export default function CalendarioPortal({
       const bls = (b.data || []).slice().sort((x, y) => (x.orden ?? 0) - (y.orden ?? 0))
       const ejs = (e.data || []).slice().sort((x, y) => (x.orden ?? 0) - (y.orden ?? 0))
       const fases = (f.data || []).slice().sort((x, y) => (x.orden ?? 0) - (y.orden ?? 0))
-      setDetalles(d => ({ ...d, [token]: { bloques: bls, ejercicios: ejs, fases } }))
+      setDetalles(d => ({ ...d, [token]: { bloques: bls, ejercicios: ejs, fases, grupos: g.data || [], perfil: pz.data || null } }))
     })
   }
 
