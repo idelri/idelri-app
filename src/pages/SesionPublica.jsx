@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import { format, parseISO } from 'date-fns'
 import FeedbackForm from '../components/FeedbackForm'
 import PasosCompactos, { GraficaPasos } from '../components/PasosCompactos'
+import { DiagramaCampo, metricasDiagrama } from '../components/TareaCampo'
 import { es } from 'date-fns/locale'
 
 const T = {
@@ -284,7 +285,7 @@ export default function SesionPublica({ token }) {
   }, [])
 
   async function cargar() {
-    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr, perfilZ] = await Promise.all([
+    const [sesArr, fssArr, grpsArr, cliArr, blsArr, ejsArr, fbArr, pendingClonArr, permArr, perfilZ, diagArr] = await Promise.all([
       supabase.rpc('get_sesion_por_token',              { p_token: token }).then(r => r.data),
       supabase.rpc('get_pasos_por_token_sesion',         { p_token: token }).then(r => r.data),
       supabase.rpc('get_grupos_bloque_por_token_sesion', { p_token: token }).then(r => r.data),
@@ -295,6 +296,7 @@ export default function SesionPublica({ token }) {
       supabase.rpc('get_clon_pendiente_feedback_por_token_original', { p_token: token }).then(r => r.data),
       supabase.rpc('get_permisos_por_token_sesion',     { p_token: token }).then(r => r.data),
       supabase.rpc('get_perfil_zonas_por_token_sesion', { p_token: token }).then(r => r.data),
+      supabase.rpc('get_diagramas_por_token_sesion', { p_token: token }).then(r => r.data),
     ])
     setPerfilZonas(perfilZ || null)
     const s = sesArr?.[0] ?? null
@@ -327,7 +329,8 @@ export default function SesionPublica({ token }) {
     setFasesPorBloque(porBloque)
     const bls = blsArr || []
     setBloques(bls)
-    const ejsList = ejsArr || []
+    const diagramas = Object.fromEntries((diagArr || []).map(x => [x.id, x.diagrama]))
+    const ejsList = (ejsArr || []).map(e => diagramas[e.id] ? { ...e, diagrama: diagramas[e.id] } : e)
     const map = {}
     ejsList.forEach(e => { if (!map[e.bloque_id]) map[e.bloque_id] = []; map[e.bloque_id].push(e) })
     setEjercicios(map)
@@ -520,9 +523,39 @@ export default function SesionPublica({ token }) {
           const fasesBloque = fasesPorBloque[b.id] || []
           // Bloque sin ejercicios (resistencia: pasos y/o descripción): sin método ni series
           const esResistencia = ejsBloque.length === 0
-          const descTexto = esResistencia ? null : (b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual'])
+          const esCampo = ejsBloque.length > 0 && ejsBloque.every(e => e.diagrama)
+          const descTexto = esResistencia || esCampo ? null : (b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual'])
+
+          function renderTareaCampo(e, eIdx) {
+            const met = metricasDiagrama(e.diagrama)
+            const pr = e.diagrama.presc || {}
+            const series = parseInt(e.series) || 0, reps = parseInt(e.reps) || 0
+            const fm = m => (m >= 100 ? Math.round(m) : Math.round(m * 2) / 2).toLocaleString('es-ES') + ' m'
+            const chips = [
+              series && reps ? `${series} × ${reps}` : reps ? `${reps} reps` : series ? `${series} series` : null,
+              met.metros ? `${fm(met.metros)} / rep` : null,
+              met.cod ? `${met.cod} COD` : null,
+              pr.intensidad ? `⚡ ${pr.intensidad}` : null,
+              pr.tiempo ? `⏱ ${pr.tiempo}` : null,
+              e.descanso ? `Recup. ${e.descanso}` : null,
+              pr.recup_series ? `Entre series ${pr.recup_series}` : null,
+            ].filter(Boolean)
+            return (
+              <div key={e.id} style={{ padding: '10px 14px 12px', borderTop: eIdx ? `0.5px solid ${T.line}` : 'none' }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: T.ink, marginBottom: 7 }}>{e.nombre}</div>
+                <DiagramaCampo diagrama={e.diagrama} />
+                {chips.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8 }}>
+                    {chips.map(c => <span key={c} style={{ fontSize: 12, fontWeight: 600, color: '#1f2d8a', background: '#eef2ff', borderRadius: 6, padding: '3px 8px' }}>{c}</span>)}
+                  </div>
+                )}
+                {e.notas && <div style={{ marginTop: 7, fontSize: 13, lineHeight: 1.45, color: T.ink2, whiteSpace: 'pre-wrap' }}>{e.notas}</div>}
+              </div>
+            )
+          }
 
           function renderEj(e, eIdx, totalEjs) {
+            if (e.diagrama) return renderTareaCampo(e, eIdx)
             const yid = e.media_tipo === 'youtube' ? ytId(e.media_url) : null
             const esVideoArchivo = e.media_tipo === 'video' && e.media_url
             const esImagen = (e.media_tipo === 'imagen' || e.media_tipo === 'gif') && e.media_url
@@ -640,7 +673,7 @@ export default function SesionPublica({ token }) {
                       {String(idx + 1).padStart(2, '0')}
                     </div>
                     <h2 style={{ margin: 0, fontSize: 15, fontWeight: 700, flex: 1, lineHeight: 1.2, color: T.ink }}>{b.nombre}</h2>
-                    {metodoLabel && !esResistencia && (
+                    {metodoLabel && !esResistencia && !esCampo && (
                       <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', padding: '2px 8px', borderRadius: 99, background: `${bc}18`, color: bc, border: `1px solid ${bc}33`, flexShrink: 0, fontFamily: 'monospace' }}>
                         {metodoLabel}
                       </span>
@@ -651,7 +684,7 @@ export default function SesionPublica({ token }) {
                       <GraficaPasos items={fasesBloque} perfil={perfilZonas} T={{ ...T, mono: "'JetBrains Mono', monospace" }} />
                     </div>
                   )}
-                  {b.nota && (esResistencia ? (
+                  {b.nota && (esResistencia || esCampo ? (
                     <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.55, color: T.ink, whiteSpace: 'pre-wrap' }}>{b.nota}</div>
                   ) : (
                     <div style={{ display: 'flex', gap: 7, alignItems: 'flex-start', marginTop: 8, padding: '8px 10px', borderRadius: 8, background: `${bc}18`, fontSize: 12, lineHeight: 1.4, color: bc }}>
@@ -779,7 +812,7 @@ export default function SesionPublica({ token }) {
                 )}
 
                 {/* Block footer */}
-                {interactiva && !esResistencia && <div style={{ padding: '9px 14px', borderTop: `0.5px solid ${T.line}`, background: `${bc}06`, display: 'flex', justifyContent: 'flex-end' }}>
+                {interactiva && !esResistencia && !esCampo && <div style={{ padding: '9px 14px', borderTop: `0.5px solid ${T.line}`, background: `${bc}06`, display: 'flex', justifyContent: 'flex-end' }}>
                   {sesionFlexibleGuardada || sesionFijaGuardada || clonToken ? (
                     <span style={{ fontSize: 11.5, fontWeight: 700, padding: '5px 12px', borderRadius: 8, border: '1.5px solid #16a34a', background: '#f0fdf4', color: '#16a34a' }}>✓ Bloque hecho</span>
                   ) : (
