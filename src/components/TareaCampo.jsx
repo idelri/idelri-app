@@ -5,14 +5,16 @@
  * El dibujo (sesion_ejercicios.diagrama / ejercicios_biblioteca.diagrama):
  *   {
  *     v: 1,
- *     fondo: { tipo, ancho, alto, opacidad, rejilla },
+ *     fondo: { tipo, ancho, alto, opacidad, rejilla, rejillaCliente },
+ *       rejilla = cuadrícula en el editor; rejillaCliente = la ve el deportista
  *     elementos: [ ... ],          // coordenadas en METROS
  *     presc: { intensidad, recup_series }   // prescripción extra
  *   }
  * Elementos:
  *   objeto:  { id, tipo: 'cono'|'atleta'|…, x, y, rot, escala, opacidad, color, texto? }
  *   zona:    { id, tipo: 'zona', x, y, w, h, rot, color, opacidad, discontinua }
- *   flecha:  { id, tipo: 'flecha', estilo, p0, p1, c?, color, grosor, opacidad, verMedida }
+ *   flecha:  { id, tipo: 'flecha', estilo, p0, p1, c?, puntas ('fin'|'ambas'|'ninguna'), color, grosor, opacidad, verMedida }
+ *            c = punto de control de la curva (la curva pasa por el punto intermedio que arrastras)
  *   medida:  { id, tipo: 'medida', p0, p1, valor, color, opacidad }
  *
  * Exporta:
@@ -307,7 +309,7 @@ function trazoFlecha(f) {
     const amp = f.estilo === 'balon' ? 0.22 : 0.3
     const ondas = Math.max(2, Math.round(L / (f.estilo === 'balon' ? 1.1 : 0.9)))
     const out = pts.map((p, i) => {
-      if (i === 0 || i >= N - 3) return p
+      if (i < 3 || i >= N - 3) return p
       const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N, i + 1)]
       const dx = b.x - a.x, dy = b.y - a.y, n = Math.hypot(dx, dy) || 1
       const s = f.estilo === 'balon' ? Math.sin(i / N * ondas * Math.PI * 2) : ((i % 4) < 2 ? 1 : -1)
@@ -330,15 +332,21 @@ function Etiqueta({ x, y, texto, color, u }) {
 function Flecha({ f, u }) {
   const color = f.color || ESTILOS.find(s => s.k === f.estilo)?.color || '#1f2d8a'
   const g = (f.grosor || 1) * u * (f.estilo === 'sprint' ? 0.16 : f.estilo === 'andar' || f.estilo === 'pase' ? 0.08 : 0.11)
-  const e = puntoCurva(f, 0.96), dx = f.p1.x - e.x, dy = f.p1.y - e.y, n = Math.hypot(dx, dy) || 1
-  const ah = Math.max(g * 3.2, u * 0.45), ux = dx / n, uy = dy / n
-  const punta = `${f.p1.x},${f.p1.y} ${f.p1.x - ux * ah - uy * ah * 0.55},${f.p1.y - uy * ah + ux * ah * 0.55} ${f.p1.x - ux * ah + uy * ah * 0.55},${f.p1.y - uy * ah - ux * ah * 0.55}`
+  const ah = Math.max(g * 3.2, u * 0.45)
+  // Punta en el extremo `fin` (p1) o en el inicio (p0), según la tangente
+  const puntaEn = (fin, t) => {
+    const e = puntoCurva(f, t), dx = fin.x - e.x, dy = fin.y - e.y, n = Math.hypot(dx, dy) || 1, ux = dx / n, uy = dy / n
+    return `${fin.x},${fin.y} ${fin.x - ux * ah - uy * ah * 0.55},${fin.y - uy * ah + ux * ah * 0.55} ${fin.x - ux * ah + uy * ah * 0.55},${fin.y - uy * ah - ux * ah * 0.55}`
+  }
+  const puntas = f.puntas || 'fin'
+  const dir = { x: f.p1.x - puntoCurva(f, 0.96).x, y: f.p1.y - puntoCurva(f, 0.96).y }, nd = Math.hypot(dir.x, dir.y) || 1, ux = dir.x / nd, uy = dir.y / nd
   const mid = puntoCurva(f, 0.5)
   const dash = DASH[f.estilo]
   return (
     <g opacity={f.opacidad ?? 1}>
       <path d={trazoFlecha(f)} fill="none" stroke={color} strokeWidth={g} strokeDasharray={dash ? dash.split(' ').map(v => v * u).join(' ') : undefined} strokeLinecap="round" strokeLinejoin="round" />
-      <polygon points={punta} fill={color} />
+      {puntas !== 'ninguna' && <polygon points={puntaEn(f.p1, 0.96)} fill={color} />}
+      {puntas === 'ambas' && <polygon points={puntaEn(f.p0, 0.04)} fill={color} />}
       {f.verMedida && <Etiqueta x={mid.x - uy * u * 0.7} y={mid.y + ux * u * 0.7} texto={fmtM(largoCurva(f))} color={color} u={u} />}
     </g>
   )
@@ -378,14 +386,14 @@ function Elemento({ e, u }) {
 }
 
 /* ── Dibujo de solo lectura ─────────────────────────────────────────────── */
-export function DiagramaCampo({ diagrama, style, className }) {
+export function DiagramaCampo({ diagrama, style, className, rejilla }) {
   const d = diagrama || nuevoDiagrama()
   const f = d.fondo, u = unidad(f), mg = Math.max(f.ancho, f.alto) * 0.035
   return (
     <svg viewBox={`${-mg} ${-mg} ${f.ancho + 2 * mg} ${f.alto + 2 * mg}`} className={className}
       style={{ display: 'block', width: '100%', height: 'auto', background: '#f3f4f6', borderRadius: 8, fontFamily: 'Inter, system-ui, sans-serif', ...style }}>
       <g opacity={f.opacidad ?? 1}><FondoSVG fondo={f} /></g>
-      {(f.rejilla) && <Rejilla fondo={f} fuerte={f.tipo === 'cuadricula' || f.tipo === 'blanco'} />}
+      {(rejilla ?? f.rejillaCliente) && <Rejilla fondo={f} fuerte={f.tipo === 'cuadricula' || f.tipo === 'blanco'} />}
       {(d.elementos || []).map(e => <Elemento key={e.id} e={e} u={u} />)}
     </svg>
   )
@@ -596,7 +604,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
         switch (a.modo) {
           case 'p0': return { ...e, p0: sp }
           case 'p1': return { ...e, p1: sp }
-          case 'c': return { ...e, c: { x: p.x, y: p.y } }
+          case 'c': return { ...e, c: { x: 2 * p.x - (e.p0.x + e.p1.x) / 2, y: 2 * p.y - (e.p0.y + e.p1.y) / 2 } }
           case 'rot': {
             const ang = Math.atan2(p.y - e.y, p.x - e.x) * 180 / Math.PI + 90
             const r = ev.shiftKey ? Math.round(ang) : Math.round(ang / 15) * 15
@@ -668,7 +676,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
         <g>
           <circle data-h="p0" data-hid={uno.id} cx={uno.p0.x} cy={uno.p0.y} r={r} {...est} />
           <circle data-h="p1" data-hid={uno.id} cx={uno.p1.x} cy={uno.p1.y} r={r} {...est} />
-          {uno.tipo === 'flecha' && <rect data-h="c" data-hid={uno.id} x={mid.x - r * 0.8} y={mid.y - r * 0.8} width={r * 1.6} height={r * 1.6} transform={`rotate(45 ${mid.x} ${mid.y})`} {...est} stroke="#f59e0b" />}
+          {uno.tipo === 'flecha' && <rect data-h="c" data-hid={uno.id} x={mid.x - r * 0.8} y={mid.y - r * 0.8} width={r * 1.6} height={r * 1.6} transform={`rotate(45 ${mid.x} ${mid.y})`} {...est} fill="#f59e0b" stroke="#fff" />}
         </g>
       )
     }
@@ -723,6 +731,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
           <button style={btn(false, { opacity: sel.length ? 1 : .45 })} onClick={() => ordenar(false)} title="Enviar al fondo">Al fondo</button>
           <button style={btn(false, { opacity: sel.length ? 1 : .45, color: '#dc2626' })} onClick={eliminar} title="Eliminar (Supr)">✕ Eliminar</button>
           <span style={{ flex: 1 }} />
+          <button style={btn(!!f.rejilla)} onClick={() => cambiarFondo({ rejilla: !f.rejilla })} title="Ver u ocultar la cuadrícula mientras dibujas">▦ Cuadrícula {f.rejilla ? 'sí' : 'no'}</button>
           <label style={{ fontSize: 11.5, display: 'flex', alignItems: 'center', gap: 4 }}><input type="checkbox" checked={ajustar} onChange={e => setAjustar(e.target.checked)} /> Ajustar a 0,5 m</label>
           <button style={btn(false)} onClick={onCerrar}>Cancelar</button>
           <button style={btn(true)} onClick={guardar} disabled={guardando}>{guardando ? 'Guardando…' : 'Guardar dibujo'}</button>
@@ -787,7 +796,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
                       {FONDOS.filter(x => x.grupo === g).map(x => (
                         <button key={x.k} onClick={() => elegirFondo(x.k)} title={x.label}
                           style={{ ...btn(false, { padding: 3, display: 'flex', flexDirection: 'column', gap: 2, alignItems: 'stretch' }), borderColor: f.tipo === x.k ? 'var(--accent, #2d6a4f)' : 'var(--border, #e5e7eb)', boxShadow: f.tipo === x.k ? 'inset 0 0 0 1px var(--accent, #2d6a4f)' : 'none' }}>
-                          <DiagramaCampo diagrama={{ fondo: { tipo: x.k, ancho: x.ancho, alto: x.alto, opacidad: 1, rejilla: x.k === 'cuadricula' }, elementos: [] }} style={{ borderRadius: 4, background: '#e5e7eb' }} />
+                          <DiagramaCampo rejilla={x.k === 'cuadricula'} diagrama={{ fondo: { tipo: x.k, ancho: x.ancho, alto: x.alto, opacidad: 1 }, elementos: [] }} style={{ borderRadius: 4, background: '#e5e7eb' }} />
                           <span style={{ fontSize: 9.5, textAlign: 'center', lineHeight: 1.15 }}>{x.label}</span>
                         </button>
                       ))}
@@ -843,7 +852,9 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
                   </div>
                 ) : <div style={{ color: 'var(--text3, #9ca3af)', fontSize: 11.5 }}>{f.ancho} × {f.alto} m (medidas reales)</div>}
                 <Deslizador label="Opacidad" value={f.opacidad ?? 1} min={0.1} max={1} step={0.05} onChange={v => cambiarFondo({ opacidad: v })} fmt={v => Math.round(v * 100) + '%'} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, marginTop: 4 }}><input type="checkbox" checked={!!f.rejilla} onChange={e => cambiarFondo({ rejilla: e.target.checked })} /> Mostrar cuadrícula de metros</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, marginTop: 4 }}><input type="checkbox" checked={!!f.rejilla} onChange={e => cambiarFondo({ rejilla: e.target.checked })} /> Ver cuadrícula mientras dibujo</label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, marginTop: 4 }}><input type="checkbox" checked={!!f.rejillaCliente} onChange={e => cambiarFondo({ rejillaCliente: e.target.checked })} /> El deportista la ve con cuadrícula</label>
+                <div style={{ fontSize: 10.5, color: 'var(--text3, #9ca3af)', marginTop: 3, lineHeight: 1.35 }}>Si no la marcas, el deportista ve el dibujo limpio, sin cuadrícula.</div>
                 <div style={{ ...lbl, marginTop: 18 }}>Atajos</div>
                 <div style={{ fontSize: 11, color: 'var(--text2, #555)', lineHeight: 1.6 }}>
                   Arrastrar en vacío: seleccionar varios<br />Alt + arrastrar: duplicar<br />Ctrl+D duplicar · Ctrl+C / Ctrl+V<br />R / Shift+R: girar 15°<br />Supr: eliminar · Ctrl+Z: deshacer
@@ -856,6 +867,11 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
                 <div style={lbl}>Color</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>{COLORES.map(c => <button key={c} onClick={() => editarSel({ color: c })} style={{ width: 20, height: 20, borderRadius: 5, border: '1px solid #d1d5db', background: c, cursor: 'pointer' }} />)}</div>
                 <Deslizador label="Opacidad" value={elemSel[0].opacidad ?? 1} min={0.1} max={1} step={0.05} onChange={v => editarSel({ opacidad: v })} fmt={v => Math.round(v * 100) + '%'} />
+                {elemSel.every(e => e.tipo === 'flecha') && (
+                  <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                    {[['fin', '→'], ['ambas', '↔'], ['ninguna', '—']].map(([k, l]) => <button key={k} style={btn(false, { flex: 1 })} onClick={() => editarSel({ puntas: k })}>{l}</button>)}
+                  </div>
+                )}
                 <div style={{ fontSize: 11, color: 'var(--text3, #9ca3af)', marginTop: 8 }}>Arrástralos juntos, gíralos con R o duplícalos con Alt + arrastrar.</div>
               </>
             )}
@@ -881,6 +897,13 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
                     <select value={uno.estilo} onChange={e => editarSel({ estilo: e.target.value, color: ESTILOS.find(s => s.k === e.target.value)?.color })} style={{ width: '100%', padding: '5px 6px', borderRadius: 6, border: '1px solid var(--border, #e5e7eb)' }}>
                       {ESTILOS.map(s => <option key={s.k} value={s.k}>{s.label}</option>)}
                     </select>
+                    <div style={lbl}>Puntas</div>
+                    <div style={{ display: 'flex', gap: 4 }}>
+                      {[['fin', '→ Una'], ['ambas', '↔ Doble'], ['ninguna', '— Ninguna']].map(([k, l]) => (
+                        <button key={k} style={btn((uno.puntas || 'fin') === k, { flex: 1, padding: '4px 2px', fontSize: 11 })} onClick={() => editarSel({ puntas: k })}>{l}</button>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 10.5, color: 'var(--text3, #9ca3af)', marginTop: 8, lineHeight: 1.35 }}>Para curvarla, arrastra el punto naranja del centro: la flecha pasa por donde lo sueltes.</div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11.5, marginTop: 8 }}><input type="checkbox" checked={!!uno.verMedida} onChange={e => editarSel({ verMedida: e.target.checked })} /> Mostrar metros ({fmtM(largoCurva(uno))})</label>
                     <Deslizador label="Grosor" value={uno.grosor || 1} min={0.4} max={3} step={0.1} onChange={v => editarSel({ grosor: v })} fmt={v => v.toFixed(1)} />
                     <div style={{ display: 'flex', gap: 5, marginTop: 4 }}>
