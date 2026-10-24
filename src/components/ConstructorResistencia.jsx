@@ -62,33 +62,51 @@ function valoresPorDefecto(tipo, perfil) {
 }
 
 /* Las 8 piezas de la paleta (como en TrainingPeaks) */
+// Pasos que crea cada pieza. Las de progresivo/gradual crean 4 pasos.
+function escalon(perfil, i, sube) {
+  const ritmo = !!perfil?.ritmo_umbral_seg
+  const n = sube ? i : 3 - i
+  return ritmo
+    ? { tipo_paso: 'activo', duracion_seg: 300, objetivo_tipo: 'ritmo_umbral', objetivo_min: 80 + n * 5, objetivo_max: 85 + n * 5 }
+    : { tipo_paso: 'activo', duracion_seg: 300, objetivo_tipo: 'zona_fc', objetivo_min: n + 1, objetivo_max: n + 1 }
+}
 const PIEZAS = [
-  { key: 'calentamiento', label: 'Calentamiento',      pasos: ['calentamiento'] },
-  { key: 'activo',        label: 'Activo',             pasos: ['activo'] },
-  { key: 'recuperacion',  label: 'Recuperación',       pasos: ['recuperacion'] },
-  { key: 'vuelta_calma',  label: 'Vuelta a la calma',  pasos: ['vuelta_calma'] },
-  { key: 'rep2',          label: 'Repetir 2 pasos',    pasos: ['activo', 'recuperacion'], grupo: 5 },
-  { key: 'rep3',          label: 'Repetir 3 pasos',    pasos: ['activo', 'activo', 'recuperacion'], grupo: 4 },
-  { key: 'rampa_sube',    label: 'Aumento progresivo', pasos: ['rampa_sube'] },
-  { key: 'rampa_baja',    label: 'Reducción gradual',  pasos: ['rampa_baja'] },
+  { key: 'calentamiento', label: 'Calentamiento',     barras: [[1, 0.42]],
+    crear: p => [valoresPorDefecto('calentamiento', p)] },
+  { key: 'activo',        label: 'Activo',            barras: [[1, 0.8]],
+    crear: p => [valoresPorDefecto('activo', p)] },
+  { key: 'recuperacion',  label: 'Recuperación',      barras: [[1, 0.58]],
+    crear: p => [valoresPorDefecto('recuperacion', p)] },
+  { key: 'vuelta_calma',  label: 'Vuelta a la calma', barras: [[1, 0.24]],
+    crear: p => [valoresPorDefecto('vuelta_calma', p)] },
+  { key: 'rep2',          label: 'Repetir 2 pasos',   barras: [[1.4, 0.8], [1, 0.45]], grupo: 5,
+    crear: p => [{ ...valoresPorDefecto('activo', p), duracion_seg: 180 }, { ...valoresPorDefecto('recuperacion', p), duracion_seg: 90 }] },
+  { key: 'rep3',          label: 'Repetir 3 pasos',   barras: [[1, 0.6], [0.8, 0.85], [0.7, 0.4]], grupo: 4,
+    crear: p => {
+      const a = valoresPorDefecto('activo', p)
+      const medio = a.objetivo_tipo === 'zona_fc' ? { objetivo_min: 3, objetivo_max: 3 } : { objetivo_min: 90, objetivo_max: 95 }
+      return [{ ...a, ...medio, duracion_seg: 180 }, { ...a, duracion_seg: 120 }, { ...valoresPorDefecto('recuperacion', p), duracion_seg: 90 }]
+    } },
+  { key: 'progresivo',    label: 'Aumento progresivo', barras: [[1, 0.42], [1, 0.56], [1, 0.7], [1, 0.84]],
+    crear: p => [0, 1, 2, 3].map(i => escalon(p, i, true)) },
+  { key: 'gradual',       label: 'Reducción gradual',  barras: [[1, 0.84], [1, 0.7], [1, 0.56], [1, 0.42]],
+    crear: p => [0, 1, 2, 3].map(i => escalon(p, i, false)) },
 ]
 
-function IconoPieza({ k }) {
-  const c = k === 'rep2' || k === 'rep3' ? AZUL : colorTipoPaso(k)
-  const w = 44, h = 26
-  const barras = {
-    calentamiento: [[0, 30, 0.35], [30, 70, 0.5], [70, 100, 0.65]],
-    activo:        [[15, 85, 0.85]],
-    recuperacion:  [[10, 90, 0.3]],
-    vuelta_calma:  [[0, 30, 0.6], [30, 70, 0.45], [70, 100, 0.3]],
-    rep2:          [[0, 22, 0.85], [24, 38, 0.3], [42, 64, 0.85], [66, 80, 0.3], [84, 100, 0.85]],
-    rep3:          [[0, 16, 0.65], [18, 34, 0.9], [36, 46, 0.3], [50, 66, 0.65], [68, 84, 0.9], [86, 100, 0.3]],
-  }[k]
+// Icono como en TrainingPeaks: bloques azul oscuro sobre fondo gris claro
+function IconoPieza({ barras }) {
+  const total = barras.reduce((a, [w]) => a + w, 0)
+  const gap = barras.length > 1 ? 1.2 : 0
+  let x = 0
   return (
-    <svg width={w} height={h} viewBox="0 0 100 60" preserveAspectRatio="none" aria-hidden="true">
-      {k === 'rampa_sube' && <polygon points="5,60 5,45 95,8 95,60" fill={c} />}
-      {k === 'rampa_baja' && <polygon points="5,60 5,8 95,45 95,60" fill={c} />}
-      {barras && barras.map(([a, b, i], j) => <rect key={j} x={a} y={60 - i * 60} width={b - a} height={i * 60} rx="3" fill={c} opacity={k.startsWith('rep') && i < 0.5 ? 0.55 : 1} />)}
+    <svg width="60" height="34" viewBox="0 0 100 56" preserveAspectRatio="none" aria-hidden="true" style={{ display: 'block', borderRadius: 5 }}>
+      <rect x="0" y="0" width="100" height="56" fill="#c9cfdb" />
+      {barras.map(([w, h], i) => {
+        const ancho = (100 - gap * (barras.length - 1)) * w / total
+        const r = <rect key={i} x={x} y={56 - h * 56} width={ancho} height={h * 56} fill="#1f2d8a" />
+        x += ancho + gap
+        return r
+      })}
     </svg>
   )
 }
@@ -139,24 +157,19 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
   async function soltarPieza(clave, destino) {
     const pieza = PIEZAS.find(p => p.key === clave)
     if (!pieza) return
+    const valores = pieza.crear(perfil)
     if (pieza.grupo && !destino.grupoId) {
       const { data: g, error } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionId, bloque_id: bloqueId, repeticiones: pieza.grupo, orden: destino.idx }).select().single()
       if (error || !g) { alert('No se pudo crear la repetición: ' + (error?.message || '')); return }
       const fases = []
-      for (let i = 0; i < pieza.pasos.length; i++) {
-        let v = valoresPorDefecto(pieza.pasos[i], perfil)
-        if (pieza.key === 'rep3' && i === 0) v = { ...v, objetivo_min: v.objetivo_tipo === 'zona_fc' ? 3 : 90, objetivo_max: v.objetivo_tipo === 'zona_fc' ? 3 : 95 }
-        v = { ...v, duracion_seg: pieza.pasos[i] === 'recuperacion' ? 90 : 180 }
-        const p = await insertarPaso(v, g.id, i)
-        if (p) fases.push(p)
-      }
+      for (let i = 0; i < valores.length; i++) { const p = await insertarPaso(valores[i], g.id, i); if (p) fases.push(p) }
       const n = [...items]; n.splice(destino.idx, 0, { type: 'grupo', ...g, fases })
       await guardarOrden(n)
       return
     }
-    // Pasos sueltos (o los pasos de la pieza dentro de un grupo existente)
+    // Pasos sueltos (o los pasos de la pieza dentro de una repetición existente)
     const nuevos = []
-    for (const t of pieza.pasos) { const p = await insertarPaso(valoresPorDefecto(t, perfil), destino.grupoId || null, 0); if (p) nuevos.push(p) }
+    for (const v of valores) { const p = await insertarPaso(v, destino.grupoId || null, 0); if (p) nuevos.push(p) }
     if (destino.grupoId) {
       await guardarOrden(items.map(it => {
         if (it.id !== destino.grupoId) return it
@@ -303,19 +316,22 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
       onDragEnd={() => { setArrastrando(false); setZonaActiva(null) }}>
 
       {/* Paleta de piezas */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-        {PIEZAS.map(p => (
-          <div key={p.key} draggable title={`${p.label} · arrastra o pulsa para añadir`}
-            onDragStart={e => { e.dataTransfer.setData(TIPO_DND, JSON.stringify({ pieza: p.key })); e.dataTransfer.effectAllowed = 'copy'; setArrastrando(true) }}
-            onClick={() => soltarPieza(p.key, { grupoId: null, idx: items.length })}
-            onMouseEnter={() => setHoverPieza(p.label)} onMouseLeave={() => setHoverPieza(null)}
-            style={{ width: 56, height: 38, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'grab', boxShadow: '0 1px 2px rgba(0,0,0,.05)' }}>
-            <IconoPieza k={p.key} />
-          </div>
-        ))}
-        <span style={{ fontSize: 12, color: hoverPieza ? 'var(--text)' : 'var(--text3)', fontWeight: hoverPieza ? 600 : 400, marginLeft: 4 }}>
-          {hoverPieza || 'Arrastra una pieza al bloque (o púlsala para añadirla al final)'}
-        </span>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 60px)', gap: 6 }}>
+          {PIEZAS.map(p => (
+            <div key={p.key} draggable title={`${p.label} · arrastra o pulsa para añadir`}
+              onDragStart={e => { e.dataTransfer.setData(TIPO_DND, JSON.stringify({ pieza: p.key })); e.dataTransfer.effectAllowed = 'copy'; setArrastrando(true) }}
+              onClick={() => soltarPieza(p.key, { grupoId: null, idx: items.length })}
+              onMouseEnter={() => setHoverPieza(p.label)} onMouseLeave={() => setHoverPieza(null)}
+              style={{ cursor: 'grab', borderRadius: 6, outline: hoverPieza === p.label ? '2px solid #1f2d8a' : 'none', outlineOffset: 1 }}>
+              <IconoPieza barras={p.barras} />
+            </div>
+          ))}
+        </div>
+        <div style={{ fontSize: 12.5, lineHeight: 1.4, paddingTop: 2, maxWidth: 260 }}>
+          <div style={{ fontWeight: 600, color: 'var(--text)' }}>{hoverPieza || 'Haz clic o arrastra bloques para crear el entrenamiento'}</div>
+          {!hoverPieza && <div style={{ color: 'var(--text3)', fontSize: 11.5, marginTop: 2 }}>Suéltalos donde quieras del bloque, dentro de una repetición o sobre la gráfica.</div>}
+        </div>
       </div>
 
       {/* Gráfica (también acepta piezas al final) */}
