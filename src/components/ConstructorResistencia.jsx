@@ -24,7 +24,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import {
   TIPOS_PASO, OBJETIVOS, colorTipoPaso, labelTipoPaso, duracionPaso, distanciaPaso, esRampa,
-  fmtDuracionPaso, parseDuracionPaso, fmtDistancia, objetivoPersonal, intensidadesRampa, segundosEstimados,
+  fmtDuracionPaso, parseDuracionPaso, fmtDistancia, objetivoPersonal, intensidadesRampa, segundosEstimados, etiquetaObjetivo,
 } from '../lib/zonas'
 
 const AZUL = '#4C82E8'
@@ -127,6 +127,8 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
   const [veces, setVeces] = useState(8)
   const [arrastrando, setArrastrando] = useState(false)
   const [zonaActiva, setZonaActiva] = useState(null)  // 'g:<grupo>:<idx>' | 't:<idx>'
+  const [segHover, setSegHover] = useState(null)      // elemento de la gráfica bajo el ratón
+  const [segDrop, setSegDrop] = useState(null)        // { id, antes } donde se soltaría en la gráfica
   const sucio = () => onDirty && onDirty()
 
   async function insertarPaso(campos, grupoId, orden) {
@@ -215,6 +217,34 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
     if (!d) return
     if (d.pieza) soltarPieza(d.pieza, destino)
     else if (d.mover) moverElemento(d.mover, destino)
+    else if (d.duplicar) duplicarEn(d.duplicar, destino)
+  }
+
+  /* Copia un paso suelto o una repetición entera en la posición indicada */
+  async function duplicarEn(id, destino) {
+    const it = items.find(x => x.id === id)
+    if (!it) return
+    if (it.type === 'grupo') {
+      if (destino.grupoId) return
+      const { data: ng } = await supabase.from('sesion_fase_grupos').insert({ sesion_id: sesionId, bloque_id: bloqueId, repeticiones: it.repeticiones, orden: destino.idx }).select().single()
+      if (!ng) return
+      const fases = []
+      for (let j = 0; j < it.fases.length; j++) { const p = await insertarPaso(copiaPaso(it.fases[j]), ng.id, j); if (p) fases.push(p) }
+      const n = [...items]; n.splice(destino.idx, 0, { type: 'grupo', ...ng, fases })
+      await guardarOrden(n)
+    } else {
+      const p = await insertarPaso(copiaPaso(it), destino.grupoId || null, 0)
+      if (!p) return
+      if (destino.grupoId) {
+        await guardarOrden(items.map(x => {
+          if (x.id !== destino.grupoId) return x
+          const f = [...x.fases]; f.splice(destino.idx, 0, p); return { ...x, fases: f }
+        }))
+      } else {
+        const n = [...items]; n.splice(destino.idx, 0, { type: 'fase', ...p })
+        await guardarOrden(n)
+      }
+    }
   }
 
   async function cambiarPaso(id, patch, grupoId) {
@@ -341,17 +371,48 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
           <div style={{ textAlign: 'center', fontSize: 12.5, color: 'var(--text3)' }}>Suelta aquí la primera pieza</div>
         ) : (
           <>
-            <div style={{ display: 'flex', alignItems: 'flex-end', height: 74, gap: 1 }}>
-              {barras.map((b, i) => {
-                const primeroDeGrupo = b.grupo && b.rep === 0 && b.f.id === b.grupo.fases[0]?.id
-                const [ini, fin] = intensidadesRampa(b.f)
-                const alto = Math.max(ini, fin)
-                const clip = esRampa(b.f.tipo_paso) ? `polygon(0 100%, 0 ${100 - (ini / alto) * 100}%, 100% ${100 - (fin / alto) * 100}%, 100% 100%)` : undefined
+            {/* Un segmento por paso suelto o por repetición: se arrastra para
+                cambiar el orden; al pasar el ratón, detalle, ⎘ (arrastrar o
+                pulsar para duplicar) y × (eliminar). */}
+            <div style={{ display: 'flex', alignItems: 'flex-end', height: 84, gap: 3 }} onDragLeave={() => setSegDrop(null)}>
+              {items.map((it, idx) => {
+                const pasos = it.type === 'grupo' ? Array.from({ length: it.repeticiones || 1 }, (_, r) => it.fases.map(f => ({ f, r }))).flat() : [{ f: it, r: 0 }]
+                const pesoItem = pasos.reduce((a, { f }) => a + Math.max(segundosEstimados(f, perfil), 20), 0) || 20
+                const activo = segHover === it.id
+                const drop = segDrop?.id === it.id ? segDrop : null
                 return (
-                  <div key={i} title={`${b.f.nombre || labelTipoPaso(b.f.tipo_paso)} · ${fmtDuracionPaso(duracionPaso(b.f)) || fmtDistancia(distanciaPaso(b.f))}`}
-                    style={{ flex: `${segs[i]} 1 0`, minWidth: 2, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', position: 'relative', background: b.grupo ? 'rgba(76,130,232,.08)' : 'transparent' }}>
-                    {primeroDeGrupo && <span style={{ position: 'absolute', top: 0, left: 2, fontSize: 10, fontWeight: 800, color: AZUL, fontFamily: 'var(--mono)' }}>{b.grupo.repeticiones}×</span>}
-                    <div style={{ height: `${Math.round(alto * 100)}%`, background: colorTipoPaso(b.f.tipo_paso), borderRadius: clip ? 0 : '3px 3px 0 0', opacity: b.rep > 0 ? 0.75 : 1, clipPath: clip }} />
+                  <div key={it.id} draggable
+                    onDragStart={e => { e.dataTransfer.setData(TIPO_DND, JSON.stringify({ mover: { id: it.id, grupoId: null } })); e.dataTransfer.effectAllowed = 'move'; setArrastrando(true); setSegHover(null) }}
+                    onDragOver={e => { e.preventDefault(); e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); const antes = e.clientX < r.left + r.width / 2; if (!drop || drop.antes !== antes) setSegDrop({ id: it.id, antes }) }}
+                    onDrop={e => { const antes = segDrop?.id === it.id ? segDrop.antes : true; setSegDrop(null); alSoltar(e, { grupoId: null, idx: antes ? idx : idx + 1 }) }}
+                    onMouseEnter={() => !arrastrando && setSegHover(it.id)} onMouseLeave={() => setSegHover(h => h === it.id ? null : h)}
+                    style={{ flex: `${pesoItem} 1 0`, minWidth: 8, height: '100%', display: 'flex', alignItems: 'flex-end', gap: 1, position: 'relative', cursor: 'grab',
+                      background: it.type === 'grupo' ? 'rgba(76,130,232,.10)' : 'transparent', borderRadius: 4,
+                      outline: activo ? '2px solid rgba(31,45,138,.55)' : 'none', outlineOffset: 1,
+                      boxShadow: drop ? (drop.antes ? 'inset 3px 0 0 #1f2d8a' : 'inset -3px 0 0 #1f2d8a') : 'none' }}>
+                    {it.type === 'grupo' && <span style={{ position: 'absolute', top: 1, left: 3, fontSize: 10, fontWeight: 800, color: AZUL, fontFamily: 'var(--mono)' }}>{it.repeticiones}×</span>}
+                    {pasos.map(({ f, r }, k) => {
+                      const [ini, fin] = intensidadesRampa(f)
+                      const alto = Math.max(ini, fin)
+                      const clip = esRampa(f.tipo_paso) ? `polygon(0 100%, 0 ${100 - (ini / alto) * 100}%, 100% ${100 - (fin / alto) * 100}%, 100% 100%)` : undefined
+                      return (
+                        <div key={k} style={{ flex: `${Math.max(segundosEstimados(f, perfil), 20)} 1 0`, minWidth: 1, height: `${Math.round(alto * 82)}%`, background: colorTipoPaso(f.tipo_paso), borderRadius: clip ? 0 : '3px 3px 0 0', opacity: r > 0 ? 0.78 : 1, clipPath: clip }} />
+                      )
+                    })}
+                    {activo && (
+                      <>
+                        <span style={{ position: 'absolute', top: -9, right: -6, display: 'flex', gap: 3, zIndex: 3 }}>
+                          <span draggable title="Arrastra para duplicar (o pulsa para duplicar a continuación)"
+                            onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData(TIPO_DND, JSON.stringify({ duplicar: it.id })); e.dataTransfer.effectAllowed = 'copy'; setArrastrando(true); setSegHover(null) }}
+                            onClick={e => { e.stopPropagation(); duplicarEn(it.id, { grupoId: null, idx: idx + 1 }) }}
+                            style={{ width: 20, height: 20, borderRadius: 10, background: '#fff', border: '1px solid #1f2d8a', color: '#1f2d8a', fontSize: 11, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'copy', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }}>⎘</span>
+                          <span title="Eliminar"
+                            onClick={e => { e.stopPropagation(); setSegHover(null); it.type === 'grupo' ? eliminarGrupo(it.id) : eliminarPaso(it.id, null) }}
+                            style={{ width: 20, height: 20, borderRadius: 10, background: '#fff', border: '1px solid var(--danger)', color: 'var(--danger)', fontSize: 13, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }}>×</span>
+                        </span>
+                        <DetalleSegmento it={it} perfil={perfil} alDerecha={idx > items.length / 2} />
+                      </>
+                    )}
                   </div>
                 )
               })}
@@ -429,6 +490,48 @@ export default function ConstructorResistencia({ sesionId, bloqueId, items, setI
       {!perfil?.fc_max && !perfil?.fc_umbral && !perfil?.ritmo_umbral_seg && (
         <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>Rellena la ficha «Perfil y zonas» del cliente para ver sus pulsaciones y ritmos en cada paso.</div>
       )}
+    </div>
+  )
+}
+
+/* ── Detalle al pasar el ratón por la gráfica ─────────────────────────── */
+function LineaPaso({ f, perfil, n }) {
+  const personal = objetivoPersonal(f, perfil)
+  const vol = fmtDuracionPaso(duracionPaso(f)) || fmtDistancia(distanciaPaso(f))
+  return (
+    <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', padding: '5px 0' }}>
+      <span style={{ width: 4, alignSelf: 'stretch', borderRadius: 2, background: colorTipoPaso(f.tipo_paso), flexShrink: 0 }} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, color: 'var(--text)' }}>
+          {n ? <span style={{ color: 'var(--text3)', fontWeight: 600 }}>Paso {n} · </span> : null}{f.nombre || labelTipoPaso(f.tipo_paso)}
+          {vol && <span style={{ fontFamily: 'var(--mono)', fontWeight: 600, color: 'var(--text2)' }}> · {vol}</span>}
+        </div>
+        {(f.objetivo_tipo || personal) && (
+          <div style={{ fontSize: 11.5, color: 'var(--text2)', marginTop: 1 }}>
+            {personal && <strong style={{ color: colorTipoPaso(f.tipo_paso), fontFamily: 'var(--mono)' }}>{personal}</strong>}
+            {personal && f.objetivo_tipo ? ' · ' : ''}{f.objetivo_tipo ? etiquetaObjetivo(f) : ''}
+          </div>
+        )}
+        {f.descripcion && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1, fontStyle: 'italic' }}>{f.descripcion}</div>}
+      </div>
+    </div>
+  )
+}
+
+function DetalleSegmento({ it, perfil, alDerecha }) {
+  const total = it.type === 'grupo'
+    ? (it.repeticiones || 1) * it.fases.reduce((a, f) => a + segundosEstimados(f, perfil), 0)
+    : segundosEstimados(it, perfil)
+  return (
+    <div onMouseDown={e => e.stopPropagation()}
+      style={{ position: 'absolute', top: 'calc(100% + 8px)', [alDerecha ? 'right' : 'left']: 0, zIndex: 20, width: 290, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 10px 28px rgba(0,0,0,.16)', padding: '10px 12px', cursor: 'default', pointerEvents: 'none' }}>
+      {it.type === 'grupo' ? (
+        <>
+          <div style={{ fontSize: 13, fontWeight: 800, color: AZUL, marginBottom: 2 }}>Repetir {it.repeticiones} {it.repeticiones === 1 ? 'vez' : 'veces'}</div>
+          {it.fases.map((f, i) => <LineaPaso key={f.id} f={f} perfil={perfil} n={i + 1} />)}
+        </>
+      ) : <LineaPaso f={it} perfil={perfil} />}
+      {total > 0 && <div style={{ borderTop: '1px solid var(--border)', marginTop: 4, paddingTop: 5, fontSize: 11, color: 'var(--text3)' }}>Total: <strong style={{ color: 'var(--text2)' }}>{fmtDuracionPaso(total)}</strong> · arrastra para cambiar el orden</div>}
     </div>
   )
 }
