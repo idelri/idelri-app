@@ -22,6 +22,7 @@ const key = d => format(d, 'yyyy-MM-dd')
 export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, competiciones, card }) {
   const scRef = useRef(null)
   const [semSel, setSemSel] = useState(null)   // semana abierta en la línea de tiempo (índice); null = la actual
+  const [faseSel, setFaseSel] = useState(null) // fase abierta (id) en lugar de una semana
   const hoy = new Date()
   const lunesHoy = startOfWeek(hoy, { weekStartsOn: 1 })
 
@@ -101,12 +102,12 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
     <div style={{ display: 'flex', flexDirection: 'column', gap: isDesktop ? 16 : 12 }}>
 
       {/* ── 1. Cuenta atrás + progreso ── */}
-      <div style={{ ...card, background: color, border: 'none', color: '#fff' }}>
+      <div style={{ ...card, borderLeft: `4px solid ${color}`, color: T.ink }}>
         <div style={{ padding: isDesktop ? '20px 22px' : '16px 16px', display: 'flex', flexDirection: isDesktop ? 'row' : 'column', gap: isDesktop ? 28 : 14, alignItems: isDesktop ? 'center' : 'stretch' }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ ...mono, color: 'rgba(255,255,255,.75)' }}>{objetivo ? 'Hacia' : 'Tu plan'}</div>
-            <div style={{ fontSize: isDesktop ? 22 : 19, fontWeight: 700, marginTop: 3, lineHeight: 1.2 }}>{objetivo ? objetivo.nombre : plan?.nombre}</div>
-            <div style={{ fontSize: 12, opacity: .85, marginTop: 3 }}>
+            <div style={{ ...mono }}>{objetivo ? 'Hacia' : 'Tu plan'}</div>
+            <div style={{ fontSize: isDesktop ? 18 : 16, fontWeight: 700, marginTop: 3, lineHeight: 1.25 }}>{objetivo ? objetivo.nombre : plan?.nombre}</div>
+            <div style={{ fontSize: 12, color: T.ink2, marginTop: 3 }}>
               {objetivo ? format(fechaObjetivo, "EEEE d 'de' MMMM", { locale: es }) : plan?.nombre ? `Termina el ${format(finPlan, "d 'de' MMMM", { locale: es })}` : ''}
               {objetivo?.objetivo ? ` · ${objetivo.objetivo}` : ''}
             </div>
@@ -114,8 +115,8 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
           <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, flexShrink: 0 }}>
             {dias > 0 ? (
               <>
-                <span style={{ fontSize: isDesktop ? 48 : 40, fontWeight: 800, lineHeight: 1, letterSpacing: '-1px' }}>{dias}</span>
-                <span style={{ fontSize: 13, opacity: .9 }}>{dias === 1 ? 'día' : 'días'}<br />{objetivo ? 'para el objetivo' : 'para terminar'}</span>
+                <span style={{ fontSize: isDesktop ? 28 : 24, fontWeight: 700, lineHeight: 1, color }}>{dias}</span>
+                <span style={{ fontSize: 11.5, color: T.ink2, lineHeight: 1.25 }}>{dias === 1 ? 'día' : 'días'}<br />{objetivo ? 'para el objetivo' : 'para terminar'}</span>
               </>
             ) : dias === 0 ? (
               <span style={{ fontSize: 22, fontWeight: 800 }}>¡Es hoy!</span>
@@ -125,7 +126,7 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
           </div>
         </div>
         <div style={{ padding: isDesktop ? '0 22px 18px' : '0 16px 14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, opacity: .9, marginBottom: 5 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: T.ink2, marginBottom: 5 }}>
             <span>
               {antes ? `Empieza el ${format(iniPlan, "EEEE d 'de' MMMM", { locale: es })}`
                 : despues ? `${lista.length} semanas completadas`
@@ -133,8 +134,8 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
             </span>
             <span style={{ fontFamily: T.mono, fontWeight: 600 }}>{Math.min(100, Math.max(0, pct))}%</span>
           </div>
-          <div style={{ height: 6, background: 'rgba(255,255,255,.25)', borderRadius: 3, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, pct))}%`, background: '#fff', borderRadius: 3 }} />
+          <div style={{ height: 5, background: T.bg2, borderRadius: 3, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${Math.min(100, Math.max(0, pct))}%`, background: color, borderRadius: 3 }} />
           </div>
         </div>
       </div>
@@ -151,8 +152,9 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
                   const n = lista.filter(w => w.bloque.id === b.id).length
                   if (!n) return null
                   return (
-                    <div key={b.id} style={{ flex: n, minWidth: 0, borderBottom: `3px solid ${b.color || T.green}`, paddingBottom: 3 }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: b.color || T.green, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.nombre}</div>
+                    <div key={b.id} onClick={() => setFaseSel(f => f === b.id ? null : b.id)} title={`Ver ${b.nombre}`}
+                      style={{ flex: n, minWidth: 0, borderBottom: `${faseSel === b.id ? 5 : 3}px solid ${b.color || T.green}`, paddingBottom: 3, cursor: 'pointer', background: faseSel === b.id ? `${b.color || T.green}14` : 'transparent', borderRadius: '4px 4px 0 0', padding: '2px 3px 3px' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: b.color || T.green, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.nombre} ›</div>
                     </div>
                   )
                 })}
@@ -176,8 +178,8 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
                   const comps = compsPorSemana[i]
                   return (
                     <div key={i} data-actual={esHoy ? '1' : undefined} title={textoPlano(w.sem?.objetivo)}
-                      onClick={() => setSemSel(i)}
-                      style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 6, background: pasada || esHoy ? c : `${c}2e`, color: pasada || esHoy ? '#fff' : c, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', outline: i === iSel ? `2px solid ${T.ink}` : 'none', outlineOffset: 1, position: 'relative', cursor: 'pointer', boxShadow: i === iSel ? '0 3px 8px rgba(0,0,0,.18)' : 'none', transform: i === iSel ? 'translateY(-1px)' : 'none' }}>
+                      onClick={() => { setSemSel(i); setFaseSel(null) }}
+                      style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 6, background: pasada || esHoy ? c : `${c}2e`, color: pasada || esHoy ? '#fff' : c, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', outline: !faseSel && i === iSel ? `2px solid ${T.ink}` : faseSel === w.bloque.id ? `2px solid ${c}` : 'none', outlineOffset: 1, position: 'relative', cursor: 'pointer', boxShadow: !faseSel && i === iSel ? '0 3px 8px rgba(0,0,0,.18)' : 'none', transform: !faseSel && i === iSel ? 'translateY(-1px)' : 'none' }}>
                       <span style={{ fontSize: 11, fontWeight: 700 }}>S{w.numero}</span>
                       {pasada && !esHoy && <span style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
                       {comps && <span title={comps.map(x => x.nombre).join(', ')} style={{ position: 'absolute', top: -7, right: -3, fontSize: 12 }}>🏆</span>}
@@ -205,8 +207,33 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
               </div>
             </div>
           </div>
+          {/* Fase elegida: su objetivo y sus semanas */}
+          {faseSel && (() => {
+            const b = fases.find(x => x.id === faseSel)
+            if (!b) return null
+            const c = b.color || T.green
+            const sems = lista.map((w, i) => ({ w, i })).filter(x => x.w.bloque.id === b.id)
+            return (
+              <div style={{ marginTop: 12, borderTop: `1px solid ${T.bg2}`, paddingTop: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, flexWrap: 'wrap', marginBottom: 4 }}>
+                  <span style={{ fontSize: 14, fontWeight: 700, color: c }}>{b.nombre}</span>
+                  {sems.length > 0 && <span style={{ fontFamily: T.mono, fontSize: 9.5, color: T.ink3 }}>{format(sems[0].w.lunes, 'd MMM', { locale: es })} – {format(addDays(sems[sems.length - 1].w.lunes, 6), 'd MMM', { locale: es })} · {sems.length} sem</span>}
+                </div>
+                {b.objetivo && <div style={{ fontSize: 12.5, color: T.ink2, fontStyle: 'italic', lineHeight: 1.45, marginBottom: 8 }}>{b.objetivo}</div>}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {sems.map(({ w, i }) => (
+                    <div key={i} onClick={() => { setSemSel(i); setFaseSel(null) }} style={{ background: T.bg, borderLeft: `3px solid ${c}`, borderRadius: 8, padding: '9px 11px', cursor: 'pointer' }}>
+                      <div style={{ fontFamily: T.mono, fontSize: 9.5, color: c, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.4px', marginBottom: 4 }}>Semana {w.numero} · {format(w.lunes, 'd MMM', { locale: es })}{i === idxHoy ? ' · esta semana' : ''}</div>
+                      {w.sem?.objetivo ? <TextoEstructurado texto={w.sem.objetivo} T={T} color={c} size={12.5} conTitulo /> : <div style={{ fontSize: 12, color: T.ink3 }}>Sin descripción.</div>}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 8 }}>Toca una fase o una semana de la línea de tiempo para verla.</div>
+              </div>
+            )
+          })()}
           {/* Semana elegida, desarrollada */}
-          {wSel && (() => {
+          {!faseSel && wSel && (() => {
             const c = wSel.bloque.color || T.green
             const comps = compsPorSemana[iSel] || []
             return (
@@ -226,7 +253,7 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
                     <div key={cp.id} style={{ fontSize: 11.5, fontWeight: 600, color: '#7a4a00', marginTop: 5 }}>🏆 {cp.nombre} · {format(fechaLocal(cp.fecha), 'EEE d', { locale: es })}</div>
                   ))}
                 </div>
-                <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 8 }}>Toca otra semana de la línea de tiempo para verla.</div>
+                <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 8 }}>Toca otra semana, o el nombre de una fase, para verla.</div>
               </div>
             )
           })()}
