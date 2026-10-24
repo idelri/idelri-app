@@ -264,3 +264,26 @@ export function segundosEstimados(f, perfilRaw) {
   }
   return Math.round(m / 1000 * ritmo)
 }
+
+/**
+ * Ordena los pasos de una sesión como en el constructor: por bloque, los
+ * pasos sueltos y las repeticiones (grupos) intercalados según su orden, y
+ * dentro de cada repetición sus pasos en orden.
+ * Devuelve { [bloqueId | '_']: [{ type: 'fase', ... } | { type: 'grupo', repeticiones, fases: [] }] }
+ */
+export function estructurarPasos(fases = [], grupos = []) {
+  const gruposMap = {}
+  ;(grupos || []).forEach(g => { gruposMap[g.id] = { type: 'grupo', ...g, fases: [] } })
+  const porBloque = {}
+  const meter = (k, it) => { (porBloque[k || '_'] = porBloque[k || '_'] || []).push(it) }
+  ;(fases || []).forEach(f => {
+    if (f.grupo_id && gruposMap[f.grupo_id]) gruposMap[f.grupo_id].fases.push(f)
+    else meter(f.bloque_id, { type: 'fase', ...f })
+  })
+  Object.values(gruposMap).forEach(g => {
+    g.fases.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0))
+    if (g.fases.length) meter(g.bloque_id, g)
+  })
+  Object.values(porBloque).forEach(l => l.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)))
+  return porBloque
+}

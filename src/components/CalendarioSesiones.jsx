@@ -139,15 +139,19 @@ export default function CalendarioSesiones({
     if (cache.has(sesion.id)) return cache.get(sesion.id)
     // Bloques con sus ejercicios; en los de resistencia, sus fases
     // Mismo contenido que la previsualización del portal del cliente
-    const [{ data: bloques }, { data: fases }] = await Promise.all([
+    const [{ data: bloques }, { data: fases }, { data: grupos }, { data: cli }] = await Promise.all([
       supabase.from('sesion_bloques').select('id, nombre, color, nota, orden, vueltas, sesion_ejercicios(id, bloque_id, nombre, series, reps, duracion, distancia, reps_por_lado, orden)').eq('sesion_id', sesion.id).order('orden'),
-      supabase.from('sesion_fases').select('id, nombre, orden, bloque_id, volumen_min, volumen_km, tipo_paso, duracion_seg, distancia_m, objetivo_tipo, objetivo_min, objetivo_max').eq('sesion_id', sesion.id).order('orden'),
+      supabase.from('sesion_fases').select('id, nombre, orden, bloque_id, volumen_min, volumen_km, tipo_paso, duracion_seg, distancia_m, objetivo_tipo, objetivo_min, objetivo_max, grupo_id, descripcion, ritmo_inicio, ritmo_fin, fc_zona, rpe, pendiente_cualitativa, pendiente_pct_min, pendiente_pct_max').eq('sesion_id', sesion.id).order('orden'),
+      supabase.from('sesion_fase_grupos').select('id, bloque_id, repeticiones, orden').eq('sesion_id', sesion.id).order('orden'),
+      sesion.cliente_id ? supabase.from('clientes').select('perfil_zonas').eq('id', sesion.cliente_id).maybeSingle() : Promise.resolve({ data: null }),
     ])
     const contenido = {
       detalle: {
         bloques: bloques || [],
         ejercicios: (bloques || []).flatMap(b => (b.sesion_ejercicios || []).slice().sort((a, z) => (a.orden ?? 0) - (z.orden ?? 0))),
         fases: fases || [],
+        grupos: grupos || [],
+        perfil: cli?.perfil_zonas || null,
       },
     }
     cache.set(sesion.id, contenido)
@@ -531,7 +535,7 @@ export default function CalendarioSesiones({
                           onMouseLeave={() => { ocultarTooltip(); ocultarFbTooltip() }}
                           style={{ fontSize: 10.5, fontWeight: 600, lineHeight: 1.3, padding: '4px 5px', borderRadius: 6, ...tipoEstilo, cursor: 'grab', display: 'flex', alignItems: 'flex-start', gap: 4, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', position: 'relative', opacity: dragWithinRef.current?.itemId === item.id ? 0.4 : 1, userSelect: 'none', outline: estaSeleccionado ? '2px solid var(--accent)' : 'none', outlineOffset: '1px' }}>
                           {icono && <span style={{ flexShrink: 0 }}>{icono}</span>}
-                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }} title={item._prevista ? `Prevista: ${item._prevista}` : texto}>
+                          <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }} title={item._prevista ? `Prevista: ${item._prevista}` : (item._tipo === 'sesion' || item._tipo === 'nota') ? undefined : texto}>
                             {texto}{item._prevista ? <span style={{ opacity: 0.6, marginLeft: 2 }}>↩</span> : null}
                           </span>
                           <span style={{ display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0, marginTop: 2 }}>
