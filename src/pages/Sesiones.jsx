@@ -3,6 +3,8 @@ import ReactDOM from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { clonarSesion } from '../lib/clonarSesion'
 import ConstructorResistencia from '../components/ConstructorResistencia'
+import BloqueTareasCampo from '../components/BloqueTareasCampo'
+import { DiagramaCampo } from '../components/TareaCampo'
 import { format, parseISO } from 'date-fns'
 import EmojiPicker from '../components/EmojiPicker'
 import ModalComentarioEntrenadora from '../components/ModalComentarioEntrenadora'
@@ -361,6 +363,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
       video_url: libEj.video_url || '',
       orden: lista.length, variables_activas: VARS_DEFAULT_METODO[bloques.find(b => b.id === bloqueId)?.metodo || 'individual'] || VARS_DEFAULT_METODO.individual,
       biblioteca_id: libEj.id || null,
+      diagrama: libEj.diagrama || null,
     }).select().single()
     if (e) { setEjercicios(ej => ({ ...ej, [bloqueId]: [...(ej[bloqueId] || []), e] })); setDirty(true) }
   }
@@ -731,6 +734,7 @@ async function guardarSesion() {
       orden: lista.length,
       variables_activas: variablesDefault,
       biblioteca_id: item.id || null,
+      diagrama: item.diagrama || null,
     }).select().single()
     if (e) { setEjercicios(ej => ({ ...ej, [bloqueId]: [...(ej[bloqueId] || []), e] })); setDirty(true) }
     if (!bloqueIdOverride) setModalBiblioteca(null)
@@ -1794,6 +1798,14 @@ async function guardarSesion() {
                       onDescripcion={v => actualizarBloque(b.id, 'nota', v)} />
                     {(ejercicios[b.id] || []).length > 0 && renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}
                   </div>
+                ) : bibDeBloque(b.id) === 'campo' ? (
+                  <BloqueTareasCampo bloque={b}
+                    tareas={ejercicios[b.id] || []}
+                    setTareas={fn => setEjercicios(ej => ({ ...ej, [b.id]: typeof fn === 'function' ? fn(ej[b.id] || []) : fn }))}
+                    descripcion={b.nota || ''}
+                    onDescripcion={v => actualizarBloque(b.id, 'nota', v)}
+                    onAbrirBiblioteca={() => abrirBiblioteca(b.id, [])}
+                    onDirty={() => setDirty(true)} />
                 ) : renderEjerciciosBloque(b, ejercicios[b.id] || [], { toggleVariable, actualizarEjercicio, eliminarEjercicio, abrirCrearEjercicio, abrirBiblioteca, draggingEj, setDraggingEj, setEjercicios, ejercicios, menuVariableAbierto, setMenuVariableAbierto, menuVariablePos, setMenuVariablePos, mediaPreviewTimeout, setMediaPreview, VARS_MENU })}
               </div>
               )
@@ -2224,7 +2236,9 @@ async function guardarSesion() {
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, cursor: 'pointer', border: '1px solid transparent' }}
                       onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg2)'; e.currentTarget.style.borderColor = 'var(--border)' }}
                       onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'transparent' }}>
-                      {thumb
+                      {item.diagrama
+                        ? <div style={{ width: 64, flexShrink: 0 }}><DiagramaCampo diagrama={item.diagrama} style={{ borderRadius: 5 }} /></div>
+                        : thumb
                         ? <img src={thumb} alt="" loading="lazy" style={{ width: 48, height: 36, objectFit: 'cover', borderRadius: 5, flexShrink: 0 }} />
                         : <div style={{ width: 48, height: 36, borderRadius: 5, background: 'var(--bg2)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>💪</div>
                       }

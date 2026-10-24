@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { Search, Plus, X, Pencil, Trash2, ChevronDown, ChevronUp, LayoutGrid, List, Table2, Check, Play } from 'lucide-react'
 import BibliotecaSesiones from './BibliotecaSesiones'
+import EditorTareaCampo, { DiagramaCampo } from '../components/TareaCampo'
 
 function ytId(url) {
   if (!url) return null
@@ -29,6 +30,7 @@ function BibliotecaBloques() {
   const [formEjs, setFormEjs] = useState([])
   const [saving, setSaving] = useState(false)
   const [expandido, setExpandido] = useState(null)
+  const [dibujando, setDibujando] = useState(null) // ejercicio de campo cuyo dibujo se edita
   const [confirmEliminar, setConfirmEliminar] = useState(null)
 
   useEffect(() => { cargar() }, [])
@@ -212,6 +214,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
   const [form, setForm] = useState(EMPTY)
   const [saving, setSaving] = useState(false)
   const [expandido, setExpandido] = useState(null)
+  const [dibujando, setDibujando] = useState(null) // ejercicio de campo cuyo dibujo se edita
   const [vista, setVista] = useState('cards')
   const [sortDir, setSortDir] = useState('asc')
   const [inlineEj, setInlineEj] = useState(null)
@@ -336,6 +339,15 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
 
   return (
     <div className="page">
+      {dibujando && (
+        <EditorTareaCampo titulo={dibujando.nombre} inicial={dibujando.diagrama}
+          onCerrar={() => setDibujando(null)}
+          onGuardar={async d => {
+            const { error } = await supabase.from('ejercicios_biblioteca').update({ diagrama: d }).eq('id', dibujando.id)
+            if (!error) setEjercicios(xs => xs.map(x => x.id === dibujando.id ? { ...x, diagrama: d } : x))
+            setDibujando(null)
+          }} />
+      )}
       {toast && (
         <div style={{ position: 'fixed', bottom: 24, right: 24, zIndex: 9999, display: 'flex', alignItems: 'center', gap: 8, padding: '10px 18px', borderRadius: 10, background: toast === 'ok' ? '#166534' : '#991b1b', color: '#fff', fontSize: 13, fontWeight: 600, boxShadow: '0 4px 16px rgba(0,0,0,0.2)', animation: 'fadeIn 0.2s' }}>
           {toast === 'ok' ? <><Check size={15} /> Guardado</> : '✕ Error al guardar'}
@@ -415,7 +427,15 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
               const editando = inlineEj?.id === e.id
               return (
                 <div key={e.id} className="card" style={{ padding: 0, overflow: 'hidden', border: editando ? '2px solid var(--accent)' : undefined }}>
-                  {thumb && !editando && (
+                  {e.diagrama && !editando && (
+                    <div style={{ cursor: 'pointer', position: 'relative' }} onClick={() => setDibujando(e)} title="Editar dibujo">
+                      <DiagramaCampo diagrama={e.diagrama} style={{ borderRadius: 0 }} />
+                    </div>
+                  )}
+                  {!e.diagrama && (e.carpeta === 'campo') && !editando && (
+                    <button onClick={() => setDibujando(e)} style={{ width: '100%', padding: '14px 0', border: 'none', borderBottom: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text3)', fontSize: 12, cursor: 'pointer' }}>＋ Dibujar la tarea</button>
+                  )}
+                  {thumb && !editando && !e.diagrama && (
                     <div style={{ position: 'relative', paddingBottom: '40%', background: '#000', cursor: ytid ? 'pointer' : 'default' }}
                       onClick={() => ytid && window.open(`https://www.youtube.com/watch?v=${ytid}`, '_blank')}>
                       <img src={thumb} alt="" style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }} />
@@ -479,7 +499,10 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
               return (
                 <div key={e.id} className="card" style={{ padding: '10px 14px', border: editando ? '2px solid var(--accent)' : undefined }}>
                   <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start' }}>
-                    {thumb && !editando && (
+                    {e.diagrama && !editando && (
+                      <div style={{ width: 72, flexShrink: 0, cursor: 'pointer' }} onClick={() => setDibujando(e)} title="Editar dibujo"><DiagramaCampo diagrama={e.diagrama} style={{ borderRadius: 5 }} /></div>
+                    )}
+                    {thumb && !editando && !e.diagrama && (
                       <div style={{ width: 56, height: 40, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: '#000', cursor: ytid ? 'pointer' : 'default', position: 'relative' }}
                         onClick={() => ytid && window.open(`https://www.youtube.com/watch?v=${ytid}`, '_blank')}>
                         <img src={thumb} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', opacity: 0.85 }} />
