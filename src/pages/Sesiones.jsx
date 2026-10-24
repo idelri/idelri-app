@@ -598,25 +598,58 @@ async function guardarSesion() {
     return b?.biblioteca || sesionAbierta?.biblioteca || 'fuerza'
   }
 
+  // ¿El bloque ya tiene contenido (ejercicios o pasos de resistencia)?
+  const tieneContenido = id => (ejercicios[id] || []).length > 0 || (carritos[id] || []).length > 0
+
+  // Crea un bloque vacío de un tipo justo después de otro (o al final) y
+  // renumera el orden para que se vea en su sitio.
+  async function crearBloqueDeTipo(tipo, trasId) {
+    const lista = [...bloques]
+    const pos = trasId ? lista.findIndex(x => x.id === trasId) + 1 : lista.length
+    const def = BIBLIOTECAS.find(o => o.key === tipo)
+    const { data: nb } = await supabase.from('sesion_bloques').insert({
+      sesion_id: sesionAbierta.id,
+      nombre: def?.label || 'Bloque',
+      color: tipo === 'resistencia' ? '#4C82E8' : COLORES[lista.length % COLORES.length],
+      nota: '', orden: pos, metodo: 'individual', biblioteca: tipo,
+    }).select().single()
+    if (!nb) return null
+    lista.splice(pos, 0, nb)
+    const renum = lista.map((x, i) => ({ ...x, orden: i }))
+    setBloques(renum)
+    setEjercicios(e => ({ ...e, [nb.id]: [] }))
+    setDirty(true)
+    await Promise.all(renum.filter((x, i) => x.id !== nb.id && bloques.find(y => y.id === x.id)?.orden !== i)
+      .map(x => supabase.from('sesion_bloques').update({ orden: x.orden }).eq('id', x.id)))
+    return nb
+  }
+
   async function aplicarBibliotecaSesion(key) {
     if (!sesionAbierta) return
     const id = sesionAbierta.id
-    setSesionAbierta(s => s ? { ...s, biblioteca: key } : s)
-    const tipoEd = key === 'resistencia' ? 'carrera' : 'fuerza'
-    setSesiones(ss => ss.map(x => x.id === id ? { ...x, biblioteca: key, tipo_editor: tipoEd } : x))
-    // Los bloques con fases de resistencia se quedan como resistencia; el resto hereda
-    const conFases = new Set(Object.keys(carritos).filter(k => (carritos[k] || []).length > 0))
-    setBloques(bs => bs.map(b => conFases.has(b.id) ? { ...b, biblioteca: 'resistencia' } : { ...b, biblioteca: null }))
+    if ((sesionAbierta.biblioteca || 'fuerza') === key) return
     const tipo_editor = key === 'resistencia' ? 'carrera' : 'fuerza' // lo usa el cuestionario de feedback
-    setSesionAbierta(s => s ? { ...s, tipo_editor } : s)
+    // Cada bloque con contenido conserva su tipo (sus ejercicios no cambian de
+    // tipo); los vacíos pasan al tipo nuevo.
+    const fijar = {}
+    bloques.forEach(b => { fijar[b.id] = tieneContenido(b.id) ? bibDeBloque(b.id) : null })
+    const nuevos = bloques.map(b => ({ ...b, biblioteca: fijar[b.id] === key ? null : fijar[b.id] }))
+    setSesionAbierta(s => s ? { ...s, biblioteca: key, tipo_editor } : s)
+    setSesiones(ss => ss.map(x => x.id === id ? { ...x, biblioteca: key, tipo_editor } : x))
+    setBloques(nuevos)
     await Promise.all([
       supabase.from('sesiones').update({ biblioteca: key, tipo_editor }).eq('id', id),
-      supabase.from('sesion_bloques').update({ biblioteca: null }).eq('sesion_id', id).not('id', 'in', `(${[...conFases].join(',') || '00000000-0000-0000-0000-000000000000'})`),
-      conFases.size ? supabase.from('sesion_bloques').update({ biblioteca: 'resistencia' }).in('id', [...conFases]) : Promise.resolve(),
+      ...nuevos.map(b => supabase.from('sesion_bloques').update({ biblioteca: b.biblioteca }).eq('id', b.id)),
     ])
+    // Si no queda ningún bloque de ese tipo, se abre uno nuevo al final
+    if (!nuevos.some(b => (b.biblioteca || key) === key)) await crearBloqueDeTipo(key, null)
   }
 
   async function cambiarBibliotecaBloque(bloqueId, key) {
+    if (bibDeBloque(bloqueId) === key) return
+    // Un bloque con ejercicios no cambia de tipo: se abre otro bloque de ese
+    // tipo justo debajo, para que la sesión se lea en orden.
+    if (tieneContenido(bloqueId)) { await crearBloqueDeTipo(key, bloqueId); return }
     const valor = key === (sesionAbierta?.biblioteca || 'fuerza') ? null : key
     await actualizarBloque(bloqueId, 'biblioteca', valor)
   }
