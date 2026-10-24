@@ -22,6 +22,7 @@
  *   default EditorTareaCampo — editor a pantalla completa
  */
 import { useState, useRef, useEffect, useCallback, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 
 /* ── Fondos ─────────────────────────────────────────────────────────────── */
 export const FONDOS = [
@@ -487,6 +488,13 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
     })
   }
 
+  // Mientras el editor está abierto la página de detrás no se desplaza
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
   // Teclado
   useEffect(() => {
     function onKey(ev) {
@@ -514,6 +522,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
   /* Ratón sobre el lienzo */
   function onDown(ev) {
     if (ev.button !== 0) return
+    ev.preventDefault()
     const p = punto(ev)
     const hEl = ev.target.closest('[data-h]')
     const elEl = ev.target.closest('[data-id]')
@@ -690,8 +699,13 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
   const cursor = herr === 'mover' ? 'default' : 'crosshair'
   const fdef = fondoDef(f.tipo)
 
-  return (
-    <div style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
+  // El editor se pinta fuera del bloque de la sesión (que es arrastrable) para
+  // que al mover objetos no se arrastre el bloque ni la página.
+  const parar = ev => ev.stopPropagation()
+  return createPortal(
+    <div draggable={false} onDragStart={ev => { ev.preventDefault(); ev.stopPropagation() }}
+      onPointerDown={parar} onMouseDown={parar} onClick={parar} onDragOver={parar} onDrop={parar} onKeyDown={parar}
+      style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(15,23,42,.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
       <div style={{ background: 'var(--bg, #fff)', borderRadius: 14, width: 'min(1400px, 100%)', height: 'min(900px, 100%)', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}>
         {/* Cabecera + barra de herramientas */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border, #e5e7eb)', flexWrap: 'wrap' }}>
@@ -789,7 +803,8 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
             <div style={{ flex: 1, minHeight: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 12 }}>
               <svg ref={svgRef} viewBox={`${-mg} ${-mg} ${f.ancho + 2 * mg} ${f.alto + 2 * mg}`}
                 preserveAspectRatio="xMidYMid meet"
-                style={{ width: '100%', height: '100%', cursor, touchAction: 'none', userSelect: 'none', fontFamily: 'Inter, system-ui, sans-serif' }}
+                style={{ width: '100%', height: '100%', cursor, touchAction: 'none', userSelect: 'none', WebkitUserSelect: 'none', fontFamily: 'Inter, system-ui, sans-serif' }}
+                onDragStart={ev => ev.preventDefault()}
                 onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} onPointerCancel={onUp}>
                 <g opacity={f.opacidad ?? 1} pointerEvents="none"><FondoSVG fondo={f} /></g>
                 {f.rejilla && <g pointerEvents="none"><Rejilla fondo={f} fuerte={f.tipo === 'cuadricula' || f.tipo === 'blanco'} /></g>}
@@ -909,6 +924,7 @@ export default function EditorTareaCampo({ inicial, titulo, onGuardar, onCerrar 
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
