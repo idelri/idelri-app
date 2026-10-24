@@ -166,7 +166,7 @@ function colorEscala(n, max = 10, invertir = false) {
 // Escala numérica en una fila; debajo, el texto del valor elegido
 function Escala({ value, onChange, min = 0, max = 10, etiquetas, invertir = false, extremos }) {
   const nums = Array.from({ length: max - min + 1 }, (_, i) => min + i)
-  const etiqueta = value != null ? (etiquetas?.[value] ?? null) : null
+  const etiqueta = value != null ? (etiquetas?.[value] ?? '') : null
   return (
     <div>
       <div style={{ display: 'flex', gap: 3 }}>
@@ -181,8 +181,8 @@ function Escala({ value, onChange, min = 0, max = 10, etiquetas, invertir = fals
         })}
       </div>
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4, fontSize: 11, color: T.ink3, minHeight: 15 }}>
-        {etiqueta
-          ? <span style={{ flex: 1, textAlign: 'center', fontWeight: 650, color: colorEscala(value - min, max - min, invertir) }}>{value} · {etiqueta}</span>
+        {etiqueta != null
+          ? <span style={{ flex: 1, textAlign: 'center', fontWeight: 650, color: colorEscala(value - min, max - min, invertir) }}>{value}{etiqueta ? ` · ${etiqueta}` : ''}</span>
           : extremos ? <><span>{extremos[0]}</span><span>{extremos[1]}</span></> : null}
       </div>
     </div>
@@ -195,8 +195,7 @@ function TextArea({ value, onChange, placeholder }) {
   )
 }
 const SUENO_EMOJI = ['😫', '😕', '😐', '🙂', '😴']
-const TQR_TEXTO = n => TQR_ANCHORS[n] || (n < 3 ? 'Nada / poco recuperado/a' : n < 5 ? 'Poco recuperado/a' : n < 7 ? 'Moderadamente recuperado/a' : n < 10 ? 'Bastante recuperado/a' : 'Totalmente recuperado/a')
-const TQR_ETIQUETAS = Object.fromEntries(Array.from({ length: 11 }, (_, n) => [n, TQR_TEXTO(n)]))
+const TQR_ETIQUETAS = TQR_ANCHORS
 const RPE_ETIQUETAS = Object.fromEntries(RPE_LABELS.map((l, n) => [n, l]))
 
 // ── Componente principal ──────────────────────────────────────────────────────
@@ -280,20 +279,19 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       <div style={{ background: '#f0fdfa', border: '1px solid #99f6e4', borderRadius: 12, padding: '12px 12px 10px', marginBottom: 4 }}>
         <p style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: '#0d9488', margin: '0 0 10px' }}>Antes de empezar</p>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 12 }}>
-          <p style={{ flex: '1 1 160px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0 }}>¿Cómo has dormido?</p>
-          <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
-            {SUENO_LABELS.map((label, i) => {
-              const n = i + 1; const sel = fb.sueno.value === n
-              return (
-                <button key={n} type="button" title={label} onClick={() => set('sueno.value', sel ? null : n)}
-                  style={{ width: 38, height: 38, borderRadius: 10, border: `1.5px solid ${sel ? '#0d9488' : '#c7f0e8'}`, background: sel ? '#ccfbf1' : '#fff', fontSize: 20, lineHeight: 1, cursor: 'pointer', padding: 0, filter: fb.sueno.value && !sel ? 'grayscale(.8) opacity(.55)' : 'none' }}>
-                  {SUENO_EMOJI[i]}
-                </button>
-              )
-            })}
-          </div>
-          {fb.sueno.value && <span style={{ flexBasis: '100%', textAlign: 'right', fontSize: 11, fontWeight: 650, color: '#0d9488', marginTop: -6 }}>{SUENO_LABELS[fb.sueno.value - 1]}</span>}
+        <Q>¿Cómo has dormido esta noche?</Q>
+        <div style={{ display: 'flex', gap: 5, marginBottom: 12 }}>
+          {SUENO_LABELS.map((label, i) => {
+            const n = i + 1; const sel = fb.sueno.value === n
+            return (
+              <button key={n} type="button" onClick={() => set('sueno.value', sel ? null : n)}
+                style={{ flex: 1, minWidth: 0, padding: '5px 2px 4px', borderRadius: 9, border: `1.5px solid ${sel ? '#0d9488' : '#c7f0e8'}`, background: sel ? '#0d9488' : '#fff', cursor: 'pointer', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1 }}>
+                <span style={{ fontSize: 14, lineHeight: 1.1 }}>{SUENO_EMOJI[i]}</span>
+                <span style={{ fontSize: 13, fontWeight: 700, color: sel ? '#fff' : '#0d9488', lineHeight: 1.1 }}>{n}</span>
+                <span style={{ fontSize: 9.5, color: sel ? '#fff' : '#0d9488', lineHeight: 1.15, whiteSpace: 'nowrap' }}>{label}</span>
+              </button>
+            )
+          })}
         </div>
 
         <Q>¿Cómo de recuperado/a te notabas antes de empezar?</Q>
@@ -304,7 +302,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       <Section>
         <Q>¿Has completado la sesión?</Q>
         <div style={{ display: 'flex', gap: 6 }}>
-          {[['completed', '✓ Completa', '#16a34a'], ['partial', '½ A medias', '#d97706'], ['missed', '✕ No la hice', T.accent]].map(([k, l, c]) => (
+          {[['completed', 'Completa', '#16a34a'], ['partial', 'Parcialmente', '#d97706'], ['missed', 'No la hice', T.accent]].map(([k, l, c]) => (
             <button key={k} type="button" onClick={() => set('completion.status', k)}
               style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: `1.5px solid ${status === k ? c : T.line}`, background: status === k ? c + '16' : T.card, color: status === k ? c : T.ink2, fontWeight: status === k ? 700 : 500, fontSize: 13, cursor: 'pointer' }}>
               {l}
