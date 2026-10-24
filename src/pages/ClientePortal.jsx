@@ -138,6 +138,7 @@ export default function ClientePortal({ token }) {
   const [packs, setPacks] = useState([])
   const [packSesiones, setPackSesiones] = useState([])
   const [recursos, setRecursos] = useState([])
+  const [recursoGrupos, setRecursoGrupos] = useState([])
   const [tab, setTab] = useState('semana')
   const [tabInicializada, setTabInicializada] = useState(false)
   const [semanaOffset, setSemanaOffset] = useState(0)
@@ -206,8 +207,14 @@ export default function ClientePortal({ token }) {
     const { data: ctrls } = await supabase.rpc('get_controles_por_token_cliente', { p_token: token })
     setControles(ctrls || [])
 
-    const { data: recs } = await supabase.rpc('get_recursos_por_token_cliente', { p_token: token })
-    setRecursos(recs || [])
+    const [{ data: recs }, { data: recGrupos }, { data: recMapa }] = await Promise.all([
+      supabase.rpc('get_recursos_por_token_cliente', { p_token: token }),
+      supabase.rpc('get_recurso_grupos_por_token_cliente', { p_token: token }),
+      supabase.rpc('get_recursos_grupo_por_token_cliente', { p_token: token }),
+    ])
+    const grupoDe = Object.fromEntries((recMapa || []).map(x => [x.id, x.recurso_grupo_id]))
+    setRecursos((recs || []).map(r => ({ ...r, recurso_grupo_id: grupoDe[r.id] || null })))
+    setRecursoGrupos(recGrupos || [])
 
     const { data: pks } = await supabase.rpc('get_packs_por_token_cliente', { p_token: token })
     setPacks(pks || [])
@@ -1189,7 +1196,7 @@ export default function ClientePortal({ token }) {
         {tab === 'calendario' && portalConfig.mostrar_calendario && <TabCalendario />}
         {tab === 'plan'       && portalConfig.mostrar_plan       && <TabPlan />}
         {tab === 'recursos'   && portalConfig.mostrar_recursos   && (
-          <RecursosPortal T={T} isDesktop={isDesktop} recursos={recursos} card={card} abrirSesion={abrirSesion} />
+          <RecursosPortal T={T} isDesktop={isDesktop} recursos={recursos} grupos={recursoGrupos} card={card} abrirSesion={abrirSesion} />
         )}
       </div>
 

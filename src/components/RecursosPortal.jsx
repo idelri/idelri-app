@@ -1,13 +1,18 @@
 /**
  * RecursosPortal — pestaña "Recursos" del portal del cliente.
- * Sesiones sin fecha agrupadas por tipo (activaciones, movilidad, protocolos)
+ * Sesiones sin fecha agrupadas en los grupos que la entrenadora crea para
+ * cada cliente (recurso_grupos)
  * que el cliente puede abrir cuando las necesite.
  */
 import { CATEGORIAS_RECURSO } from './RecursosEntrenadora'
 
-export default function RecursosPortal({ T, isDesktop, recursos, card, abrirSesion }) {
-  const grupos = CATEGORIAS_RECURSO
-    .map(cat => ({ ...cat, items: recursos.filter(r => r.recurso === cat.key) }))
+export default function RecursosPortal({ T, isDesktop, recursos, grupos: gruposCliente = [], card, abrirSesion }) {
+  // Grupos propios del cliente; los recursos sin grupo caen en su categoría antigua
+  const propios = gruposCliente.map(g => ({ key: g.id, label: g.nombre, icono: g.icono || '📋', color: g.color || '#4C82E8', descripcion: g.descripcion, items: recursos.filter(r => r.recurso_grupo_id === g.id) }))
+  const sueltos = recursos.filter(r => !r.recurso_grupo_id || !gruposCliente.some(g => g.id === r.recurso_grupo_id))
+  const antiguos = CATEGORIAS_RECURSO.map(cat => ({ ...cat, items: sueltos.filter(r => r.recurso === cat.key) }))
+  const otros = sueltos.filter(r => !CATEGORIAS_RECURSO.some(c => c.key === r.recurso))
+  const grupos = [...propios, ...antiguos, ...(otros.length ? [{ key: '_otros', label: 'Otros', icono: '📋', color: '#6b7280', items: otros }] : [])]
     .filter(g => g.items.length > 0)
 
   return (
@@ -23,6 +28,7 @@ export default function RecursosPortal({ T, isDesktop, recursos, card, abrirSesi
             <span style={{ fontSize: 16 }}>{g.icono}</span>
             <span style={{ fontFamily: T.mono, fontSize: 10, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink2, fontWeight: 600 }}>{g.label}</span>
           </div>
+          {g.descripcion && <div style={{ fontSize: 12, color: T.ink2, margin: '-2px 0 8px', lineHeight: 1.4 }}>{g.descripcion}</div>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {g.items.map(r => (
               <div key={r.id} onClick={() => abrirSesion(r)}
