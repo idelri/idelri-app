@@ -7,11 +7,46 @@
  */
 import {
   labelTipoPaso, duracionPaso, distanciaPaso, fmtDuracionPaso, fmtDistancia,
-  etiquetaObjetivo, objetivoPersonal, intensidadPaso,
+  etiquetaObjetivo, objetivoPersonal, intensidadPaso, intensidadesRampa, segundosEstimados, esRampa,
 } from '../lib/zonas'
 
 const AZUL = '#1f2d8a'
 const PEND = { llano: 'Llano', suave: 'Pendiente suave', moderado: 'Pendiente moderada', fuerte: 'Pendiente fuerte', muy_fuerte: 'Pendiente muy fuerte' }
+
+const fondoPaso = f => (distanciaPaso(f) && !duracionPaso(f))
+  ? `repeating-linear-gradient(135deg, ${AZUL} 0 4px, #5b67b3 4px 7px)`
+  : AZUL
+
+/** Gráfica pequeña de solo lectura (como la del constructor) con el tiempo total aproximado */
+export function GraficaPasos({ items, perfil, T, alto = 56 }) {
+  const barras = []
+  items.forEach(it => {
+    if (it.type === 'grupo') for (let r = 0; r < (it.repeticiones || 1); r++) it.fases.forEach(f => barras.push({ f, r }))
+    else barras.push({ f: it, r: 0 })
+  })
+  if (!barras.length) return null
+  const total = barras.reduce((a, { f }) => a + segundosEstimados(f, perfil), 0)
+  const min = Math.round(total / 60)
+  const km = barras.reduce((a, { f }) => a + (distanciaPaso(f) || 0), 0)
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 1, height: alto, borderBottom: `1px solid ${T.line || '#E4E6EB'}` }}>
+        {barras.map(({ f, r }, k) => {
+          const [ini, fin] = intensidadesRampa(f)
+          const h = Math.max(ini, fin)
+          const clip = esRampa(f.tipo_paso) ? `polygon(0 100%, 0 ${100 - (ini / h) * 100}%, 100% ${100 - (fin / h) * 100}%, 100% 100%)` : undefined
+          return <div key={k} style={{ flex: `${Math.max(segundosEstimados(f, perfil), 20)} 1 0`, minWidth: 1, height: `${Math.round(h * 92)}%`, background: fondoPaso(f), borderRadius: clip ? 0 : '2px 2px 0 0', opacity: r > 0 ? 0.8 : 1, clipPath: clip }} />
+        })}
+      </div>
+      {min > 0 && (
+        <div style={{ display: 'flex', gap: 10, marginTop: 4, fontSize: 11, color: T.ink3, fontFamily: T.mono }}>
+          <span>≈ {min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, '0')}` : `${min} min`}</span>
+          {km > 0 && <span>· {km >= 1000 ? `${(km / 1000).toLocaleString('es-ES', { maximumFractionDigits: 1 })} km` : `${km} m`} por distancia</span>}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function volumen(f) {
   const d = duracionPaso(f), m = distanciaPaso(f)

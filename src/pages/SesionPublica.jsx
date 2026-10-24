@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { format, parseISO } from 'date-fns'
 import FeedbackForm from '../components/FeedbackForm'
-import PasosCompactos from '../components/PasosCompactos'
+import PasosCompactos, { GraficaPasos } from '../components/PasosCompactos'
 import { es } from 'date-fns/locale'
 
 const T = {
@@ -646,6 +646,11 @@ export default function SesionPublica({ token }) {
                       </span>
                     )}
                   </div>
+                  {fasesBloque.length > 0 && (
+                    <div style={{ marginTop: 10 }}>
+                      <GraficaPasos items={fasesBloque} perfil={perfilZonas} T={{ ...T, mono: "'JetBrains Mono', monospace" }} />
+                    </div>
+                  )}
                   {b.nota && (esResistencia ? (
                     <div style={{ marginTop: 8, fontSize: 14, lineHeight: 1.55, color: T.ink, whiteSpace: 'pre-wrap' }}>{b.nota}</div>
                   ) : (
