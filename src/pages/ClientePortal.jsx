@@ -793,7 +793,8 @@ export default function ClientePortal({ token }) {
         )}
 
 
-        {/* Bloques */}
+        {/* Fases: solo si no hay línea de tiempo (con ella, se abren desde ahí) */}
+        {!tienePlanConFechas && (<>
         <div>
           <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 7 }}>Fases del plan</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -1000,6 +1001,7 @@ export default function ClientePortal({ token }) {
             })}
           </div>
         </div>
+        </>)}
       </div>
     )
   }
