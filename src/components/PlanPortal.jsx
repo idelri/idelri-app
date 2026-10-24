@@ -12,6 +12,7 @@
  * última competición del plan; y si tampoco, el final del plan.
  */
 import { useEffect, useMemo, useRef } from 'react'
+import TextoEstructurado, { textoPlano } from './TextoEstructurado'
 import { format, startOfWeek, addWeeks, addDays, differenceInCalendarDays, parseISO, isSameDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 
@@ -171,7 +172,7 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
                   const esHoy = i === idxHoy
                   const comps = compsPorSemana[i]
                   return (
-                    <div key={i} data-actual={esHoy ? '1' : undefined} title={w.sem?.objetivo || ''}
+                    <div key={i} data-actual={esHoy ? '1' : undefined} title={textoPlano(w.sem?.objetivo)}
                       style={{ flex: 1, minWidth: 0, height: 40, borderRadius: 6, background: pasada || esHoy ? c : `${c}2e`, color: pasada || esHoy ? '#fff' : c, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', outline: esHoy ? `2px solid ${T.ink}` : 'none', outlineOffset: 1, position: 'relative' }}>
                       <span style={{ fontSize: 11, fontWeight: 700 }}>S{w.numero}</span>
                       {pasada && !esHoy && <span style={{ fontSize: 9, lineHeight: 1 }}>✓</span>}
@@ -224,7 +225,7 @@ export default function PlanPortal({ T, isDesktop, plan, bloques, semanas, compe
                           <span style={{ fontSize: 11, fontWeight: 600, color: c }}>{w.bloque.nombre}</span>
                           {esHoy && <span style={{ fontSize: 8.5, fontFamily: T.mono, fontWeight: 700, color: '#fff', background: c, padding: '1px 6px', borderRadius: 6 }}>ESTA SEMANA</span>}
                         </div>
-                        {w.sem?.objetivo && <div style={{ fontSize: 12.5, color: T.ink, lineHeight: 1.4, marginTop: 2 }}>{w.sem.objetivo}</div>}
+                        {w.sem?.objetivo && <div style={{ marginTop: 3 }}><TextoEstructurado texto={w.sem.objetivo} T={T} size={12.5} conTitulo /></div>}
                         {w.sem?.nota_cliente && <div style={{ fontSize: 11.5, color: T.ink2, lineHeight: 1.4, marginTop: 3, fontStyle: 'italic' }}>{w.sem.nota_cliente}</div>}
                         {(compsPorSemana[lista.indexOf(w)] || []).map(cp => (
                           <div key={cp.id} style={{ fontSize: 11.5, fontWeight: 600, color: '#7a4a00', marginTop: 3 }}>🏆 {cp.nombre} · {format(fechaLocal(cp.fecha), 'EEE d', { locale: es })}</div>

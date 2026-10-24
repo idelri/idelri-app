@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { textoPlano } from './TextoEstructurado'
 import { supabase } from '../lib/supabase'
 import { format } from 'date-fns'
 import { es } from 'date-fns/locale'
@@ -412,7 +413,7 @@ export default function CalendarioSesiones({
                   </div>
                 )}
                 {objetivoSemana && (
-                  <div title={objetivoSemana} style={{ fontSize: 10, opacity: .9, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: vista === 'mes' ? 3 : 6, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{objetivoSemana}</div>
+                  <div title={textoPlano(objetivoSemana)} style={{ fontSize: 10, opacity: .9, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: vista === 'mes' ? 3 : 6, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{textoPlano(objetivoSemana)}</div>
                 )}
               </div>
 

@@ -17,6 +17,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
+import TextoEstructurado, { textoPlano } from './TextoEstructurado'
 import {
   format, startOfMonth, endOfMonth, startOfWeek, addDays, addWeeks, addMonths, subMonths,
   isSameDay, isSameMonth, isToday, parseISO,
@@ -121,7 +122,7 @@ function InfoFase({ T, bloque, sem, numero }) {
         <span style={{ fontSize: 13, fontWeight: 700, color: T.ink }}>{numero ? `Semana ${numero}` : 'Semana'}{bloque ? ` · ${bloque.nombre}` : ''}</span>
       </div>
       {bloque?.objetivo && <div style={{ fontSize: 12, color: T.ink2, lineHeight: 1.45, fontStyle: 'italic' }}>{bloque.objetivo}</div>}
-      {sem?.objetivo && <div style={{ fontSize: 13, color: T.ink, lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{sem.objetivo}</div>}
+      {sem?.objetivo && <TextoEstructurado texto={sem.objetivo} T={T} color={bloque?.color} size={13} conTitulo />}
     </div>
   )
 }
@@ -310,7 +311,7 @@ export default function CalendarioPortal({
                     <div style={{ fontSize: 11, fontFamily: T.mono }}>{format(lun, 'd MMM', { locale: es })}</div>
                   )}
                   {bloque && <div style={{ fontSize: 10.5, fontWeight: 600, opacity: .95, lineHeight: 1.25 }}>{bloque.nombre}</div>}
-                  {sem?.objetivo && <div style={{ fontSize: 10, opacity: .88, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{sem.objetivo}</div>}
+                  {sem?.objetivo && <div style={{ fontSize: 10, opacity: .88, lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 4, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{textoPlano(sem.objetivo)}</div>}
                   {(sem?.objetivo || bloque?.objetivo) && <div style={{ fontSize: 9.5, fontWeight: 600, opacity: .8, marginTop: 1 }}>Ver más ›</div>}
                   {semInfo === key(lun) && semRect && createPortal(
                     // Fuera del calendario (en el body) para que no se corte
@@ -417,7 +418,7 @@ export default function CalendarioPortal({
                   {numero && <span style={{ fontSize: 12, fontWeight: 700 }}>S{numero}</span>}
                   {bloque && <span style={{ fontSize: 10.5, fontWeight: 600, whiteSpace: 'nowrap' }}>{bloque.nombre}</span>}
                   {actual && <span style={{ fontSize: 8, fontFamily: T.mono, fontWeight: 600, background: 'rgba(255,255,255,.25)', padding: '1px 5px', borderRadius: 6 }}>AQUÍ</span>}
-                  {sem?.objetivo && <span style={{ fontSize: 10, opacity: .88, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: 1 }}>· {sem.objetivo}</span>}
+                  {sem?.objetivo && <span style={{ fontSize: 10, opacity: .88, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0, flex: 1 }}>· {textoPlano(sem.objetivo)}</span>}
                   {(sem?.objetivo || bloque?.objetivo) && <span style={{ marginLeft: 'auto', fontSize: 11, fontWeight: 700, flexShrink: 0 }}>{semInfo === key(lun) ? '▴' : 'ⓘ'}</span>}
                 </div>
               )}
