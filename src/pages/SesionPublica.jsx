@@ -527,8 +527,9 @@ export default function SesionPublica({ token }) {
           const descTexto = esResistencia || esCampo ? null : (b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual'])
 
           function renderTareaCampo(e, eIdx) {
-            const met = metricasDiagrama(e.diagrama)
             const pr = e.diagrama.presc || {}
+            // La entrenadora puede ocultar metros y COD (p. ej. un esquema con varias carreras)
+            const met = pr.ocultarMetricas ? {} : metricasDiagrama(e.diagrama)
             const series = parseInt(e.series) || 0, reps = parseInt(e.reps) || 0
             const fm = m => (m >= 100 ? Math.round(m) : Math.round(m * 2) / 2).toLocaleString('es-ES') + ' m'
             const chips = [
