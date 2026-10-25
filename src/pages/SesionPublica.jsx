@@ -554,6 +554,60 @@ export default function SesionPublica({ token }) {
             )
           }
 
+          // Ficha compacta: los ejercicios del bloque van en 2 columnas (más en pantallas anchas)
+          function renderEjCompacto(e, eIdx) {
+            if (e.diagrama) return <div key={e.id} style={{ gridColumn: '1 / -1' }}>{renderTareaCampo(e, eIdx)}</div>
+            const yid = e.media_tipo === 'youtube' ? ytId(e.media_url) : null
+            const esVideoArchivo = e.media_tipo === 'video' && e.media_url
+            const esImagen = (e.media_tipo === 'imagen' || e.media_tipo === 'gif') && e.media_url
+            const videoLink = !yid && e.video_url ? e.video_url : null
+            const prog = progreso[e.id] || { series: [false], hecho: false }
+            const locked = sesionFlexibleGuardada || sesionFijaGuardada || clonToken
+            const label = `${idx + 1}${getLabelEjercicio(b.metodo, eIdx)}`
+            const caja = { width: '100%', height: 128, borderRadius: 8, overflow: 'hidden', background: '#F3F4F6', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }
+            return (
+              <div key={e.id} style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6, padding: '9px 9px 10px', borderRadius: 10, border: `1px solid ${T.line}`, background: prog.hecho ? '#f6fef9' : T.card }}>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 5 }}>
+                  <span style={{ fontSize: 10.5, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: bc, flexShrink: 0 }}>{b.metodo === 'emom' ? `M${eIdx + 1}` : label}</span>
+                  <span style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.25, color: T.ink, minWidth: 0 }}>{e.nombre}</span>
+                </div>
+                {esVideoArchivo ? (
+                  <div style={caja}><video src={e.media_url} controls muted preload="metadata" style={{ maxWidth: '100%', maxHeight: '100%', display: 'block' }} /></div>
+                ) : yid ? (
+                  videoActivo[e.id] ? (
+                    <div style={{ ...caja, height: 'auto', aspectRatio: '16/9' }}>
+                      <iframe src={`https://www.youtube-nocookie.com/embed/${yid}?autoplay=1`} title={e.nombre} allow="autoplay; fullscreen" allowFullScreen
+                        style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', border: 'none' }} />
+                    </div>
+                  ) : (
+                    <div style={{ ...caja, cursor: 'pointer' }} onClick={() => setVideoActivo(v => ({ ...v, [e.id]: true }))}>
+                      <img src={`https://img.youtube.com/vi/${yid}/hqdefault.jpg`} alt="" style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} />
+                      <div style={{ position: 'absolute', width: 30, height: 30, borderRadius: '50%', background: 'rgba(0,0,0,0.65)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="white"><polygon points="2,1 9,5 2,9"/></svg>
+                      </div>
+                    </div>
+                  )
+                ) : esImagen ? (
+                  <div style={caja}><img src={e.media_url} alt={e.nombre} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', display: 'block' }} /></div>
+                ) : videoLink ? (
+                  <a href={videoLink} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, fontWeight: 700, color: T.accent, textDecoration: 'none' }}>▶ Ver vídeo</a>
+                ) : null}
+                <FilaPrescripcion e={e} metodo={b.metodo} size={11} />
+                {interactiva && parseInt(e.series) > 0 && (
+                  <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
+                    {prog.series.map((hecha, sIdx) => (
+                      <div key={sIdx} onClick={locked ? undefined : () => toggleSerie(e.id, sIdx)}
+                        style={{ width: 20, height: 20, borderRadius: 5, border: `1.5px solid ${hecha ? '#16a34a' : `${bc}44`}`, background: hecha ? '#16a34a' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: locked ? 'default' : 'pointer', fontSize: 9, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: hecha ? '#fff' : T.ink3 }}>
+                        {hecha ? '✓' : sIdx + 1}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {e.notas && <div style={{ fontSize: 10.5, color: T.ink2, lineHeight: 1.4 }}>{e.notas}</div>}
+              </div>
+            )
+          }
+
           function renderEj(e, eIdx, totalEjs) {
             if (e.diagrama) return renderTareaCampo(e, eIdx)
             const yid = e.media_tipo === 'youtube' ? ytId(e.media_url) : null
@@ -747,67 +801,14 @@ export default function SesionPublica({ token }) {
                   )
                 )}
 
-                {/* Exercises */}
-                {b.metodo === 'contrast' ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: `0.5px solid ${T.line}` }}>
-                    {ejsBloque.map((e, eIdx) => {
-                      const yid2 = e.media_tipo === 'youtube' ? ytId(e.media_url) : null
-                      const esVideo2 = e.media_tipo === 'video' && e.media_url
-                      const esImg2 = (e.media_tipo === 'imagen' || e.media_tipo === 'gif') && e.media_url
-                      const prog2 = progreso[e.id] || { series: [false], hecho: false }
-                      const hecho2 = prog2.hecho
-                      const label2 = `${idx + 1}${getLabelEjercicio(b.metodo, eIdx)}`
-                      const locked = sesionFlexibleGuardada || sesionFijaGuardada || clonToken
-                      return (
-                        <div key={e.id} style={{ borderRight: eIdx % 2 === 0 ? `0.5px solid ${T.line}` : 'none', padding: '10px 10px 12px', display: 'flex', flexDirection: 'column', gap: 7, minWidth: 0, background: hecho2 ? '#f6fef9' : T.card }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-                            <span style={{ fontSize: 11, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: bc, flexShrink: 0 }}>{label2}</span>
-                            <span style={{ fontSize: 12.5, fontWeight: 700, flex: 1, lineHeight: 1.2, color: T.ink, minWidth: 0 }}>{e.nombre}</span>
-                          </div>
-                          <FilaPrescripcion e={e} metodo={b.metodo} size={12} />
-                          {interactiva && <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {prog2.series.map((hecha, sIdx) => (
-                              <div key={sIdx}
-                                onClick={locked ? undefined : () => toggleSerie(e.id, sIdx)}
-                                style={{ width: 24, height: 24, borderRadius: 5, border: `1.5px solid ${hecha ? '#16a34a' : `${bc}44`}`, background: hecha ? '#16a34a' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: locked ? 'default' : 'pointer', fontSize: 10, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: hecha ? '#fff' : T.ink3, transition: 'all 0.15s' }}>
-                                {hecha ? '✓' : sIdx + 1}
-                              </div>
-                            ))}
-                          </div>}
-                          {(esVideo2 || yid2 || esImg2) && (
-                            <div style={{ borderRadius: 8, overflow: 'hidden', aspectRatio: '9/16', position: 'relative', maxHeight: 190 }}>
-                              {esVideo2 ? (
-                                <video src={e.media_url} controls muted preload="metadata" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              ) : yid2 ? (
-                                <div style={{ position: 'relative', width: '100%', paddingBottom: '177%' }}>
-                                  {videoActivo[e.id] ? (
-                                    <iframe src={`https://www.youtube-nocookie.com/embed/${yid2}?autoplay=1`} title={e.nombre}
-                                      allow="autoplay; fullscreen" allowFullScreen
-                                      style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }} />
-                                  ) : (
-                                    <div style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', cursor: 'pointer' }}
-                                      onClick={() => setVideoActivo(v => ({ ...v, [e.id]: true }))}>
-                                      <img src={`https://img.youtube.com/vi/${yid2}/hqdefault.jpg`}
-                                        style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} alt="" />
-                                      <div style={{ position: 'absolute', bottom: 8, left: 8, width: 28, height: 28, borderRadius: '50%', background: 'rgba(0,0,0,0.7)', border: '1.5px solid rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-                                        <svg width="10" height="10" viewBox="0 0 10 10" fill="white"><polygon points="2,1 9,5 2,9"/></svg>
-                                      </div>
-                                    </div>
-                                  )}
-                                </div>
-                              ) : (
-                                <img src={e.media_url} alt={e.nombre} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              )}
-                            </div>
-                          )}
-                          {e.notas && <div style={{ fontSize: 10.5, color: T.ink3, lineHeight: 1.4 }}>📝 {e.notas}</div>}
-                        </div>
-                      )
-                    })}
-                  </div>
-                ) : (
+                {/* Exercises: tareas de campo a lo ancho; el resto, fichas en 2 columnas */}
+                {esCampo ? (
                   <div>
                     {ejsBloque.map((e, eIdx) => renderEj(e, eIdx, ejsBloque.length))}
+                  </div>
+                ) : ejsBloque.length > 0 && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(155px, 1fr))', gap: 8, padding: '10px 10px 12px' }}>
+                    {ejsBloque.map((e, eIdx) => renderEjCompacto(e, eIdx))}
                   </div>
                 )}
 
