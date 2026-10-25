@@ -79,11 +79,11 @@ export function Lineas({ lineas, T, color, size = 12.5 }) {
 }
 
 export default function TextoEstructurado({ texto, T, color, size, conTitulo }) {
-  // Textos de semana "Título · resto": el título va en negrita en su línea
+  // Textos de semana "Título · resto": "**Título:** resto" (el título en negrita, seguido de su explicación)
   let t = texto || ''
   if (conTitulo) {
     const m = t.match(/^([^\n·*#]{3,40}?) · ([\s\S]*)$/)
-    if (m) t = `**${m[1].trim()}**\n${m[2]}`
+    if (m) t = `**${m[1].trim()}:** ${m[2]}`
   }
   const secs = seccionesTexto(t)
   return (

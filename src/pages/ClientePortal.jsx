@@ -526,7 +526,7 @@ export default function ClientePortal({ token }) {
             {subbloqueNav && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.ink3 }}>· {subbloqueNav.nombre}</div>}
           </div>
           {semanaNav?.objetivo && (
-            <div style={{ fontSize: 12.5, color: T.ink2, marginTop: 5, lineHeight: 1.45 }}>{semanaNav.objetivo}</div>
+            <div style={{ marginTop: 6 }}><TextoEstructurado texto={semanaNav.objetivo} T={T} color={colNav} size={12.5} conTitulo /></div>
           )}
           {semanaNumNav && (
             <div style={{ marginTop: 10 }}>
@@ -542,7 +542,7 @@ export default function ClientePortal({ token }) {
     const NotaEntrenadora = () => semanaNav?.nota_cliente ? (
       <div style={{ background: '#fffbe6', borderRadius: 10, padding: '10px 13px', border: '1px solid #f0e5a0' }}>
         <div style={{ fontFamily: T.mono, fontSize: 9, fontWeight: 600, color: '#8a7200', letterSpacing: '.4px', textTransform: 'uppercase', marginBottom: 4 }}>📌 Nota de tu entrenadora</div>
-        <div style={{ fontSize: 12.5, color: '#5a4e00', lineHeight: 1.5 }}>{semanaNav.nota_cliente}</div>
+        <TextoEstructurado texto={semanaNav.nota_cliente} T={{ ...T, ink: '#3d3400', ink2: '#5a4e00' }} color="#8a7200" size={12.5} />
       </div>
     ) : null
 
@@ -929,7 +929,7 @@ export default function ClientePortal({ token }) {
                                               <div style={{ flex: 1, minWidth: 0 }}>
                                                 {(semData?.objetivo || semData?.nota_cliente) ? (
                                                   <>
-                                                    {semData.objetivo && <div style={{ fontSize: 11, color: T.ink, lineHeight: 1.4 }}>{semData.objetivo}</div>}
+                                                    {semData.objetivo && <TextoEstructurado texto={semData.objetivo} T={T} color={col} size={11} conTitulo />}
                                                     {semData.nota_cliente && <div style={{ fontSize: 10.5, color: T.ink2, lineHeight: 1.35, marginTop: semData.objetivo ? 2 : 0, fontStyle: 'italic' }}>{semData.nota_cliente}</div>}
                                                   </>
                                                 ) : (
