@@ -103,10 +103,14 @@ export default function BloqueTareasCampo({ bloque, tareas, setTareas, descripci
                 ))}
               </div>
               {met && met.metros > 0 && (
-                <div style={{ fontSize: 11.5, color: 'var(--text2)', marginTop: 7, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ fontSize: 11.5, color: 'var(--text2)', marginTop: 7, display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', opacity: t.diagrama?.presc?.ocultarMetricas ? .5 : 1 }}>
                   <span>📏 <b style={{ color: '#1f2d8a' }}>{fmtM(met.metros)}</b> por repetición</span>
                   {met.cod > 0 && <span>↪ <b style={{ color: '#1f2d8a' }}>{met.cod}</b> cambios de dirección</span>}
                   <span>Total: <b style={{ color: '#1f2d8a' }}>{fmtM(met.metros * series * reps)}</b>{met.cod ? ` · ${met.cod * series * reps} COD` : ''}</span>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer', marginLeft: 'auto', opacity: 1 }} title="Si lo desmarcas, el cliente no ve los metros ni los cambios de dirección de esta tarea">
+                    <input type="checkbox" checked={!t.diagrama?.presc?.ocultarMetricas} onChange={e => presc(t, 'ocultarMetricas', !e.target.checked)} />
+                    Mostrar al cliente
+                  </label>
                 </div>
               )}
               <textarea defaultValue={t.notas || ''} key={t.id + 'notas' + (t.notas || '')} placeholder="Indicaciones de la tarea…" rows={2}
