@@ -364,6 +364,10 @@ export default function TimelinePlan({
     setEditorCont({ clave: 's' + k(l) + pid, titulo: `Semana ${numSemana(l) || ''} · ${format(l, 'd MMM', { locale: es })} – ${format(addDays(l, 6), 'd MMM', { locale: es })}`, plan: nombrePlan(pid), x: r.left, y: r.bottom + 6, fecha: null, lunes: l, modoSemana: true, planId: pid })
   }
   const itemsEditor = editorCont ? agruparCont(editorCont.modoSemana ? Array.from({ length: 7 }, (_, i) => contDia(addDays(editorCont.lunes, i), editorCont.planId)).flat() : contDia(editorCont.fecha, editorCont.planId)) : []
+  const [cuadColor, setCuadColorS] = useState(() => { try { return localStorage.getItem('tlCuadColor') || null } catch { return null } })
+  const [cuadCod, setCuadCodS] = useState(() => { try { const v = localStorage.getItem('tlCuadCod'); return v === null ? null : v } catch { return null } })
+  const setCuadColor = v => { setCuadColorS(v); try { localStorage.setItem('tlCuadColor', v) } catch {} }
+  const setCuadCod = v => { setCuadCodS(v); try { localStorage.setItem('tlCuadCod', v) } catch {} }
   // Planes desplegados (por defecto todos)
   const [plegados, setPlegados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('tlPlanesPlegados') || '[]')) } catch { return new Set() } })
   const alternarPlegado = pid => setPlegados(s => { const n = new Set(s); n.has(pid) ? n.delete(pid) : n.add(pid); try { localStorage.setItem('tlPlanesPlegados', JSON.stringify([...n])) } catch {} ; return n })
@@ -624,7 +628,7 @@ export default function TimelinePlan({
         style={{ height: 34, padding: '0 14px', borderRadius: 9, border: 'none', background: 'var(--text2)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
       <SelectorPeriodo rango={rango} onCambiar={setRango} planIni={planIni} planFin={planFin} />
       <div style={{ display: 'flex', padding: 3, gap: 2, borderRadius: 11, border: '1px solid var(--border)', background: 'var(--bg)' }}>
-        {[['macro', 'Visión Macro'], ['meso', 'Visión Meso'], ['micro', 'Visión Micro']].map(([v, l]) => (
+        {[['macro', 'Visión Macro'], ['meso', 'Visión Meso'], ['micro', 'Visión Micro'], ['cuadricula', 'Cuadrícula']].map(([v, l]) => (
           <button key={v} onClick={() => cambiarVision(v)}
             style={{ height: 28, padding: '0 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 12.5, fontWeight: vision === v ? 600 : 500,
               background: vision === v ? 'var(--accent)' : 'transparent', color: vision === v ? '#fff' : 'var(--text2)' }}>{l}</button>
@@ -662,6 +666,7 @@ export default function TimelinePlan({
         {vision === 'macro' && <VistaMacro />}
         {vision === 'meso' && <VistaSemanas semanas={3} />}
         {vision === 'micro' && <VistaSemanas semanas={1} micro />}
+        {vision === 'cuadricula' && <VistaCuadricula />}
       </div>
       <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}`}</style>
       <EditorContenidos abierto={editorCont} onCerrar={() => setEditorCont(null)} items={itemsEditor} sugerencias={sugerencias}
@@ -795,6 +800,106 @@ export default function TimelinePlan({
             </div>
           )}
         </div>
+      </div>
+    )
+  }
+
+  // ════════════════════════════ CUADRÍCULA ════════════════════════════
+  // Semanas en filas × días en columnas. Color = etiqueta de un grupo de categorías; código = etiqueta de otro.
+  function codigoEtiqueta(nombre) {
+    const t = (nombre || '').trim()
+    const m = t.match(/^[≥<>]?\s*(\d+)(?:\s*[–-]\s*(\d+))?\s*%/)
+    if (m) return (t.startsWith('≥') ? '≥' : '') + (m[2] || m[1])
+    const z = t.match(/^(Z\d(?:[–-]\d)?)/i); if (z) return z[1].toUpperCase()
+    const w = t.split(/[\s·(/]/)[0]
+    return w.length <= 3 ? w : w.charAt(0).toUpperCase()
+  }
+  function VistaCuadricula() {
+    const gruposConDatos = catGrupos.filter(g => contenidos.some(c => c.etiqueta_id && catEtiquetas.find(e => e.id === c.etiqueta_id)?.grupo_id === g.id))
+    const defColor = gruposConDatos.find(g => g.seleccion === 'unica') || gruposConDatos[0]
+    const defCod = gruposConDatos.find(g => g.id !== defColor?.id && /ritmo/i.test(g.nombre)) || gruposConDatos.find(g => g.id !== defColor?.id)
+    const gColor = catGrupos.find(g => g.id === cuadColor) || defColor
+    const gCod = cuadCod === '' ? null : (catGrupos.find(g => g.id === cuadCod) || defCod)
+    const etiq = id => catEtiquetas.find(e => e.id === id)
+    const delGrupo = (d, g) => g ? contDia(d).filter(c => c.etiqueta_id && etiq(c.etiqueta_id)?.grupo_id === g.id) : []
+    const semanas = []
+    for (let d = lunes(rango.ini); d <= rango.fin; d = addWeeks(d, 1)) semanas.push(d)
+    const CW = 46, CHh = 34
+    const selStyle = { fontSize: 11.5, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', fontFamily: 'inherit', color: 'var(--text)' }
+    // leyenda: etiquetas del grupo color usadas
+    const usadas = gColor ? catEtiquetas.filter(e => e.grupo_id === gColor.id && contenidos.some(c => c.etiqueta_id === e.id)) : []
+    return (
+      <div style={{ padding: '6px 16px 0' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 10, fontSize: 12, color: 'var(--text2)' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Color
+            <select value={gColor?.id || ''} onChange={e => setCuadColor(e.target.value)} style={selStyle}>
+              {catGrupos.map(g => <option key={g.id} value={g.id}>{g._seccion ? g._seccion.nombre + ' · ' : ''}{g.nombre}</option>)}
+            </select></label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 6 }}>Código
+            <select value={cuadCod === '' ? '' : (gCod?.id || '')} onChange={e => setCuadCod(e.target.value)} style={selStyle}>
+              <option value="">— Ninguno —</option>
+              {catGrupos.map(g => <option key={g.id} value={g.id}>{g._seccion ? g._seccion.nombre + ' · ' : ''}{g.nombre}</option>)}
+            </select></label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px 12px', marginLeft: 'auto' }}>
+            {usadas.map(e => <span key={e.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11 }}><span style={{ width: 11, height: 11, borderRadius: 3, background: e.color }} />{e.nombre}</span>)}
+          </div>
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <style>{`table.tl-cuad{width:auto!important;margin:0}.tl-cuad th,.tl-cuad td{border:none;background:none;padding:0;height:auto;font-family:inherit;text-transform:none;letter-spacing:0}.tl-cuad thead th{font-size:10px;color:var(--text3);font-weight:600;padding-bottom:3px}`}</style>
+          <table className="tl-cuad" style={{ borderCollapse: 'separate', borderSpacing: 3, fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
+                <th style={{ width: 22 }} /><th style={{ textAlign: 'left', padding: '0 4px' }}>SEM.</th><th />
+                {DIAS.map(dd => <th key={dd} style={{ fontWeight: 600 }}>{dd.slice(0, 1)}</th>)}
+                <th style={{ textAlign: 'right', padding: '0 6px' }}>KM OBJ.</th><th style={{ textAlign: 'left', padding: '0 8px' }}>NOTA DE LA SEMANA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {semanas.map((l, wi) => {
+                const b = bloqueDe(addDays(l, 3))
+                const primeraDelBloque = b && (wi === 0 || bloqueDe(addDays(semanas[wi - 1], 3))?.id !== b.id)
+                const nFilas = b ? semanas.filter(x => bloqueDe(addDays(x, 3))?.id === b.id).length : 1
+                const sem = semanaPorLunes.get(k(l))
+                const esHoy = hoy >= l && hoy <= addDays(l, 6)
+                return (
+                  <tr key={k(l)}>
+                    {b ? (primeraDelBloque && (
+                      <td rowSpan={nFilas} onClick={() => onEditarBloque?.(b)} title={b.nombre} style={{ width: 22, background: (b.color || '#2d6a4f') + '30', borderRadius: 4, cursor: 'pointer', verticalAlign: 'middle', padding: 0 }}>
+                        <div style={{ writingMode: 'vertical-rl', transform: 'rotate(180deg)', fontSize: 9.5, fontWeight: 800, letterSpacing: '.08em', textTransform: 'uppercase', color: b.color || '#2d6a4f', whiteSpace: 'nowrap', margin: '0 auto', overflow: 'hidden', maxHeight: nFilas * (CHh + 3) }}>{b.nombre}</div>
+                      </td>)) : <td />}
+                    <td onClick={() => { setCursor(l); cambiarVision('meso') }} title="Abrir la semana en Visión Meso" style={{ fontWeight: 700, fontSize: 14, padding: '0 4px', cursor: 'pointer', color: esHoy ? GRUPOS.cal.color : 'var(--text)' }}>{numSemana(l) || ''}</td>
+                    <td style={{ fontSize: 10.5, color: 'var(--text3)', whiteSpace: 'nowrap', paddingRight: 4 }}>{format(l, 'd MMM', { locale: es }).replace('.', '')}</td>
+                    {Array.from({ length: 7 }, (_, i) => addDays(l, i)).map(d => {
+                      const cc = delGrupo(d, gColor), cod = delGrupo(d, gCod)
+                      const col = cc[0] ? (etiq(cc[0].etiqueta_id)?.color || cc[0].color) : null
+                      const x = dia(d)
+                      const todos = agruparCont(contDia(d))
+                      const tip = [format(d, "EEEE d 'de' MMMM", { locale: es }), ...todos.map(c => '· ' + c.texto), ...x.notas.map(n => '📝 ' + n.texto), ...x.ses.map(z => '◉ ' + (z.titulo || 'Sesión'))].join('\n')
+                      const claro = col && (() => { const n = parseInt(col.slice(1), 16); return ((n >> 16) * 299 + ((n >> 8) & 255) * 587 + (n & 255) * 114) / 1000 > 165 })()
+                      const pid = (planesVisibles(d, d)[0] || planificacion).id
+                      return (
+                        <td key={k(d)} style={{ padding: 0 }}>
+                          <div onClick={ev => abrirEditorDia(ev, d, pid)} title={tip}
+                            style={{ width: CW, height: CHh, borderRadius: 5, background: col || (todos.length || x.notas.length ? 'var(--bg3)' : 'var(--bg2)'), color: claro ? '#18232b' : '#fff', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 11, fontWeight: 800, outline: isSameDay(d, hoy) ? `2px solid ${GRUPOS.cal.color}` : 'none', outlineOffset: 1 }}>
+                            {cc[0] && <span style={{ opacity: .9 }}>{codigoEtiqueta(cc[0].texto).charAt(0)}</span>}
+                            {cod.slice(0, 2).map(c => <span key={c.id} style={{ fontSize: 10, padding: '0 2px', borderRadius: 3, background: col ? 'rgba(0,0,0,.2)' : 'transparent', color: col ? 'inherit' : 'var(--text2)' }}>{codigoEtiqueta(c.texto)}</span>)}
+                            {cc.length > 1 && <span style={{ position: 'absolute', left: 0, top: 0, borderStyle: 'solid', borderWidth: '9px 9px 0 0', borderColor: `${etiq(cc[1].etiqueta_id)?.color || cc[1].color} transparent transparent transparent`, borderRadius: '5px 0 0 0' }} />}
+                            {x.notas.length > 0 && <span style={{ position: 'absolute', right: 3, bottom: 3, width: 4, height: 4, borderRadius: 9, background: col ? 'currentColor' : 'var(--text3)', opacity: .8 }} />}
+                          </div>
+                        </td>
+                      )
+                    })}
+                    <td style={{ textAlign: 'right', fontSize: 12, padding: '0 6px', color: 'var(--text2)', fontWeight: 600 }}>{sem?.km_objetivo ? sem.km_objetivo + ' km' : ''}</td>
+                    <td title={[sem?.objetivo, sem?.notas].filter(Boolean).join('\n')} style={{ fontSize: 11.5, color: 'var(--text2)', padding: '0 8px', maxWidth: 340, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {[tituloSemana(l), sem?.notas ? textoPlano(sem.notas).replace(/\n/g, ' · ') : null].filter(Boolean).join(' · ')}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--text3)', margin: '8px 2px 0' }}>Clic en un día para editar sus contenidos · el punto indica que hay nota · la esquina, un segundo valor del grupo de color · clic en el nº de semana para abrirla.</div>
       </div>
     )
   }
@@ -1102,9 +1207,10 @@ export default function TimelinePlan({
                 )
               }} />
             </div>
+            {(() => { const nMax = Math.max(0, ...dias.map(d => { const x = dia(d); return x.comps.length + x.ctrls.length + x.notas.length + (x.ses.length ? 1 : 0) + (x.ses.some(z => z.tipo_sesion === 'opcional') ? 1 : 0) })); const altoEv = Math.max(micro ? 64 : 58, nMax * 21 + 10); return (
             <div style={{ display: 'flex', marginTop: 4 }}>
-              <Etiqueta g="cal" texto="Eventos" icono="⚑" alto={micro ? 64 : 58} />
-              <Celdas alto={micro ? 64 : 58} fondo={GRUPOS.cal.soft} render={d => {
+              <Etiqueta g="cal" texto="Eventos" icono="⚑" alto={altoEv} />
+              <Celdas alto={altoEv} fondo={GRUPOS.cal.soft} render={d => {
                 const x = dia(d)
                 const entreno = x.ses.filter(s => s.tipo_sesion !== 'opcional').length
                 const opc = x.ses.length - entreno
@@ -1114,10 +1220,12 @@ export default function TimelinePlan({
                     {x.ctrls.map(c => <Chip key={c.id} onClick={() => onAbrirControl?.(c)} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre}>🔬 {c.nombre}</Chip>)}
                     {entreno > 0 && <Chip bg="var(--accent)" color="#fff" titulo={`${entreno} sesión(es)`}>Entreno{entreno > 1 ? ` ×${entreno}` : ''}</Chip>}
                     {opc > 0 && <Chip bg="transparent" color="var(--accent)" borde={`1px dashed var(--accent)`} titulo="Sesión opcional">☆{COL >= 90 ? ' Opcional' : ''}{opc > 1 ? ` ×${opc}` : ''}</Chip>}
+                    {x.notas.map(n => <Chip key={n.id} onClick={() => onAbrirNota?.(n)} bg="#f1f5f9" color="#475569" borde="1px solid #cbd5e1" titulo={n.texto}>📝 {n.texto}</Chip>)}
                   </div>
                 )
               }} />
             </div>
+            ) })()}
           </>}
 
           {/* Periodización */}
