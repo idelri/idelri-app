@@ -709,8 +709,9 @@ async function guardarSesion() {
     setModalCrearEj({ bloqueId, variablesDefault })
   }
 
-  async function abrirBiblioteca(bloqueId, variablesDefault = []) {
-    setModalBiblioteca({ bloqueId, variablesDefault })
+  async function abrirBiblioteca(bloqueId, variablesDefault = [], reemplazar = null) {
+    // reemplazar = { ejId, nombre }: solo se cambia el vídeo/foto del ejercicio, se mantiene todo lo demás
+    setModalBiblioteca({ bloqueId, variablesDefault, reemplazar })
     setCarpetaBib(bibDeBloque(bloqueId))
     setBusquedaBiblioteca('')
     if (!biblioteca) {
@@ -719,7 +720,17 @@ async function guardarSesion() {
     }
   }
 
+  async function cambiarMediaDesdeBiblioteca(item) {
+    const { bloqueId, reemplazar } = modalBiblioteca
+    const campos = { media_tipo: item.media_tipo || 'youtube', media_url: item.media_url || '', video_url: item.video_url || '', biblioteca_id: item.id || null }
+    await supabase.from('sesion_ejercicios').update(campos).eq('id', reemplazar.ejId)
+    setEjercicios(ej => ({ ...ej, [bloqueId]: (ej[bloqueId] || []).map(e => e.id === reemplazar.ejId ? { ...e, ...campos } : e) }))
+    setDirty(true)
+    setModalBiblioteca(null)
+  }
+
   async function añadirDesdeBiblioteca(item, bloqueIdOverride, variablesDefaultOverride) {
+    if (!bloqueIdOverride && modalBiblioteca?.reemplazar) return cambiarMediaDesdeBiblioteca(item)
     const bloqueId = bloqueIdOverride || modalBiblioteca?.bloqueId
     const variablesDefault = variablesDefaultOverride !== undefined ? variablesDefaultOverride : (modalBiblioteca?.variablesDefault || [])
     if (!bloqueId) return
@@ -1279,7 +1290,10 @@ async function guardarSesion() {
                               </div>
 
                               {/* Media url */}
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
+                                <button type="button" onClick={() => abrirBiblioteca(b.id, [], { ejId: e.id, nombre: e.nombre })}
+                                  title="Elegir otro vídeo o foto de la biblioteca, manteniendo el nombre, las indicaciones y la prescripción"
+                                  style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--text2)', whiteSpace: 'nowrap', cursor: 'pointer' }}>📚 Cambiar vídeo/foto</button>
                                 <select className="form-select" style={{ fontSize: 11, padding: '3px 6px', width: 'auto' }} value={e.media_tipo} onChange={ev => actualizarEjercicio(b.id, e.id, 'media_tipo', ev.target.value)}>
                                   <option value="youtube">YouTube</option>
                                   <option value="imagen">Imagen</option>
@@ -2211,10 +2225,15 @@ async function guardarSesion() {
           <div className="modal-backdrop" onClick={() => setModalBiblioteca(null)}>
             <div className="modal" style={{ maxWidth: 640, width: '95vw', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <span className="modal-title">📚 Biblioteca de ejercicios</span>
+                <span className="modal-title">{modalBiblioteca.reemplazar ? `📚 Cambiar vídeo/foto · ${modalBiblioteca.reemplazar.nombre || 'ejercicio'}` : '📚 Biblioteca de ejercicios'}</span>
                 <button className="btn btn-ghost btn-sm" onClick={() => setModalBiblioteca(null)}>✕</button>
               </div>
 
+              {modalBiblioteca.reemplazar && (
+                <div style={{ fontSize: 12, color: 'var(--text2)', background: 'var(--bg2)', borderRadius: 8, padding: '7px 10px', marginBottom: 8, lineHeight: 1.4 }}>
+                  Elige el ejercicio cuyo vídeo o foto quieres usar. Solo cambia el vídeo/foto: el nombre, las indicaciones y la prescripción se mantienen.
+                </div>
+              )}
               {/* Carpeta */}
               <ChipsBiblioteca valor={carpetaBib} onChange={setCarpetaBib} biblioteca={biblioteca} />
               {/* Búsqueda */}
@@ -2251,7 +2270,7 @@ async function guardarSesion() {
                   )
                 })}
               </div>
-              <div className="modal-footer" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              {!modalBiblioteca.reemplazar && <div className="modal-footer" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => {
                   const { bloqueId, variablesDefault } = modalBiblioteca
                   setModalBiblioteca(null)
@@ -2259,7 +2278,7 @@ async function guardarSesion() {
                 }}>
                   <Plus size={12} /> Crear ejercicio personalizado
                 </button>
-              </div>
+              </div>}
             </div>
           </div>
         )
