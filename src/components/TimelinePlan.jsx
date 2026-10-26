@@ -18,6 +18,7 @@ const GRUPOS = {
   per: { label: 'Periodización',   color: '#cf4646', bg: '#fdeeee', soft: '#fff7f7', icono: '⚑' },
   pla: { label: 'Planificación',   color: '#c18f05', bg: '#fdf5dc', soft: '#fffbec', icono: '▤' },
   pro: { label: 'Programación',    color: '#2f9e63', bg: '#e7f5ed', soft: '#f3faf6', icono: '◉' },
+  not: { label: 'Notas',           color: '#64748b', bg: '#eef1f5', soft: '#f7f8fa', icono: '✎' },
 }
 
 const VARS = [
@@ -311,6 +312,55 @@ function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQ
   )
 }
 
+// Editor flotante de textos (notas del día y textos de la semana)
+function EditorTexto({ cfg, onCerrar }) {
+  const [vals, setVals] = useState({})
+  const [vis, setVis] = useState('entrenadora')
+  const ref = useRef(null)
+  useEffect(() => { if (cfg) { setVals(Object.fromEntries(cfg.campos.map(c => [c.key, c.valor || '']))); setVis(cfg.vis || 'entrenadora') } }, [cfg])
+  useEffect(() => {
+    if (!cfg) return
+    const fn = e => { if (ref.current && !ref.current.contains(e.target)) onCerrar() }
+    const t = setTimeout(() => document.addEventListener('mousedown', fn), 0)
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', fn) }
+  }, [cfg, onCerrar])
+  if (!cfg) return null
+  const guardar = () => { cfg.onGuardar(Object.fromEntries(cfg.campos.map(c => [c.key, vals[c.key] ?? ''])), vis); onCerrar() }
+  const left = Math.min(cfg.x, window.innerWidth - 370), top = Math.max(10, Math.min(cfg.y, window.innerHeight - 380))
+  return (
+    <div ref={ref} style={{ position: 'fixed', left, top, width: 356, zIndex: 85, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,.16)', padding: 12, fontFamily: 'var(--font)' }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', marginBottom: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{cfg.titulo.charAt(0).toUpperCase() + cfg.titulo.slice(1)}</div>
+          {cfg.sub && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{cfg.sub}</div>}
+        </div>
+        <button onClick={onCerrar} style={{ border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: 'var(--text3)', lineHeight: 1 }}>×</button>
+      </div>
+      {cfg.vis && (
+        <div style={{ display: 'flex', padding: 2, gap: 2, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', marginBottom: 8 }}>
+          {[['cliente', '👁 La ve el cliente'], ['entrenadora', '🔒 Interna']].map(([v, l]) => (
+            <button key={v} onClick={() => setVis(v)} style={{ flex: 1, height: 26, borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: vis === v ? 600 : 500, background: vis === v ? 'var(--surface)' : 'transparent', boxShadow: vis === v ? '0 1px 2px rgba(0,0,0,.1)' : 'none', color: vis === v ? 'var(--text)' : 'var(--text3)' }}>{l}</button>
+          ))}
+        </div>
+      )}
+      {cfg.campos.map((c, i) => (
+        <div key={c.key} style={{ marginBottom: 8 }}>
+          {c.label && <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text2)', marginBottom: 3 }}>{c.label}</div>}
+          <textarea autoFocus={i === 0} value={vals[c.key] ?? ''} onChange={e => setVals(v => ({ ...v, [c.key]: e.target.value }))} placeholder={c.ph} rows={c.filas || 3}
+            onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) guardar(); if (e.key === 'Escape') onCerrar() }}
+            style={{ width: '100%', boxSizing: 'border-box', resize: 'vertical', padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12.5, lineHeight: 1.45, fontFamily: 'inherit', background: 'var(--bg)', color: 'var(--text)' }} />
+        </div>
+      ))}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {cfg.onBorrar && <button onClick={() => { cfg.onBorrar(); onCerrar() }} style={{ border: 'none', background: 'transparent', color: '#b91c1c', fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}>Eliminar</button>}
+        <span style={{ flex: 1, fontSize: 10.5, color: 'var(--text3)' }}>⌘/Ctrl + Enter para guardar</span>
+        <button onClick={onCerrar} className="btn btn-ghost btn-sm">Cancelar</button>
+        <button onClick={guardar} className="btn btn-primary btn-sm">Guardar</button>
+      </div>
+    </div>
+  )
+}
+
 // ── Componente principal ────────────────────────────────────────────────────
 export default function TimelinePlan({
   planificacion, bloques, subbloques, semanasAll, sesiones, competiciones, controles, notas, feedbacks,
@@ -324,7 +374,7 @@ export default function TimelinePlan({
 
   const [vision, setVision] = useState(() => { try { return localStorage.getItem('tlVision') || 'meso' } catch { return 'meso' } })
   const cambiarVision = v => { setVision(v); try { localStorage.setItem('tlVision', v) } catch {} }
-  const [grupos, setGrupos] = useState({ cal: true, per: true, pla: true, pro: true })
+  const [grupos, setGrupos] = useState({ cal: true, per: true, pla: true, pro: true, not: true })
   const [rango, setRango] = useState({ ini: planIni, fin: planFin })
   useEffect(() => { setRango({ ini: planIni, fin: planFin }) }, [planIni, planFin])
   const semanaInicial = () => (hoy >= rango.ini && hoy <= rango.fin) ? lunes(hoy) : lunes(rango.ini)
@@ -340,6 +390,9 @@ export default function TimelinePlan({
     ro.observe(el); return () => ro.disconnect()
   }, [])
 
+  // Notas del día (sesion_notas): copia local para editar al momento
+  const [notasLoc, setNotasLoc] = useState(notas || [])
+  useEffect(() => { setNotasLoc(notas || []) }, [notas])
   // ── Índices por día ──
   const fbMap = useMemo(() => new Map((feedbacks || []).map(f => [f.sesion_id, f])), [feedbacks])
   const porDia = useMemo(() => {
@@ -348,10 +401,10 @@ export default function TimelinePlan({
     ;(sesiones || []).filter(s => s.fecha && !s.recurso).forEach(s => add(s.fecha, 'ses', s))
     ;(competiciones || []).forEach(c => add(c.fecha, 'comps', c))
     ;(controles || []).forEach(c => add(c.fecha, 'ctrls', c))
-    ;(notas || []).forEach(n => add(n.fecha, 'notas', n))
+    ;(notasLoc || []).forEach(n => add(n.fecha, 'notas', n))
     m.forEach(v => v.ses.sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0) || String(a.hora_inicio || '').localeCompare(String(b.hora_inicio || ''))))
     return m
-  }, [sesiones, competiciones, controles, notas])
+  }, [sesiones, competiciones, controles, notasLoc])
   const vacio = { ses: [], comps: [], ctrls: [], notas: [] }
   const dia = d => porDia.get(k(d)) || vacio
 
@@ -830,6 +883,48 @@ export default function TimelinePlan({
 
   // Edición directa de km objetivo y nota en la cuadrícula
   const [semEdit, setSemEdit] = useState({})
+  const semVal = (sem, f) => !sem ? null : (semEdit[sem.id] && f in semEdit[sem.id]) ? semEdit[sem.id][f] : sem[f]
+  const [edTexto, setEdTexto] = useState(null) // { x, y, titulo, sub, campos, vis, onGuardar, onBorrar }
+  const abrirEdTexto = (ev, cfg) => { const r = ev.currentTarget.getBoundingClientRect(); setEdTexto({ x: r.left, y: r.bottom + 6, ...cfg }) }
+  async function crearNota(fecha, texto, vis) {
+    if (!texto.trim() || !planificacion.cliente_id) return
+    const { data, error } = await supabase.from('sesion_notas').insert({ cliente_id: planificacion.cliente_id, fecha, texto: texto.trim(), visibilidad: vis, orden: (dia(parseISO(fecha)).notas || []).length }).select().single()
+    if (error) { alert('No se pudo guardar la nota: ' + error.message); return }
+    setNotasLoc(ns => [...ns, data])
+  }
+  async function actualizarNota(n, campos) {
+    setNotasLoc(ns => ns.map(x => x.id === n.id ? { ...x, ...campos } : x))
+    const { error } = await supabase.from('sesion_notas').update(campos).eq('id', n.id)
+    if (error) alert('No se pudo guardar la nota: ' + error.message)
+  }
+  async function borrarNota(n) {
+    if (!window.confirm('¿Eliminar esta nota?')) return
+    setNotasLoc(ns => ns.filter(x => x.id !== n.id))
+    await supabase.from('sesion_notas').delete().eq('id', n.id)
+  }
+  const editarNotaDia = (ev, n) => abrirEdTexto(ev, {
+    titulo: format(parseISO(String(n.fecha).slice(0, 10)), "EEEE d 'de' MMMM", { locale: es }), sub: 'Nota del día',
+    campos: [{ key: 'texto', valor: n.texto, ph: 'Escribe la nota…', filas: 5 }], vis: n.visibilidad === 'cliente' ? 'cliente' : 'entrenadora',
+    onGuardar: (v, vis) => { if (!v.texto.trim()) return borrarNota(n); actualizarNota(n, { texto: v.texto.trim(), visibilidad: vis }) }, onBorrar: () => borrarNota(n),
+  })
+  const nuevaNotaDia = (ev, d, vis) => abrirEdTexto(ev, {
+    titulo: format(d, "EEEE d 'de' MMMM", { locale: es }), sub: 'Nueva nota del día',
+    campos: [{ key: 'texto', valor: '', ph: 'Escribe la nota…', filas: 5 }], vis,
+    onGuardar: (v, vis2) => crearNota(k(d), v.texto, vis2),
+  })
+  const editarSemanaCliente = (ev, l, sem) => abrirEdTexto(ev, {
+    titulo: `Semana ${numSemana(l) || ''} · ${format(l, 'd MMM', { locale: es })} – ${format(addDays(l, 6), 'd MMM', { locale: es })}`, sub: '👁 Lo ve el cliente en su semana',
+    campos: [
+      { key: 'objetivo', label: 'Texto de la semana', valor: semVal(sem, 'objetivo') || '', ph: 'Título: explicación de la semana…', filas: 6 },
+      { key: 'nota_cliente', label: 'Nota destacada (sale resaltada)', valor: semVal(sem, 'nota_cliente') || '', ph: 'Opcional', filas: 2 },
+    ],
+    onGuardar: v => guardarSemana(sem, { objetivo: v.objetivo.trim() || null, nota_cliente: v.nota_cliente.trim() || null }),
+  })
+  const editarSemanaInterna = (ev, l, sem) => abrirEdTexto(ev, {
+    titulo: `Semana ${numSemana(l) || ''} · ${format(l, 'd MMM', { locale: es })} – ${format(addDays(l, 6), 'd MMM', { locale: es })}`, sub: '🔒 Nota interna (solo tú)',
+    campos: [{ key: 'notas', valor: semVal(sem, 'notas') || '', ph: 'Nota interna de la semana…', filas: 5 }],
+    onGuardar: v => guardarSemana(sem, { notas: v.notas.trim() || null }),
+  })
   async function guardarSemana(sem, campos) {
     if (!sem?.id) return
     setSemEdit(x => ({ ...x, [sem.id]: { ...(x[sem.id] || {}), ...campos } }))
@@ -921,6 +1016,7 @@ export default function TimelinePlan({
           <span onClick={() => setDeshacer(null)} style={{ cursor: 'pointer', opacity: .6 }}>×</span>
         </div>
       )}
+      <EditorTexto cfg={edTexto} onCerrar={() => setEdTexto(null)} />
       <EditorContenidos abierto={editorCont} onCerrar={() => setEditorCont(null)} items={itemsEditor} sugerencias={sugerencias}
         onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} catGrupos={catGrupos} catEtiquetas={catEtiquetas} tipoPlan={planes.find(x => x.id === editorCont?.planId)?.tipo} />
     </div>
@@ -1060,6 +1156,7 @@ export default function TimelinePlan({
               </div>
             </div>
           )}
+          {grupos.not && ['cliente', 'entrenadora'].map(vis => <FilaNotasMacro key={vis} vis={vis} semanasCols={semanasCols} COL={COL} W={W} />)}
         </div>
       </div>
     )
@@ -1166,10 +1263,12 @@ export default function TimelinePlan({
                         </div>
                       ) : null}
                     </td>
-                    <td style={{ padding: '0 8px', maxWidth: 220 }}>
-                      {sem?.objetivo ? <div title={'Lo ve el cliente en su semana:\n\n' + textoPlano(sem.objetivo)} style={{ fontSize: 11.5, color: 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
-                        <b style={{ color: 'var(--text)' }}>{tituloSemana(l)}</b>{textoPlano(sem.objetivo).replace(tituloSemana(l) || '', '').replace(/^[\s:·-]+/, '') ? ' · ' + textoPlano(sem.objetivo).replace(tituloSemana(l) || '', '').replace(/^[\s:·-]+/, '').replace(/\n/g, ' ') : ''}
-                      </div> : null}
+                    <td style={{ padding: '0 4px', maxWidth: 240 }}>
+                      {sem?.id ? (() => { const t = semVal(sem, 'objetivo'); return (
+                        <div className="tl-inl" onClick={ev => editarSemanaCliente(ev, l, sem)} title={t ? 'Lo ve el cliente en su semana:\n\n' + textoPlano(t) + '\n\nClic para editar' : 'Clic para escribir el texto de la semana'}
+                          style={{ cursor: 'text', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 230, color: t ? 'var(--text2)' : 'var(--text3)' }}>
+                          {t ? textoPlano(t).replace(/\n/g, ' · ') : 'Texto para el cliente…'}
+                        </div>) })() : null}
                     </td>
                     <td style={{ padding: '0 6px', minWidth: 220 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1185,6 +1284,76 @@ export default function TimelinePlan({
           </table>
         </div>
         <div style={{ fontSize: 11, color: 'var(--text3)', margin: '8px 2px 0' }}>Clic en un día para editar sus contenidos · arrastra un día a otro para moverlo entero (Alt o modo Copiar: copiar) · km y nota de la semana se editan ahí mismo · el punto indica que hay nota · la esquina, un segundo valor del grupo de color · clic en el nº de semana para abrirla.</div>
+      </div>
+    )
+  }
+
+  function notaVis(n) { return n.visibilidad === 'cliente' ? 'cliente' : 'entrenadora' }
+  function FilaNotas({ vis, lunesList, dias, WS, GAP, COL, W, micro }) {
+    const cli = vis === 'cliente'
+    const clave = cli ? 'notc' : 'noti'
+    const maxN = Math.max(0, ...dias.map(d => dia(d).notas.filter(n => notaVis(n) === vis).length))
+    const altoDias = Math.max(micro ? 46 : 40, maxN * (micro ? 40 : 34) + 24) + ex(clave)
+    const color = cli ? '#2563eb' : '#64748b'
+    return (<>
+      <div style={{ display: 'flex', marginTop: cli ? 6 : 4 }}>
+        <Etiqueta g="not" texto={cli ? 'Para el cliente' : 'Notas internas'} icono={cli ? '👁' : '🔒'} alto={28 + altoDias} sub={cli ? 'Semana y días · lo ve en su vista' : 'Solo las ves tú'} />
+        <div style={{ display: 'flex', gap: GAP, width: W }}>
+          {lunesList.map(l => {
+            const sem = semanaPorLunes.get(k(l))
+            const tSem = cli ? [semVal(sem, 'objetivo'), semVal(sem, 'nota_cliente')].filter(Boolean).map(t => textoPlano(t)).join(' · ') : (semVal(sem, 'notas') ? textoPlano(semVal(sem, 'notas')) : '')
+            return (
+              <div key={k(l)} style={{ width: WS, background: GRUPOS.not.soft, borderRadius: 8, overflow: 'hidden' }}>
+                <div onClick={ev => sem?.id ? (cli ? editarSemanaCliente(ev, l, sem) : editarSemanaInterna(ev, l, sem)) : null} className="tl-cont"
+                  title={sem?.id ? (tSem ? `${cli ? 'Texto de la semana (lo ve el cliente)' : 'Nota interna de la semana'}\n\n${tSem}\n\nClic para editar` : 'Clic para escribir la ' + (cli ? 'explicación de la semana para el cliente' : 'nota interna de la semana')) : 'Esta semana no está en la planificación'}
+                  style={{ height: 26, margin: '1px 3px', padding: '0 8px', borderRadius: 6, display: 'flex', alignItems: 'center', gap: 6, cursor: sem?.id ? 'pointer' : 'default', background: tSem ? color + '12' : 'transparent', border: `1px ${tSem ? 'solid' : 'dashed'} ${color}${tSem ? '44' : '33'}` }}>
+                  <span style={{ fontSize: 9.5, fontWeight: 700, color, textTransform: 'uppercase', letterSpacing: '.04em', flexShrink: 0 }}>Semana</span>
+                  <span style={{ fontSize: 11, color: tSem ? 'var(--text2)' : 'var(--text3)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{tSem || (sem?.id ? '+ Añadir' : '')}</span>
+                </div>
+                <div style={{ display: 'flex', height: altoDias }}>
+                  {Array.from({ length: 7 }, (_, i) => addDays(l, i)).map((d, i) => {
+                    const ns = dia(d).notas.filter(n => notaVis(n) === vis)
+                    return (
+                      <div key={k(d)} className="tl-celda-ses" {...destinoItems(() => k(d))} style={{ width: COL, borderLeft: i ? '1px solid rgba(0,0,0,.05)' : 'none', padding: 3, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 3, background: isSameDay(d, hoy) ? 'rgba(45,106,79,.06)' : 'transparent' }}>
+                        {ns.map(n => (
+                          <div key={n.id} {...arrastrableItem(n, 'nota')} onClick={ev => editarNotaDia(ev, n)} title={`${cli ? '👁 La ve el cliente' : '🔒 Nota interna'}\n\n${n.texto}\n\nClic para editar · arrastra para mover`}
+                            style={{ fontSize: micro ? 11 : 9.5, lineHeight: 1.3, color: 'var(--text2)', background: '#fff', border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: 5, padding: '3px 5px', cursor: 'pointer', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor(((micro ? 40 : 34) + ex(clave) / Math.max(1, ns.length) - 8) / (micro ? 14 : 12.5))), WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{n.texto}</div>
+                        ))}
+                        <button className="tl-mas" onClick={ev => nuevaNotaDia(ev, d, vis)} title={`Nueva nota ${cli ? 'para el cliente' : 'interna'}`}
+                          style={{ marginTop: 'auto', alignSelf: 'center', border: `1px dashed ${color}88`, background: 'transparent', color, borderRadius: 6, fontSize: 12, width: 24, height: 18, cursor: 'pointer', lineHeight: 1 }}>+</button>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+      <BarraEstirar clave={clave} W={W} />
+    </>)
+  }
+  function FilaNotasMacro({ vis, semanasCols, COL, W }) {
+    const cli = vis === 'cliente'
+    const color = cli ? '#2563eb' : '#64748b'
+    return (
+      <div style={{ display: 'flex', marginTop: cli ? 6 : 3 }}>
+        <Etiqueta g="not" texto={cli ? 'Para el cliente' : 'Notas internas'} icono={cli ? '👁' : '🔒'} alto={34} />
+        <div style={{ display: 'flex', width: W, background: GRUPOS.not.soft, borderRadius: 8 }}>
+          {semanasCols.map(l => {
+            const sem = semanaPorLunes.get(k(l))
+            const tSem = cli ? [semVal(sem, 'objetivo'), semVal(sem, 'nota_cliente')].filter(Boolean).map(t => textoPlano(t)).join(' · ') : (semVal(sem, 'notas') ? textoPlano(semVal(sem, 'notas')) : '')
+            const ns = Array.from({ length: 7 }, (_, i) => addDays(l, i)).flatMap(d => dia(d).notas.filter(n => notaVis(n) === vis))
+            const lineas = [tSem ? 'Semana: ' + tSem : null, ...ns.map(n => `${format(parseISO(String(n.fecha).slice(0, 10)), 'EEE d', { locale: es })} · ${n.texto}`)].filter(Boolean)
+            return (
+              <div key={k(l)} onClick={() => { setCursor(l); cambiarVision('meso') }} title={lineas.length ? `${cli ? '👁 Para el cliente' : '🔒 Notas internas'}\n\n${lineas.join('\n')}\n\nClic para abrir la semana` : ''}
+                style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 3, cursor: lineas.length ? 'pointer' : 'default' }}>
+                {tSem && <span style={{ width: 8, height: 8, borderRadius: 2, background: color, opacity: .8 }} />}
+                {ns.length > 0 && <span style={{ minWidth: 16, height: 16, padding: '0 3px', borderRadius: 5, border: `1px solid ${color}66`, color, fontSize: 9.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#fff' }}>{ns.length}</span>}
+              </div>
+            )
+          })}
+        </div>
       </div>
     )
   }
@@ -1493,7 +1662,7 @@ export default function TimelinePlan({
                 )
               }} />
             </div>
-            {(() => { const nMax = Math.max(0, ...dias.map(d => { const x = dia(d); return x.comps.length + x.ctrls.length + x.notas.length + (x.ses.length ? 1 : 0) + (x.ses.some(z => z.tipo_sesion === 'opcional') ? 1 : 0) })); const multi = ex('ev') > 0; const altoEv = Math.max(micro ? 64 : 58, nMax * 21 + 10) + ex('ev'); return (<>
+            {(() => { const nMax = Math.max(0, ...dias.map(d => { const x = dia(d); return x.comps.length + x.ctrls.length + (x.ses.length ? 1 : 0) + (x.ses.some(z => z.tipo_sesion === 'opcional') ? 1 : 0) })); const multi = ex('ev') > 0; const altoEv = Math.max(micro ? 64 : 58, nMax * 21 + 10) + ex('ev'); return (<>
             <div style={{ display: 'flex', marginTop: 4 }}>
               <Etiqueta g="cal" texto="Eventos" icono="⚑" alto={altoEv} />
               <Celdas alto={altoEv} fondo={GRUPOS.cal.soft} render={d => {
@@ -1506,10 +1675,9 @@ export default function TimelinePlan({
                     {x.ctrls.map(c => <Chip key={c.id} onClick={() => onAbrirControl?.(c)} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'control')}>🔬 {c.nombre}</Chip>)}
                     {entreno > 0 && <Chip bg="var(--accent)" color="#fff" titulo={`${entreno} sesión(es)`}>Entreno{entreno > 1 ? ` ×${entreno}` : ''}</Chip>}
                     {opc > 0 && <Chip bg="transparent" color="var(--accent)" borde={`1px dashed var(--accent)`} titulo="Sesión opcional">☆{COL >= 90 ? ' Opcional' : ''}{opc > 1 ? ` ×${opc}` : ''}</Chip>}
-                    {x.notas.map(n => <Chip key={n.id} onClick={() => onAbrirNota?.(n)} bg="#f1f5f9" color="#475569" borde="1px solid #cbd5e1" titulo={n.texto} multi={multi} {...arrastrableItem(n, 'nota')}>📝 {n.texto}</Chip>)}
                     {(onNuevaCompeticion || onNuevaValoracion || onNuevaNota) && (
                       <div className="tl-mas" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'center', gap: 2 }}>
-                        {[[onNuevaCompeticion, '🏆', 'Nueva competición'], [onNuevaValoracion, '🔬', 'Nueva valoración'], [onNuevaNota, '📝', 'Nueva nota']].filter(([f]) => f).map(([f, ic, t]) => (
+                        {[[onNuevaCompeticion, '🏆', 'Nueva competición'], [onNuevaValoracion, '🔬', 'Nueva valoración']].filter(([f]) => f).map(([f, ic, t]) => (
                           <button key={t} onClick={() => f(k(d))} title={t} style={{ border: '1px dashed var(--border2)', background: 'var(--surface)', borderRadius: 5, fontSize: 10, padding: '0 3px', cursor: 'pointer', lineHeight: '16px' }}>{ic}</button>
                         ))}
                       </div>
@@ -1587,6 +1755,9 @@ export default function TimelinePlan({
               <BarraEstirar clave="ses" W={W} />
             </>)
           })()}
+
+          {/* Notas: para el cliente e internas (semana + días) */}
+          {grupos.not && ['cliente', 'entrenadora'].map(vis => <FilaNotas key={vis} vis={vis} lunesList={lunesList} dias={dias} WS={WS} GAP={GAP} COL={COL} W={W} micro={micro} />)}
           
         </div>
       </div>
@@ -1626,7 +1797,7 @@ export default function TimelinePlan({
     const est = estadoColor(s, fb)
     const opc = s.tipo_sesion === 'opcional'
     return (
-      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={() => onAbrirSesion?.(s)} title={[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null, editableCal ? 'Arrastra para mover (Alt: copiar)' : null].filter(Boolean).join(' · ')}
+      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={() => onAbrirSesion?.(s)} title={[[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null].filter(Boolean).join(' · '), s.indicaciones ? '\n👁 ' + textoPlano(s.indicaciones).slice(0, 220) : null, s.notas_entrenador ? '\n🔒 ' + textoPlano(s.notas_entrenador).slice(0, 220) : null, editableCal ? '\nArrastra para mover (Alt: copiar)' : null].filter(Boolean).join('\n')}
         style={{ position: 'relative', height: alto, flexShrink: 0, borderRadius: 8, background: '#fff', border: `1px ${opc ? 'dashed' : 'solid'} ${GRUPOS.pro.color}${opc ? '88' : '55'}`, boxShadow: '0 1px 2px rgba(0,0,0,.05)', padding: micro ? '7px 9px' : '5px 6px', cursor: 'pointer', overflow: 'hidden', boxSizing: 'border-box', opacity: opc ? .85 : 1 }}>
         {est && <span style={{ position: 'absolute', top: 5, right: 5, width: 7, height: 7, borderRadius: 4, background: est }} />}
         {editableCal && (onCopiar || onEliminar) && (
