@@ -68,6 +68,15 @@ function prescripcion(e) {
 }
 
 /* ── Contenido de la previsualización (bloques + ejercicios) ─────────────── */
+/** Etiqueta para sesiones opcionales (voluntarias) */
+export function BadgeOpcional({ corto }) {
+  return (
+    <span title="Sesión opcional: hazla solo si te apetece" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: corto ? 9 : 9.5, fontWeight: 700, padding: corto ? '0 5px' : '1px 7px', borderRadius: 99, border: '1px dashed #9a8f5c', color: '#7a6c2a', background: '#fbf7e6', whiteSpace: 'nowrap', lineHeight: 1.5, fontFamily: 'inherit' }}>
+      ☆ {corto ? 'opc.' : 'Opcional'}
+    </span>
+  )
+}
+
 export function DetalleSesion({ T, detalle }) {
   if (!detalle) {
     return <div style={{ fontSize: 11.5, color: T.ink3, padding: '6px 0' }}>Cargando ejercicios…</div>
@@ -350,9 +359,12 @@ export default function CalendarioPortal({
                             onMouseEnter={hoverReal ? ev => entrarSesion(ev, s) : undefined}
                             onMouseLeave={hoverReal ? salirSesion : undefined}
                             onClick={ev => clicSesion(ev, s)}
-                            style={{ fontSize: 11, fontWeight: 600, color: T.ink, background: activa ? `${color || T.green}1f` : T.surface, border: `1px solid ${activa ? (color || T.green) : T.border}`, borderLeft: `3px solid ${color || T.green}`, borderRadius: 6, padding: '4px 6px', cursor: 'pointer', lineHeight: 1.25, display: 'flex', gap: 5, alignItems: 'flex-start' }}>
+                            style={{ fontSize: 11, fontWeight: 600, color: s.tipo_sesion === 'opcional' ? T.ink2 : T.ink, background: activa ? `${color || T.green}1f` : T.surface, border: `1px ${s.tipo_sesion === 'opcional' ? 'dashed' : 'solid'} ${activa ? (color || T.green) : s.tipo_sesion === 'opcional' ? T.border2 || T.border : T.border}`, borderLeft: `3px ${s.tipo_sesion === 'opcional' ? 'dashed' : 'solid'} ${color || T.green}`, borderRadius: 6, padding: '4px 6px', cursor: 'pointer', lineHeight: 1.25, display: 'flex', gap: 5, alignItems: 'flex-start' }}>
                             <span style={{ flexShrink: 0 }}>{iconoSesion(s)}</span>
-                            <span style={{ flex: 1, minWidth: 0, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{s.titulo}</span>
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <span style={{ display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{s.titulo}</span>
+                              {s.tipo_sesion === 'opcional' && <span style={{ display: 'block', marginTop: 2 }}><BadgeOpcional corto /></span>}
+                            </span>
                             {conEstado && colorEstado(s.estado_efectivo) && <span style={{ width: 7, height: 7, borderRadius: 4, background: colorEstado(s.estado_efectivo), flexShrink: 0, marginTop: 3 }} />}
                           </div>
                         )
@@ -379,7 +391,7 @@ export default function CalendarioPortal({
               <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
                 <span style={{ fontSize: 18 }}>{iconoSesion(hover.ses)}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{hover.ses.titulo}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{hover.ses.titulo} {hover.ses.tipo_sesion === 'opcional' && <BadgeOpcional />}</div>
                   <div style={{ fontFamily: T.mono, fontSize: 9.5, color: T.ink3, marginTop: 2, textTransform: 'capitalize' }}>{format(fechaLocal(fechaVisualSesion(hover.ses)), "EEEE d MMM", { locale: es })}</div>
                 </div>
               </div>
@@ -471,7 +483,7 @@ export default function CalendarioPortal({
                     <div key={s.id} style={{ background: T.surface, border: `1px solid ${T.border}`, borderLeft: `3px solid ${color || T.green}`, borderRadius: 8, padding: '10px 11px' }}>
                       <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 8 }}>
                         <span style={{ fontSize: 17 }}>{iconoSesion(s)}</span>
-                        <div style={{ flex: 1, fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{s.titulo}</div>
+                        <div style={{ flex: 1, fontSize: 13, fontWeight: 700, lineHeight: 1.3 }}>{s.titulo} {s.tipo_sesion === 'opcional' && <BadgeOpcional />}</div>
                         {conEstado && colorEstado(s.estado_efectivo) && <span style={{ width: 8, height: 8, borderRadius: 4, background: colorEstado(s.estado_efectivo), marginTop: 5 }} />}
                       </div>
                       <DetalleSesion T={T} detalle={detalles[s.token_publico]} />
