@@ -10,6 +10,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { format, parseISO, addDays, addWeeks, startOfWeek, differenceInCalendarDays, isSameDay, isSameMonth, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, startOfDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { textoPlano, tituloTexto } from './TextoEstructurado'
+import { supabase } from '../lib/supabase'
 
 const GRUPOS = {
   cal: { label: 'Calendarización', color: '#2f6fdb', bg: '#eef3fd', soft: '#f6f9fe', icono: '▣' },
@@ -161,6 +162,76 @@ function SelectorPeriodo({ rango, onCambiar, planIni, planFin }) {
 }
 const btnFlecha = { width: 26, height: 26, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer', fontSize: 14, lineHeight: 1, color: 'var(--text2)' }
 
+
+// ── Contenidos de planificación ─────────────────────────────────────────────
+const PALETA_CONT = ['#b7791f', '#2f6fdb', '#2f9e63', '#cf4646', '#7c5cd6', '#0e8a8a', '#c2185b', '#5d6b7a', '#e07a1f', '#3f7d20']
+export function colorContenido(texto) {
+  let h = 0; const t = (texto || '').trim().toLowerCase()
+  for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0
+  return PALETA_CONT[h % PALETA_CONT.length]
+}
+function ChipContenido({ texto, color, peque, onQuitar }) {
+  const c = color || colorContenido(texto)
+  return (
+    <span title={texto} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, maxWidth: '100%', fontSize: peque ? 9 : 10, fontWeight: 700, lineHeight: 1.3, padding: peque ? '1px 5px' : '2px 6px', borderRadius: 6, background: c + '1a', color: c, border: `1px solid ${c}55`, boxSizing: 'border-box' }}>
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{texto}</span>
+      {onQuitar && <span onClick={e => { e.stopPropagation(); onQuitar() }} style={{ cursor: 'pointer', opacity: .7, fontSize: 11, lineHeight: 1 }} title="Quitar">×</span>}
+    </span>
+  )
+}
+function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQuitar, modoSemana }) {
+  const [texto, setTexto] = useState('')
+  const [alcance, setAlcance] = useState(modoSemana ? 'ses_semana' : 'dia')
+  const ref = useRef(null)
+  useEffect(() => { setTexto(''); setAlcance(modoSemana ? 'ses_semana' : 'dia') }, [abierto?.clave, modoSemana])
+  useEffect(() => {
+    if (!abierto) return
+    const fn = e => { if (ref.current && !ref.current.contains(e.target)) onCerrar() }
+    const t = setTimeout(() => document.addEventListener('mousedown', fn), 0)
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', fn) }
+  }, [abierto, onCerrar])
+  if (!abierto) return null
+  const enviar = t => { const v = (t ?? texto).trim(); if (!v) return; onAnadir(v, alcance); setTexto('') }
+  const sug = sugerencias.filter(x => !items.some(i => i.texto.toLowerCase() === x.toLowerCase()) && (!texto || x.toLowerCase().includes(texto.toLowerCase()))).slice(0, 12)
+  const left = Math.min(abierto.x, window.innerWidth - 330), top = Math.min(abierto.y, window.innerHeight - 320)
+  const opciones = modoSemana
+    ? [['ses_semana', 'Días con sesión'], ['semana', 'Toda la semana']]
+    : [['dia', 'Este día'], ['ses_semana', 'Días con sesión de la semana'], ['semana', 'Toda la semana']]
+  return (
+    <div ref={ref} style={{ position: 'fixed', left, top, width: 310, zIndex: 80, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,.16)', padding: 12, fontFamily: 'var(--font)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 9.5, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.05em', color: GRUPOS.pla.color }}>Contenidos</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{abierto.titulo}</div>
+        </div>
+        <button onClick={onCerrar} style={{ border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: 'var(--text3)' }}>×</button>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10, minHeight: 20 }}>
+        {items.length ? items.map(i => <ChipContenido key={i.texto} texto={i.texto} color={i.color} onQuitar={() => onQuitar(i.ids)} />)
+          : <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>Todavía no hay contenidos.</span>}
+      </div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        <input autoFocus value={texto} onChange={e => setTexto(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') enviar(); if (e.key === 'Escape') onCerrar() }}
+          placeholder="p. ej. Fuerza máxima, Umbral, Técnica…" style={{ flex: 1, padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12.5, fontFamily: 'inherit', background: 'var(--bg)' }} />
+        <button onClick={() => enviar()} disabled={!texto.trim()} style={{ padding: '0 12px', borderRadius: 8, border: 'none', background: texto.trim() ? 'var(--accent)' : 'var(--bg3)', color: '#fff', fontWeight: 600, fontSize: 12.5, cursor: texto.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}>Añadir</button>
+      </div>
+      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
+        {opciones.map(([v, l]) => (
+          <button key={v} onClick={() => setAlcance(v)} style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${alcance === v ? 'var(--accent)' : 'var(--border)'}`, background: alcance === v ? 'var(--accent-light)' : 'transparent', color: alcance === v ? 'var(--accent-text)' : 'var(--text2)', fontWeight: alcance === v ? 600 : 400 }}>{l}</button>
+        ))}
+      </div>
+      {sug.length > 0 && (
+        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 5 }}>Usados en este plan (clic para añadir)</div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {sug.map(x => <span key={x} onClick={() => enviar(x)} style={{ cursor: 'pointer' }}><ChipContenido texto={x} peque /></span>)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Componente principal ────────────────────────────────────────────────────
 export default function TimelinePlan({
   planificacion, bloques, subbloques, semanasAll, sesiones, competiciones, controles, notas, feedbacks,
@@ -202,6 +273,51 @@ export default function TimelinePlan({
   }, [sesiones, competiciones, controles, notas])
   const vacio = { ses: [], comps: [], ctrls: [], notas: [] }
   const dia = d => porDia.get(k(d)) || vacio
+
+  // ── Contenidos de planificación ──
+  const [contenidos, setContenidos] = useState([])
+  const [editorCont, setEditorCont] = useState(null) // { clave, titulo, x, y, fecha, lunes, modoSemana }
+  useEffect(() => {
+    let vivo = true
+    supabase.from('planificacion_contenidos').select('*').eq('planificacion_id', planificacion.id).order('fecha').order('orden')
+      .then(({ data }) => { if (vivo) setContenidos(data || []) })
+    return () => { vivo = false }
+  }, [planificacion.id])
+  const contPorDia = useMemo(() => {
+    const m = new Map(); contenidos.forEach(c => { const kk = String(c.fecha).slice(0, 10); if (!m.has(kk)) m.set(kk, []); m.get(kk).push(c) }); return m
+  }, [contenidos])
+  const contDia = d => contPorDia.get(k(d)) || []
+  const agruparCont = lista => {
+    const g = new Map(); lista.forEach(c => { const key = c.texto.trim().toLowerCase(); if (!g.has(key)) g.set(key, { texto: c.texto, color: c.color, ids: [] }); g.get(key).ids.push(c.id) }); return [...g.values()]
+  }
+  const sugerencias = useMemo(() => [...new Set(contenidos.map(c => c.texto.trim()))].sort((a, b) => a.localeCompare(b, 'es')), [contenidos])
+  async function anadirContenido(texto, alcance) {
+    const ed = editorCont; if (!ed) return
+    const l = ed.lunes
+    let fechas = []
+    if (alcance === 'dia' && ed.fecha) fechas = [ed.fecha]
+    else if (alcance === 'semana') fechas = Array.from({ length: 7 }, (_, i) => addDays(l, i))
+    else { fechas = Array.from({ length: 7 }, (_, i) => addDays(l, i)).filter(d => dia(d).ses.length); if (!fechas.length) fechas = [ed.fecha || l] }
+    const filas = fechas.filter(d => !contDia(d).some(c => c.texto.trim().toLowerCase() === texto.toLowerCase()))
+      .map(d => ({ planificacion_id: planificacion.id, fecha: k(d), texto, color: contenidos.find(c => c.texto.trim().toLowerCase() === texto.toLowerCase())?.color || colorContenido(texto), orden: contDia(d).length }))
+    if (!filas.length) return
+    const { data, error } = await supabase.from('planificacion_contenidos').insert(filas).select()
+    if (error) { alert('No se pudo guardar: ' + error.message); return }
+    setContenidos(cs => [...cs, ...(data || [])])
+  }
+  async function quitarContenido(ids) {
+    setContenidos(cs => cs.filter(c => !ids.includes(c.id)))
+    await supabase.from('planificacion_contenidos').delete().in('id', ids)
+  }
+  const abrirEditorDia = (ev, d) => {
+    const r = ev.currentTarget.getBoundingClientRect()
+    setEditorCont({ clave: 'd' + k(d), titulo: format(d, "EEEE d 'de' MMMM", { locale: es }), x: r.left, y: r.bottom + 6, fecha: d, lunes: lunes(d), modoSemana: false })
+  }
+  const abrirEditorSemana = (ev, l) => {
+    const r = ev.currentTarget.getBoundingClientRect()
+    setEditorCont({ clave: 's' + k(l), titulo: `Semana ${numSemana(l) || ''} · ${format(l, 'd MMM', { locale: es })} – ${format(addDays(l, 6), 'd MMM', { locale: es })}`, x: r.left, y: r.bottom + 6, fecha: null, lunes: l, modoSemana: true })
+  }
+  const itemsEditor = editorCont ? agruparCont(editorCont.modoSemana ? Array.from({ length: 7 }, (_, i) => contDia(addDays(editorCont.lunes, i))).flat() : contDia(editorCont.fecha)) : []
 
   // Variables de carga con datos para este cliente
   const varsDisponibles = useMemo(() => {
@@ -289,6 +405,9 @@ export default function TimelinePlan({
         {vision === 'meso' && <VistaSemanas semanas={3} />}
         {vision === 'micro' && <VistaSemanas semanas={1} micro />}
       </div>
+      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}`}</style>
+      <EditorContenidos abierto={editorCont} onCerrar={() => setEditorCont(null)} items={itemsEditor} sugerencias={sugerencias}
+        onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} />
     </div>
   )
 
@@ -400,6 +519,26 @@ export default function TimelinePlan({
               </div>
             </div>
           )}
+
+          {grupos.pla && (() => {
+            const porSem = semanasCols.map(d => agruparCont(Array.from({ length: 7 }, (_, i) => contDia(addDays(d, i))).flat()))
+            const maxN = Math.max(1, ...porSem.map(x => x.length))
+            const alto = Math.max(56, Math.min(6, maxN) * 19 + 14)
+            return (
+              <div style={{ display: 'flex', marginTop: 4 }}>
+                <Etiqueta g="pla" texto="Contenidos" icono="▤" alto={alto} sub="Clic en una semana para añadir" />
+                <div style={{ display: 'flex', width: W, height: alto, background: GRUPOS.pla.soft, borderRadius: 8 }}>
+                  {semanasCols.map((d, i) => (
+                    <div key={k(d)} onClick={ev => abrirEditorSemana(ev, d)} className="tl-cont"
+                      style={{ width: COL - 3, margin: '0 1.5px', padding: '5px 0', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center', cursor: 'pointer', borderRadius: 6, overflow: 'hidden' }}>
+                      {porSem[i].slice(0, 6).map(c => <span key={c.texto} style={{ width: '92%', display: 'flex' }}><ChipContenido texto={COL < 44 ? c.texto.slice(0, 3) : c.texto} color={c.color} peque /></span>)}
+                      {porSem[i].length > 6 && <span style={{ fontSize: 9, color: 'var(--text3)' }}>+{porSem[i].length - 6}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
 
           {grupos.pro && (
             <div style={{ display: 'flex', marginTop: 6 }}>
@@ -589,6 +728,23 @@ export default function TimelinePlan({
             </div>
           )}
 
+          {/* Planificación: contenidos del día */}
+          {grupos.pla && (() => {
+            const maxN = Math.max(1, ...dias.map(d => agruparCont(contDia(d)).length))
+            const alto = Math.max(micro ? 64 : 58, maxN * (micro ? 23 : 21) + 14)
+            return (
+              <div style={{ display: 'flex', marginTop: 4 }}>
+                <Etiqueta g="pla" texto="Contenidos" icono="▤" alto={alto} sub="Clic en un día para añadir" />
+                <Celdas alto={alto} fondo={GRUPOS.pla.soft} render={d => (
+                  <div className="tl-cont" onClick={ev => abrirEditorDia(ev, d)} style={{ position: 'absolute', inset: 0, padding: 4, display: 'flex', flexDirection: 'column', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
+                    {agruparCont(contDia(d)).map(c => <ChipContenido key={c.texto} texto={c.texto} color={c.color} peque={!micro} />)}
+                    <span className="tl-mas-cont" style={{ marginTop: 'auto', alignSelf: 'center', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>
+                  </div>
+                )} />
+              </div>
+            )
+          })()}
+
           {/* Programación: sesiones */}
           {grupos.pro && (() => {
             const maxSes = Math.max(1, ...dias.map(d => dia(d).ses.length))
@@ -607,7 +763,7 @@ export default function TimelinePlan({
               </div>
             )
           })()}
-          <style>{`.tl-celda-ses .tl-mas{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas{opacity:1}`}</style>
+          
         </div>
       </div>
     )
