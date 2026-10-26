@@ -1384,7 +1384,7 @@ export default function TimelinePlan({
             const semanasTxt = Math.round((differenceInCalendarDays(it._fin, it._ini) + 1) / 7)
             return (
               <div key={it.id} onClick={editable ? undefined : () => onClick?.(it)} onMouseDown={editable ? ev => iniciarMover(ev, tipo, it, escala * 7, onClick) : undefined}
-                title={`${it.nombre} · ${format(it._ini, 'd MMM', { locale: es })} – ${format(it._fin, 'd MMM', { locale: es })} (${semanasTxt} sem.)${it.objetivo ? '\n' + it.objetivo : ''}${editable ? '\nClic para editar · arrastra para mover · arrastra el borde derecho para cambiar la duración' : ''}`}
+                title={`${it.nombre} · ${format(it._ini, 'd MMM', { locale: es })} – ${format(it._fin, 'd MMM', { locale: es })} (${semanasTxt} sem.)${(it.objetivo || it.notas) ? '\n\n' + (it.objetivo || it.notas) : ''}${editable ? '\nClic para editar · arrastra para mover · arrastra el borde derecho para cambiar la duración' : ''}`}
                 style={{ position: 'absolute', left: x + 1.5, width: Math.max(4, Math.min(w, W - x) - 3), top: 3, bottom: 3, borderRadius: 7, cursor: activo && arrastre.modo === 'mover' ? 'grabbing' : editable ? 'grab' : 'pointer', overflow: 'hidden', userSelect: 'none',
                   background: grande ? col + '26' : col + '14', border: `1px ${it._empujado ? 'dashed' : 'solid'} ${activo || it._empujado ? col : col + '66'}`, boxShadow: activo ? `0 0 0 2px ${col}33` : 'none', zIndex: activo ? 2 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px 0 6px' }}>
                 <span style={{ fontSize: grande ? 11 : 10, fontWeight: grande ? 700 : 600, color: col, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.nombre}{activo ? (arrastre.modo === 'mover' ? ` · ${format(it._ini, 'd MMM', { locale: es })}` : ` · ${semanasTxt} sem.`) : ''}</span>
@@ -1607,7 +1607,7 @@ export default function TimelinePlan({
                   const x = differenceInCalendarDays(a, l) * COL, w = (differenceInCalendarDays(b, a) + 1) * COL
                   const col = it._bloque?.color || it.color || '#2d6a4f'
                   return (
-                    <div key={it.id} onClick={() => onClick?.(it)} title={`${it.nombre}${it.objetivo ? '\n' + it.objetivo : ''}`}
+                    <div key={it.id} onClick={() => onClick?.(it)} title={`${it.nombre}${(it.objetivo || it.notas) ? '\n\n' + (it.objetivo || it.notas) : ''}`}
                       style={{ position: 'absolute', left: x + 3, width: w - 6, top: 3, bottom: 3, borderRadius: 7, cursor: 'pointer', background: grande ? col + '26' : col + '14', border: `1px solid ${col}66`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '0 6px' }}>
                       <span style={{ fontSize: grande ? 11 : 10, fontWeight: grande ? 700 : 600, color: col, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.nombre}</span>
                     </div>

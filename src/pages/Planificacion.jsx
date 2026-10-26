@@ -21,6 +21,8 @@ function calcFechaInicioSemana(bloque, numSemana) {
 function calcFechaFinSemana(bloque, numSemana) {
   return addWeeks(parseISO(bloque.fecha_inicio), numSemana)
 }
+// Semanas de un rango de fechas con fin incluido (lunes → domingo = 1 semana)
+function semanasEntre(ini, fin) { return Math.max(1, Math.round((differenceInDays(parseISO(fin), parseISO(ini)) + 1) / 7)) }
 function calcTotalSemanas(bloques) {
   return bloques.reduce((s, b) => s + b.semanas, 0)
 }
@@ -550,8 +552,8 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         )
         const semanasDefault = item?.semanas || 4
         const fechaFinDefault = item?.fecha_inicio
-          ? format(addWeeks(parseISO(item.fecha_inicio), item.semanas), 'yyyy-MM-dd')
-          : (fechaInicioDefault ? format(addWeeks(parseISO(fechaInicioDefault), semanasDefault), 'yyyy-MM-dd') : '')
+          ? format(addDays(addWeeks(parseISO(item.fecha_inicio), item.semanas), -1), 'yyyy-MM-dd')
+          : (fechaInicioDefault ? format(addDays(addWeeks(parseISO(fechaInicioDefault), semanasDefault), -1), 'yyyy-MM-dd') : '')
         return {
           nombre:             item?.nombre             || '',
           color:              item?.color              || '#2d6a4f',
@@ -566,12 +568,16 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
           enfoque:            item?.enfoque            || [],
         }
       }
-      case 'subbloque':
+      case 'subbloque': {
+        const bSub = bloques.find(x => x.id === (item?.bloque_id || bloques[0]?.id))
+        const sIni = item?.semana_inicio || 1, sFin = item?.semana_fin || sIni
         return {
           bloque_id:          item?.bloque_id          || bloques[0]?.id || '',
           nombre:             item?.nombre             || '',
-          semana_inicio:      item?.semana_inicio      || 1,
-          semana_fin:         item?.semana_fin         || 1,
+          semana_inicio:      sIni,
+          semana_fin:         sFin,
+          fecha_inicio:       bSub?.fecha_inicio ? format(addWeeks(parseISO(bSub.fecha_inicio), sIni - 1), 'yyyy-MM-dd') : '',
+          fecha_fin:          bSub?.fecha_inicio ? format(addDays(addWeeks(parseISO(bSub.fecha_inicio), sFin), -1), 'yyyy-MM-dd') : '',
           notas:              item?.notas              || '',
           zona1_2:            item?.zona1_2            || 0,
           zona3_4:            item?.zona3_4            || 0,
@@ -585,6 +591,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
           enfoque:            item?.enfoque            || [],
           enfoque_prioridad:  item?.enfoque_prioridad  || {},
         }
+      }
       case 'semana': {
         // item = { bloque, numero, semanaData }
         const sem = item?.semanaData
@@ -812,7 +819,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
 
         case 'bloque': {
           if (!formData.nombre || !formData.fecha_inicio || !formData.fecha_fin) break
-          const semanasCalculadas = Math.max(1, differenceInWeeks(parseISO(formData.fecha_fin), parseISO(formData.fecha_inicio)))
+          const semanasCalculadas = semanasEntre(formData.fecha_inicio, formData.fecha_fin)
 
           // 5.6: Validar no-solapamiento con otros bloques de la misma planificación
           let cascadeExtraSemanas = 0
@@ -831,13 +838,13 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               const extraSemanas = semanasCalculadas - (modalItem?.semanas || 0)
               if (modalItem?.id && extraSemanas > 0) {
                 const ok = window.confirm(
-                  `Este bloque se solapa con «${conflicto.nombre}» porque lo has alargado ${extraSemanas} semana${extraSemanas === 1 ? '' : 's'}.\n\n¿Desplazar todos los bloques posteriores ${extraSemanas} semana${extraSemanas === 1 ? '' : 's'} hacia adelante?`
+                  `Este periodo se solapa con «${conflicto.nombre}» porque lo has alargado ${extraSemanas} semana${extraSemanas === 1 ? '' : 's'}.\n\n¿Desplazar todos los periodos posteriores ${extraSemanas} semana${extraSemanas === 1 ? '' : 's'} hacia adelante?`
                 )
                 if (!ok) break
                 cascadeExtraSemanas = extraSemanas
               } else {
                 const finConflicto = format(addDays(parseISO(conflicto.fecha_inicio), conflicto.semanas * 7 - 1), 'd MMM yyyy', { locale: es })
-                alert(`Este bloque se solapa con «${conflicto.nombre}» (${format(parseISO(conflicto.fecha_inicio), 'd MMM yyyy', { locale: es })} – ${finConflicto}).\n\nModifica la fecha de inicio o la duración.`)
+                alert(`Este periodo se solapa con «${conflicto.nombre}» (${format(parseISO(conflicto.fecha_inicio), 'd MMM yyyy', { locale: es })} – ${finConflicto}).\n\nModifica la fecha de inicio o la duración.`)
                 break
               }
             }
@@ -906,17 +913,24 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
 
         case 'subbloque': {
           if (!formData.nombre || !formData.bloque_id) break
+          const bSel = bloques.find(x => x.id === formData.bloque_id)
+          let semIni = parseInt(formData.semana_inicio) || 1, semFin = parseInt(formData.semana_fin) || semIni
+          if (bSel?.fecha_inicio && formData.fecha_inicio && formData.fecha_fin) {
+            semIni = Math.floor(differenceInDays(parseISO(formData.fecha_inicio), parseISO(bSel.fecha_inicio)) / 7) + 1
+            semFin = Math.floor(differenceInDays(parseISO(formData.fecha_fin), parseISO(bSel.fecha_inicio)) / 7) + 1
+            if (semFin < semIni) { alert('La fecha de fin es anterior a la de inicio.'); break }
+            if (semIni < 1 || semFin > (bSel.semanas || 1)) {
+              const finP = format(addDays(addWeeks(parseISO(bSel.fecha_inicio), bSel.semanas || 1), -1), 'd MMM yyyy', { locale: es })
+              alert(`El subperiodo tiene que estar dentro de su periodo «${bSel.nombre}» (${format(parseISO(bSel.fecha_inicio), 'd MMM yyyy', { locale: es })} – ${finP}).`)
+              break
+            }
+          }
           const datos = {
             bloque_id:          formData.bloque_id,
             nombre:             formData.nombre,
-            semana_inicio:      parseInt(formData.semana_inicio),
-            semana_fin:         parseInt(formData.semana_fin),
+            semana_inicio:      semIni,
+            semana_fin:         semFin,
             notas:              formData.notas || null,
-            zona1_2:            parseInt(formData.zona1_2) || 0,
-            zona3_4:            parseInt(formData.zona3_4) || 0,
-            zona5:              parseInt(formData.zona5) || 0,
-            km_min:             formData.km_min ? parseInt(formData.km_min) : null,
-            km_max:             formData.km_max ? parseInt(formData.km_max) : null,
             sesiones_min:       formData.sesiones_min ? parseInt(formData.sesiones_min) : null,
             sesiones_max:       formData.sesiones_max ? parseInt(formData.sesiones_max) : null,
             duracion_media_min: formData.duracion_media_min ? parseInt(formData.duracion_media_min) : null,
@@ -1053,8 +1067,8 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     const tipo = tipoArg || modalTipo
     const id   = idArg   || modalItem?.id
     const mensajes = {
-      bloque:    '¿Eliminar este bloque? Se eliminarán también sus sub bloques y semanas.',
-      subbloque: '¿Eliminar este sub bloque?',
+      bloque:    '¿Eliminar este periodo? Se eliminarán también sus subperiodos.',
+      subbloque: '¿Eliminar este subperiodo?',
       sesion:    '¿Eliminar esta sesión?',
       comp:      '¿Eliminar esta competición?',
       control:   '¿Eliminar este control?',
@@ -1083,8 +1097,8 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     return {
       plan_nuevo:  'Nueva planificación',
       plan_editar: 'Editar planificación',
-      bloque:      esEditar ? 'Editar bloque'              : 'Nuevo bloque',
-      subbloque:   esEditar ? 'Editar sub bloque'          : 'Nuevo sub bloque',
+      bloque:      esEditar ? 'Editar periodo'             : 'Nuevo periodo',
+      subbloque:   esEditar ? 'Editar subperiodo'          : 'Nuevo subperiodo',
       semana:      (() => {
         const b   = modalItem?.bloque
         const num = modalItem?.numero
@@ -1105,7 +1119,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   }
 
   function getTituloCrear() {
-    return { plan_nuevo: 'Crear planificación', bloque: 'Crear bloque', subbloque: 'Crear sub bloque', semana: 'Guardar semana', sesion: 'Añadir sesión', comp: 'Añadir competición', control: 'Añadir control', nota: 'Añadir nota' }[modalTipo] || 'Guardar'
+    return { plan_nuevo: 'Crear planificación', bloque: 'Crear periodo', subbloque: 'Crear subperiodo', semana: 'Guardar semana', sesion: 'Añadir sesión', comp: 'Añadir competición', control: 'Añadir control', nota: 'Añadir nota' }[modalTipo] || 'Guardar'
   }
 
   function renderFormulario() {
@@ -1195,14 +1209,14 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                 <input className="form-input" type="date" value={formData.fecha_fin || ''} onChange={e => fd('fecha_fin', e.target.value)} />
               </div>
             </div>
-            {formData.fecha_inicio && formData.fecha_fin && parseISO(formData.fecha_fin) > parseISO(formData.fecha_inicio) && (
+            {formData.fecha_inicio && formData.fecha_fin && parseISO(formData.fecha_fin) >= parseISO(formData.fecha_inicio) && (
               <div style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 500, marginTop: -8, marginBottom: 12 }}>
-                → {Math.max(1, differenceInWeeks(parseISO(formData.fecha_fin), parseISO(formData.fecha_inicio)))} semanas
+                → {semanasEntre(formData.fecha_inicio, formData.fecha_fin)} semanas
               </div>
             )}
             <div className="form-group">
-              <label className="form-label">Objetivo</label>
-              <textarea className="form-textarea" value={formData.objetivo || ''} onChange={e => fd('objetivo', e.target.value)} placeholder="Ej: Desarrollar base aeróbica" />
+              <label className="form-label">Descripción</label>
+              <textarea className="form-textarea" value={formData.objetivo || ''} onChange={e => fd('objetivo', e.target.value)} placeholder="Qué buscamos en este periodo…" style={{ minHeight: 90 }} />
             </div>
             {esSalud && (() => {
               const prioridadB   = formData.enfoque_prioridad || {}
@@ -1280,7 +1294,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
             })()}
             {modalItem?.id && (
               <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', marginTop: 4 }}>
-                <button className="btn btn-ghost" style={{ color: 'var(--danger)', fontSize: 12 }} onClick={eliminarItem}>Eliminar bloque</button>
+                <button className="btn btn-ghost" style={{ color: 'var(--danger)', fontSize: 12 }} onClick={eliminarItem}>Eliminar periodo</button>
               </div>
             )}
           </div>
@@ -1294,9 +1308,9 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
           <div style={{ padding: '0 20px 4px' }}>
             {bloques.length > 1 && (
               <div className="form-group">
-                <label className="form-label">Bloque</label>
+                <label className="form-label">Periodo</label>
                 <select className="form-select" value={formData.bloque_id || ''} onChange={e => fd('bloque_id', e.target.value)}>
-                  {bloques.map((b, i) => <option key={b.id} value={b.id}>B{i + 1} {b.nombre}</option>)}
+                  {bloques.map((b, i) => <option key={b.id} value={b.id}>{b.nombre}</option>)}
                 </select>
               </div>
             )}
@@ -1306,76 +1320,30 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
             </div>
             <div className="form-row">
               <div className="form-group">
-                <label className="form-label">Semana inicio *</label>
-                <input className="form-input" type="number" min="1" value={formData.semana_inicio || 1} onChange={e => fd('semana_inicio', e.target.value)} />
-                {(() => {
-                  const b = bloques.find(x => x.id === formData.bloque_id)
-                  if (!b || !formData.semana_inicio) return null
-                  const f = calcFechaInicioSemana(b, parseInt(formData.semana_inicio))
-                  return <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 3, display: 'block' }}>{format(f, 'dd MMM yyyy', { locale: es })}</span>
-                })()}
+                <label className="form-label">Fecha inicio *</label>
+                <input className="form-input" type="date" value={formData.fecha_inicio || ''} onChange={e => fd('fecha_inicio', e.target.value)} />
               </div>
               <div className="form-group">
-                <label className="form-label">Semana fin *</label>
-                <input className="form-input" type="number" min="1" value={formData.semana_fin || 1} onChange={e => fd('semana_fin', e.target.value)} />
-                {(() => {
-                  const b = bloques.find(x => x.id === formData.bloque_id)
-                  if (!b || !formData.semana_fin) return null
-                  const f = calcFechaFinSemana(b, parseInt(formData.semana_fin))
-                  return <span style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 3, display: 'block' }}>{format(f, 'dd MMM yyyy', { locale: es })}</span>
-                })()}
+                <label className="form-label">Fecha fin *</label>
+                <input className="form-input" type="date" value={formData.fecha_fin || ''} onChange={e => fd('fecha_fin', e.target.value)} />
               </div>
             </div>
+            {(() => {
+              const b = bloques.find(x => x.id === formData.bloque_id)
+              if (!b?.fecha_inicio) return null
+              const finP = addDays(addWeeks(parseISO(b.fecha_inicio), b.semanas || 1), -1)
+              const n = formData.fecha_inicio && formData.fecha_fin && parseISO(formData.fecha_fin) >= parseISO(formData.fecha_inicio) ? semanasEntre(formData.fecha_inicio, formData.fecha_fin) : null
+              return <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: -8, marginBottom: 12 }}>
+                {n ? <span style={{ color: 'var(--accent)', fontWeight: 500 }}>→ {n} semana{n === 1 ? '' : 's'} · </span> : null}
+                Periodo «{b.nombre}»: {format(parseISO(b.fecha_inicio), 'd MMM', { locale: es })} – {format(finP, 'd MMM yyyy', { locale: es })}
+              </div>
+            })()}
             <div className="form-group">
-              <label className="form-label">Objetivos / Contenidos</label>
-              <textarea className="form-textarea" value={formData.notas || ''} onChange={e => fd('notas', e.target.value)} style={{ minHeight: 72 }} />
+              <label className="form-label">Descripción</label>
+              <textarea className="form-textarea" value={formData.notas || ''} onChange={e => fd('notas', e.target.value)} placeholder="Qué buscamos en este subperiodo…" style={{ minHeight: 90 }} />
             </div>
 
-            {perfil !== 'fuerza_salud' ? (
-              <>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Km/sem mín</label>
-                    <input className="form-input" type="number" min="0" value={formData.km_min || ''} onChange={e => fd('km_min', e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Km/sem máx</label>
-                    <input className="form-input" type="number" min="0" value={formData.km_max || ''} onChange={e => fd('km_max', e.target.value)} />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Distribución de zonas</label>
-                  {[{ key: 'zona1_2', label: 'Z1-Z2', color: '#10b981' }, { key: 'zona3_4', label: 'Z3-Z4', color: '#f59e0b' }, { key: 'zona5', label: 'Z5+', color: '#ef4444' }].map(zona => (
-                    <div key={zona.key} style={{ marginBottom: 10 }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 3 }}>
-                        <span style={{ fontSize: 12, fontWeight: 600, color: zona.color }}>{zona.label}</span>
-                        <span style={{ fontSize: 12, fontFamily: 'var(--mono)', fontWeight: 600 }}>{formData[zona.key] || 0}%</span>
-                      </div>
-                      <input type="range" min="0" max="100" value={formData[zona.key] || 0}
-                        onChange={e => {
-                          const val     = parseInt(e.target.value)
-                          const otras   = ['zona1_2', 'zona3_4', 'zona5'].filter(k => k !== zona.key)
-                          const totOtra = otras.reduce((s, k) => s + (formData[k] || 0), 0)
-                          const resto   = 100 - val
-                          if (resto < 0) return
-                          const nuevas  = {}
-                          if (totOtra === 0) otras.forEach(k => { nuevas[k] = Math.round(resto / otras.length) })
-                          else otras.forEach(k => { nuevas[k] = Math.round((formData[k] / totOtra) * resto) })
-                          setFormData(f => ({ ...f, [zona.key]: val, ...nuevas }))
-                        }}
-                        style={{ width: '100%', accentColor: zona.color }} />
-                    </div>
-                  ))}
-                  {((formData.zona1_2 || 0) + (formData.zona3_4 || 0) + (formData.zona5 || 0)) > 0 && (
-                    <div style={{ display: 'flex', height: 10, borderRadius: 5, overflow: 'hidden', marginTop: 4 }}>
-                      {(formData.zona1_2 || 0) > 0 && <div style={{ width: `${formData.zona1_2}%`, background: '#10b981' }} />}
-                      {(formData.zona3_4 || 0) > 0 && <div style={{ width: `${formData.zona3_4}%`, background: '#f59e0b' }} />}
-                      {(formData.zona5   || 0) > 0 && <div style={{ width: `${formData.zona5}%`,   background: '#ef4444' }} />}
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
+            {perfil === 'fuerza_salud' && (
               <>
                 <div className="form-row">
                   <div className="form-group">
@@ -1448,7 +1416,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
 
             {modalItem?.id && (
               <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', marginTop: 4 }}>
-                <button className="btn btn-ghost" style={{ color: 'var(--danger)', fontSize: 12 }} onClick={eliminarItem}>Eliminar sub bloque</button>
+                <button className="btn btn-ghost" style={{ color: 'var(--danger)', fontSize: 12 }} onClick={eliminarItem}>Eliminar subperiodo</button>
               </div>
             )}
           </div>
