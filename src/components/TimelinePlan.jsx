@@ -234,7 +234,13 @@ function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQ
               <div key={g.id} style={{ marginBottom: 6 }}>
                 <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text2)', marginBottom: 3 }}>{g.nombre}</div>
                 <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {ets.map(e => <span key={e.id} onClick={() => enviar(e.nombre, e)} style={{ cursor: 'pointer' }}><ChipContenido texto={e.nombre} color={e.color} peque /></span>)}
+                  {ets.filter(e => !e.padre_id || !ets.some(x => x.id === e.padre_id)).map(e => {
+                    const subs = ets.filter(x => x.padre_id === e.id)
+                    return [<span key={e.id} onClick={() => enviar(e.nombre, e)} style={{ cursor: 'pointer' }}><ChipContenido texto={e.nombre} color={e.color} peque /></span>,
+                      subs.length > 0 && <span key={e.id + 's'} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, paddingLeft: 3, borderLeft: `2px solid ${e.color}55` }}>
+                        {subs.map(sb => <span key={sb.id} onClick={() => enviar(sb.nombre, sb)} style={{ cursor: 'pointer', opacity: .85 }}><ChipContenido texto={sb.nombre} color={sb.color} peque /></span>)}
+                      </span>]
+                  })}
                 </div>
               </div>
             )
@@ -324,7 +330,19 @@ export default function TimelinePlan({
     const g = new Map(); lista.forEach(c => { const key = c.texto.trim().toLowerCase(); if (!g.has(key)) g.set(key, { texto: c.texto, color: c.color, etiqueta_id: c.etiqueta_id, ids: [] }); g.get(key).ids.push(c.id) }); return [...g.values()]
   }
   // Contenidos distintos de cada plan (filas cuando el plan está desplegado), por orden de aparición
-  const contenidosPlan = pid => agruparCont(contenidos.filter(c => c.planificacion_id === pid))
+  const contenidosPlan = pid => {
+    const lista = agruparCont(contenidos.filter(c => c.planificacion_id === pid))
+    const et = id => catEtiquetas.find(e => e.id === id)
+    const gOrd = id => { const i = catGrupos.findIndex(g => g.id === id); return i < 0 ? 999 : i }
+    const clave = (c, i) => {
+      const e = c.etiqueta_id && et(c.etiqueta_id)
+      if (!e) return [1000, 0, 0, i]
+      const p = e.padre_id ? et(e.padre_id) : null
+      return [gOrd(e.grupo_id), (p || e).orden ?? 0, p ? 1 + (e.orden ?? 0) : 0, i]
+    }
+    return lista.map((c, i) => ({ c, k: clave(c, i) })).sort((a, b) => { for (let j = 0; j < 4; j++) if (a.k[j] !== b.k[j]) return a.k[j] - b.k[j]; return 0 })
+      .map(({ c }) => ({ ...c, _sub: !!(c.etiqueta_id && et(c.etiqueta_id)?.padre_id) }))
+  }
   const sugerencias = useMemo(() => [...new Set(contenidos.map(c => c.texto.trim()))].sort((a, b) => a.localeCompare(b, 'es')), [contenidos])
   const colorDe = (texto, etiqueta) => etiqueta?.color || contenidos.find(c => c.texto.trim().toLowerCase() === texto.toLowerCase())?.color || colorContenido(texto)
   async function anadirContenido(texto, alcance, etiqueta) {
@@ -827,7 +845,7 @@ export default function TimelinePlan({
     const CW = 46, CHh = 34
     const selStyle = { fontSize: 11.5, padding: '3px 6px', borderRadius: 6, border: '1px solid var(--border)', background: 'var(--surface)', fontFamily: 'inherit', color: 'var(--text)' }
     // leyenda: etiquetas del grupo color usadas
-    const usadas = gColor ? catEtiquetas.filter(e => e.grupo_id === gColor.id && contenidos.some(c => c.etiqueta_id === e.id)) : []
+    const usadas = gColor ? catEtiquetas.filter(e => e.grupo_id === gColor.id && !e.padre_id && contenidos.some(c => c.etiqueta_id === e.id)) : []
     return (
       <div style={{ padding: '6px 16px 0' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', marginBottom: 10, fontSize: 12, color: 'var(--text2)' }}>
@@ -870,7 +888,11 @@ export default function TimelinePlan({
                     <td onClick={() => { setCursor(l); cambiarVision('meso') }} title="Abrir la semana en Visión Meso" style={{ fontWeight: 700, fontSize: 14, padding: '0 4px', cursor: 'pointer', color: esHoy ? GRUPOS.cal.color : 'var(--text)' }}>{numSemana(l) || ''}</td>
                     <td style={{ fontSize: 10.5, color: 'var(--text3)', whiteSpace: 'nowrap', paddingRight: 4 }}>{format(l, 'd MMM', { locale: es }).replace('.', '')}</td>
                     {Array.from({ length: 7 }, (_, i) => addDays(l, i)).map(d => {
-                      const cc = delGrupo(d, gColor), cod = delGrupo(d, gCod)
+                      const ccTodos = delGrupo(d, gColor), cod = delGrupo(d, gCod)
+                      const principales = ccTodos.filter(c => !etiq(c.etiqueta_id)?.padre_id)
+                      const padresSub = [...new Set(ccTodos.filter(c => etiq(c.etiqueta_id)?.padre_id).map(c => etiq(c.etiqueta_id).padre_id))].map(id => etiq(id)).filter(Boolean)
+                      const cc = principales.length ? principales : padresSub.slice(0, 1).map(e => ({ id: e.id, etiqueta_id: e.id, texto: e.nombre, color: e.color }))
+                      const secund = [...cc.slice(1).map(c => etiq(c.etiqueta_id)), ...padresSub.filter(e => !cc.some(c => c.etiqueta_id === e.id))].filter(Boolean)
                       const col = cc[0] ? (etiq(cc[0].etiqueta_id)?.color || cc[0].color) : null
                       const x = dia(d)
                       const todos = agruparCont(contDia(d))
@@ -883,7 +905,8 @@ export default function TimelinePlan({
                             style={{ width: CW, height: CHh, borderRadius: 5, background: col || (todos.length || x.notas.length ? 'var(--bg3)' : 'var(--bg2)'), color: claro ? '#18232b' : '#fff', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 11, fontWeight: 800, outline: isSameDay(d, hoy) ? `2px solid ${GRUPOS.cal.color}` : 'none', outlineOffset: 1 }}>
                             {cc[0] && <span style={{ opacity: .9 }}>{codigoEtiqueta(cc[0].texto).charAt(0)}</span>}
                             {cod.slice(0, 2).map(c => <span key={c.id} style={{ fontSize: 10, padding: '0 2px', borderRadius: 3, background: col ? 'rgba(0,0,0,.2)' : 'transparent', color: col ? 'inherit' : 'var(--text2)' }}>{codigoEtiqueta(c.texto)}</span>)}
-                            {cc.length > 1 && <span style={{ position: 'absolute', left: 0, top: 0, borderStyle: 'solid', borderWidth: '9px 9px 0 0', borderColor: `${etiq(cc[1].etiqueta_id)?.color || cc[1].color} transparent transparent transparent`, borderRadius: '5px 0 0 0' }} />}
+                            {secund[0] && <span title={'Secundario: ' + secund.map(e => e.nombre).join(', ')} style={{ position: 'absolute', left: 0, top: 0, borderStyle: 'solid', borderWidth: '10px 10px 0 0', borderColor: `${secund[0].color} transparent transparent transparent`, borderRadius: '5px 0 0 0' }} />}
+                            {secund[1] && <span style={{ position: 'absolute', right: 0, top: 0, borderStyle: 'solid', borderWidth: '0 10px 10px 0', borderColor: `transparent ${secund[1].color} transparent transparent`, borderRadius: '0 5px 0 0' }} />}
                             {x.notas.length > 0 && <span style={{ position: 'absolute', right: 3, bottom: 3, width: 4, height: 4, borderRadius: 9, background: col ? 'currentColor' : 'var(--text3)', opacity: .8 }} />}
                           </div>
                         </td>
@@ -921,12 +944,12 @@ export default function TimelinePlan({
       </div>
     )
   }
-  function EtiquetaCont({ texto, alto, color, tenue }) { return (
+  function EtiquetaCont({ texto, alto, color, tenue, sub }) { return (
     <div style={{ width: LABEL_W, minWidth: LABEL_W, height: alto, display: 'flex', alignItems: 'stretch', position: 'sticky', left: 0, zIndex: 5, background: 'var(--surface)' }}>
       <div style={{ width: 4, background: GRUPOS.pla.color, opacity: .35, margin: '0' }} />
-      <div title={texto} style={{ flex: 1, margin: '2px 8px 2px 22px', borderRadius: 99, background: tenue ? 'transparent' : GRUPOS.pla.bg, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, padding: '0 10px', minWidth: 0 }}>
+      <div title={texto} style={{ flex: 1, margin: sub ? '2px 8px 2px 36px' : '2px 8px 2px 22px', borderRadius: 99, background: tenue || sub ? 'transparent' : GRUPOS.pla.bg, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, padding: '0 10px', minWidth: 0 }}>
         {color && <span style={{ width: 7, height: 7, borderRadius: 99, background: color, flexShrink: 0 }} />}
-        <span style={{ fontSize: 11, color: tenue ? 'var(--text3)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{texto}</span>
+        <span style={{ fontSize: sub ? 10.5 : 11, color: tenue || sub ? 'var(--text3)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{texto}</span>
       </div>
     </div>
   ) }
@@ -955,7 +978,7 @@ export default function TimelinePlan({
           {abierto ? <>
             {conts.map(c => (
               <div key={c.texto} style={{ display: 'flex' }}>
-                <EtiquetaCont texto={c.texto} color={c.color} alto={22} />
+                <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} alto={22} />
                 <div style={{ display: 'flex', width: W, height: 22, background: '#fffdf4' }}>
                   {semanasCols.map(d => { const nd = semCont(d, c.texto); return (
                     <div key={k(d)} className="tl-cont" onClick={ev => abrirEditorSemana(ev, d, p.id)} style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', cursor: 'pointer', borderRadius: 5 }}>
@@ -1031,7 +1054,7 @@ export default function TimelinePlan({
           {abierto ? <>
             {conts.map(c => (
               <div key={c.texto} style={{ display: 'flex', marginTop: 1 }}>
-                <EtiquetaCont texto={c.texto} color={c.color} alto={altoFila} />
+                <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} alto={altoFila} />
                 <Celdas alto={altoFila} fondo="#fffdf4" render={d => {
                   const esta = contDia(d, p.id).some(x => x.texto.trim().toLowerCase() === c.texto.trim().toLowerCase())
                   return (
