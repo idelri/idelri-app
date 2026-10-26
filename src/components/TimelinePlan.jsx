@@ -394,7 +394,15 @@ export default function TimelinePlan({
       return [gOrd(e.grupo_id), (p || e).orden ?? 0, p ? 1 + (e.orden ?? 0) : 0, i]
     }
     return lista.map((c, i) => ({ c, k: clave(c, i) })).sort((a, b) => { for (let j = 0; j < 4; j++) if (a.k[j] !== b.k[j]) return a.k[j] - b.k[j]; return 0 })
-      .map(({ c }) => ({ ...c, _sub: !!(c.etiqueta_id && et(c.etiqueta_id)?.padre_id) }))
+      .map(({ c }) => infoCont(c))
+  }
+  // Datos de la etiqueta de un contenido: si es subcontenido, de qué etiqueta cuelga, y texto para el pop-up
+  function infoCont(c) {
+    const e = c.etiqueta_id && catEtiquetas.find(x => x.id === c.etiqueta_id)
+    const padre = e?.padre_id ? catEtiquetas.find(x => x.id === e.padre_id) : null
+    const g = e ? catGrupos.find(x => x.id === e.grupo_id) : null
+    const ruta = [g?._seccion?.nombre, g?.nombre, padre?.nombre].filter(Boolean).join(' › ')
+    return { ...c, _sub: !!padre, _padreId: padre?.id || null, _padreNombre: padre?.nombre || null, _info: c.texto + (ruta ? '\n' + ruta : '\nContenido libre (sin categoría)') + (padre ? '\nSubcontenido de ' + padre.nombre : '') }
   }
   const sugerencias = useMemo(() => [...new Set(contenidos.map(c => c.texto.trim()))].sort((a, b) => a.localeCompare(b, 'es')), [contenidos])
   const colorDe = (texto, etiqueta) => etiqueta?.color || contenidos.find(c => c.texto.trim().toLowerCase() === texto.toLowerCase())?.color || colorContenido(texto)
@@ -439,6 +447,20 @@ export default function TimelinePlan({
   const [cuadCod, setCuadCodS] = useState(() => { try { const v = localStorage.getItem('tlCuadCod'); return v === null ? null : v } catch { return null } })
   const setCuadColor = v => { setCuadColorS(v); try { localStorage.setItem('tlCuadColor', v) } catch {} }
   const setCuadCod = v => { setCuadCodS(v); try { localStorage.setItem('tlCuadCod', v) } catch {} }
+  // Subcontenidos desplegados por plan y etiqueta padre ('pid|etiquetaId'); por defecto plegados
+  const [subsAb, setSubsAb] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('tlSubsAbiertos') || '[]')) } catch { return new Set() } })
+  const guardarSubs = n => { try { localStorage.setItem('tlSubsAbiertos', JSON.stringify([...n])) } catch {} ; return n }
+  const alternarSubs = (pid, eid) => setSubsAb(s0 => { const n = new Set(s0); const key = pid + '|' + eid; n.has(key) ? n.delete(key) : n.add(key); return guardarSubs(n) })
+  const todosSubs = (pid, ids, abrir) => setSubsAb(s0 => { const n = new Set(s0); ids.forEach(id => abrir ? n.add(pid + '|' + id) : n.delete(pid + '|' + id)); return guardarSubs(n) })
+  // Filas visibles de un plan: contenidos principales y, si su etiqueta está desplegada, sus subcontenidos
+  const filasPlan = pid => {
+    const conts = contenidosPlan(pid)
+    const padres = new Set(conts.filter(c => !c._sub && c.etiqueta_id).map(c => c.etiqueta_id))
+    const conSubs = [...new Set(conts.filter(c => c._sub && padres.has(c._padreId)).map(c => c._padreId))]
+    const filas = conts.filter(c => !c._sub || !padres.has(c._padreId) || subsAb.has(pid + '|' + c._padreId))
+      .map(c => ({ ...c, _nSubs: !c._sub && c.etiqueta_id ? conts.filter(x => x._padreId === c.etiqueta_id).length : 0, _subsAbiertos: subsAb.has(pid + '|' + c.etiqueta_id) }))
+    return { filas, conSubs, todosAbiertos: conSubs.length > 0 && conSubs.every(id => subsAb.has(pid + '|' + id)) }
+  }
   // Planes desplegados (por defecto todos)
   const [plegados, setPlegados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('tlPlanesPlegados') || '[]')) } catch { return new Set() } })
   const alternarPlegado = pid => setPlegados(s => { const n = new Set(s); n.has(pid) ? n.delete(pid) : n.add(pid); try { localStorage.setItem('tlPlanesPlegados', JSON.stringify([...n])) } catch {} ; return n })
@@ -1086,27 +1108,41 @@ export default function TimelinePlan({
   }
 
   // ════════════════════════════ PLANES ════════════════════════════
+  function estiloPildora(c, alto, fs) {
+    const col = c.color || GRUPOS.pla.color
+    return c._sub
+      ? { width: '88%', marginLeft: '6%', height: Math.max(13, alto - 2), borderRadius: 99, background: col + '1a', color: col, border: `1px dashed ${col}aa`, fontSize: fs - .5, fontWeight: 600, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap', boxSizing: 'border-box' }
+      : { width: '100%', height: alto, borderRadius: 99, background: col + 'cc', color: '#fff', fontSize: fs, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap', boxSizing: 'border-box' }
+  }
   function planesVisibles(ini, fin) { return planes.filter(p => parseISO(p.fecha_inicio) <= fin && parseISO(p.fecha_fin) >= ini) }
   function tituloPlan(p) { return `${p.nombre} · ${format(parseISO(p.fecha_inicio), 'd MMM yyyy', { locale: es })} – ${format(parseISO(p.fecha_fin), 'd MMM yyyy', { locale: es })}${p.notas ? '\n\n' + p.notas : ''}` }
   function EtiquetaPlan({ p, n, alto }) {
     const abierto = !plegados.has(p.id)
+    const { conSubs, todosAbiertos } = filasPlan(p.id)
     return (
       <div style={{ width: LABEL_W, minWidth: LABEL_W, height: alto, display: 'flex', alignItems: 'stretch', position: 'sticky', left: 0, zIndex: 5, background: 'var(--surface)' }}>
         <div style={{ width: 4, background: GRUPOS.pla.color, borderRadius: 2, margin: '2px 0' }} />
-        <div onClick={() => alternarPlegado(p.id)} title={tituloPlan(p) + '\n\nClic para ' + (abierto ? 'plegar' : 'desplegar') + ' los contenidos'}
+        <div onClick={() => alternarPlegado(p.id)} title={tituloPlan(p) + '\n\nClic para ' + (abierto ? 'ver solo el plan' : 'ver sus contenidos')}
           style={{ flex: 1, margin: '3px 8px', borderRadius: 99, background: '#e9d98f', display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px 0 10px', minWidth: 0, cursor: 'pointer' }}>
           <span style={{ fontSize: 11, fontWeight: 800, color: '#5c4a06' }}>P{n}</span>
           <span style={{ flex: 1, fontSize: 11.5, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nombre}</span>
+          {abierto && conSubs.length > 0 && (
+            <span onClick={e => { e.stopPropagation(); todosSubs(p.id, conSubs, !todosAbiertos) }} title={todosAbiertos ? 'Ocultar todos los subcontenidos' : 'Mostrar todos los subcontenidos'}
+              style={{ fontSize: 9.5, fontWeight: 800, color: '#5c4a06', border: '1px solid #5c4a0655', borderRadius: 5, padding: '0 3px', lineHeight: '14px', background: todosAbiertos ? '#5c4a061a' : 'transparent' }}>{todosAbiertos ? '−' : '+'}sub</span>
+          )}
           <span style={{ fontSize: 9, color: '#5c4a06', transform: abierto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
         </div>
       </div>
     )
   }
-  function EtiquetaCont({ texto, alto, color, tenue, sub }) { return (
+  function EtiquetaCont({ texto, alto, color, tenue, sub, info, nSubs, subsAbiertos, onSubs }) { return (
     <div style={{ width: LABEL_W, minWidth: LABEL_W, height: alto, display: 'flex', alignItems: 'stretch', position: 'sticky', left: 0, zIndex: 5, background: 'var(--surface)' }}>
       <div style={{ width: 4, background: GRUPOS.pla.color, opacity: .35, margin: '0' }} />
-      <div title={texto} style={{ flex: 1, margin: sub ? '2px 8px 2px 36px' : '2px 8px 2px 22px', borderRadius: 99, background: tenue || sub ? 'transparent' : GRUPOS.pla.bg, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, padding: '0 10px', minWidth: 0 }}>
-        {color && <span style={{ width: 7, height: 7, borderRadius: 99, background: color, flexShrink: 0 }} />}
+      <div title={info || texto} style={{ flex: 1, margin: sub ? '2px 8px 2px 36px' : '2px 8px 2px 22px', borderRadius: 99, background: tenue || sub ? 'transparent' : GRUPOS.pla.bg, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, padding: '0 10px', minWidth: 0 }}>
+        {nSubs > 0 && <span onClick={onSubs} title={(subsAbiertos ? 'Ocultar' : 'Mostrar') + ` sus ${nSubs} subcontenido${nSubs === 1 ? '' : 's'}`}
+          style={{ marginRight: 'auto', fontSize: 8.5, color: 'var(--text3)', cursor: 'pointer', padding: '2px 3px', display: 'inline-flex', alignItems: 'center', gap: 2 }}>
+          <span style={{ display: 'inline-block', transform: subsAbiertos ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>{nSubs}</span>}
+        {color && <span style={{ width: sub ? 5 : 7, height: sub ? 5 : 7, borderRadius: 99, background: sub ? 'transparent' : color, border: sub ? `1.5px solid ${color}` : 'none', flexShrink: 0 }} />}
         <span style={{ fontSize: sub ? 10.5 : 11, color: tenue || sub ? 'var(--text3)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{texto}</span>
       </div>
     </div>
@@ -1121,7 +1157,7 @@ export default function TimelinePlan({
       const pI = parseISO(p.fecha_inicio), pF = parseISO(p.fecha_fin)
       const a = pI < ini0 ? ini0 : pI, b = pF > finR ? finR : pF
       const abierto = !plegados.has(p.id)
-      const conts = contenidosPlan(p.id)
+      const conts = filasPlan(p.id).filas
       const semCont = (d, txt) => Array.from({ length: 7 }, (_, i) => addDays(d, i)).filter(x => contDia(x, p.id).some(c => c.texto.trim().toLowerCase() === txt.toLowerCase())).length
       return (
         <div key={p.id} style={{ marginTop: 6 }}>
@@ -1136,11 +1172,11 @@ export default function TimelinePlan({
           {abierto ? <>
             {conts.map(c => (
               <div key={c.texto} style={{ display: 'flex' }}>
-                <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} alto={22} />
+                <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} info={c._info} nSubs={c._nSubs} subsAbiertos={c._subsAbiertos} onSubs={() => alternarSubs(p.id, c.etiqueta_id)} alto={22} />
                 <div style={{ display: 'flex', width: W, height: 22, background: '#fffdf4' }}>
                   {semanasCols.map(d => { const nd = semCont(d, c.texto); return (
                     <div key={k(d)} className="tl-cont" onClick={ev => abrirEditorSemana(ev, d, p.id)} style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', cursor: 'pointer', borderRadius: 5 }}>
-                      {nd > 0 && <span title={`${c.texto} · ${nd} día${nd === 1 ? '' : 's'}`} style={{ width: '100%', height: 15, borderRadius: 99, background: (c.color || GRUPOS.pla.color) + 'cc', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
+                      {nd > 0 && <span title={`${c._info}\n${nd} día${nd === 1 ? '' : 's'} esta semana`} style={estiloPildora(c, 15, 9)}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
                     </div>
                   ) })}
                 </div>
@@ -1156,25 +1192,7 @@ export default function TimelinePlan({
                 ))}
               </div>
             </div>
-          </> : (() => {
-            const porSem = semanasCols.map(d => agruparCont(Array.from({ length: 7 }, (_, i) => contDia(addDays(d, i), p.id)).flat()))
-            const maxN = Math.max(1, ...porSem.map(x => x.length))
-            const alto = Math.max(34, Math.min(6, maxN) * 19 + 12)
-            return (
-              <div style={{ display: 'flex', marginTop: 2 }}>
-                <EtiquetaCont texto="Contenidos" alto={alto} tenue />
-                <div style={{ display: 'flex', width: W, height: alto, background: GRUPOS.pla.soft, borderRadius: 8 }}>
-                  {semanasCols.map((d, i) => (
-                    <div key={k(d)} onClick={ev => abrirEditorSemana(ev, d, p.id)} className="tl-cont"
-                      style={{ width: COL - 3, margin: '0 1.5px', padding: '5px 0', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center', cursor: 'pointer', borderRadius: 6, overflow: 'hidden' }}>
-                      {porSem[i].slice(0, 6).map(c => <span key={c.texto} style={{ width: '92%', display: 'flex' }}><ChipContenido texto={COL < 44 ? c.texto.slice(0, 3) : c.texto} color={c.color} peque /></span>)}
-                      {porSem[i].length > 6 && <span style={{ fontSize: 9, color: 'var(--text3)' }}>+{porSem[i].length - 6}</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })()}
+          </> : null}
         </div>
       )
     })
@@ -1188,7 +1206,7 @@ export default function TimelinePlan({
       const n = planes.indexOf(p) + 1
       const pI = parseISO(p.fecha_inicio), pF = parseISO(p.fecha_fin)
       const abierto = !plegados.has(p.id)
-      const conts = contenidosPlan(p.id)
+      const conts = filasPlan(p.id).filas
       const altoFila = micro ? 26 : 22
       return (
         <div key={p.id} style={{ marginTop: 6 }}>
@@ -1212,13 +1230,13 @@ export default function TimelinePlan({
           {abierto ? <>
             {conts.map(c => (
               <div key={c.texto} style={{ display: 'flex', marginTop: 1 }}>
-                <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} alto={altoFila} />
+                <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} info={c._info} nSubs={c._nSubs} subsAbiertos={c._subsAbiertos} onSubs={() => alternarSubs(p.id, c.etiqueta_id)} alto={altoFila} />
                 <Celdas alto={altoFila} fondo="#fffdf4" render={d => {
                   const esta = contDia(d, p.id).some(x => x.texto.trim().toLowerCase() === c.texto.trim().toLowerCase())
                   return (
-                    <div className="tl-cont" onClick={() => alternarContenido(p.id, c, d)} title={esta ? `Quitar «${c.texto}» de este día` : `Añadir «${c.texto}» a este día`}
+                    <div className="tl-cont" onClick={() => alternarContenido(p.id, c, d)} title={esta ? `${c._info}\n\nClic para quitarlo de este día` : `Añadir «${c.texto}» a este día`}
                       style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', padding: '0 4px', cursor: 'pointer' }}>
-                      {esta ? <span style={{ width: '100%', height: altoFila - 7, borderRadius: 99, background: (c.color || GRUPOS.pla.color) + 'cc', color: '#fff', fontSize: micro ? 10.5 : 9.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap', padding: '0 6px' }}>
+                      {esta ? <span style={{ ...estiloPildora(c, altoFila - 7, micro ? 10.5 : 9.5), padding: '0 6px' }}>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.texto}</span></span>
                         : <span className="tl-mas-cont" style={{ margin: '0 auto', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>}
                     </div>
@@ -1234,21 +1252,7 @@ export default function TimelinePlan({
                 </div>
               )} />
             </div>
-          </> : (() => {
-            const maxN = Math.max(1, ...dias.map(d => agruparCont(contDia(d, p.id)).length))
-            const alto = Math.max(micro ? 40 : 34, maxN * (micro ? 23 : 21) + 12)
-            return (
-              <div style={{ display: 'flex', marginTop: 2 }}>
-                <EtiquetaCont texto="Contenidos" alto={alto} tenue />
-                <Celdas alto={alto} fondo={GRUPOS.pla.soft} render={d => (
-                  <div className="tl-cont" onClick={ev => abrirEditorDia(ev, d, p.id)} style={{ position: 'absolute', inset: 0, padding: 4, display: 'flex', flexDirection: 'column', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
-                    {agruparCont(contDia(d, p.id)).map(c => <ChipContenido key={c.texto} texto={c.texto} color={c.color} peque={!micro} />)}
-                    <span className="tl-mas-cont" style={{ marginTop: 'auto', alignSelf: 'center', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>
-                  </div>
-                )} />
-              </div>
-            )
-          })()}
+          </> : null}
         </div>
       )
     })
