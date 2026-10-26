@@ -433,6 +433,48 @@ export default function TimelinePlan({
     if (error) { alert('No se pudo guardar: ' + error.message); return }
     setContenidos(cs => [...cs, ...(data || [])])
   }
+  // Filas de un contenido en unos días + sus subcontenidos (van anclados a él)
+  const filasAncladas = (pid, c, diasL) => {
+    const t = c.texto.trim().toLowerCase()
+    return diasL.flatMap(d => contDia(d, pid).filter(x => x.texto.trim().toLowerCase() === t
+      || (c.etiqueta_id && x.etiqueta_id && catEtiquetas.find(e => e.id === x.etiqueta_id)?.padre_id === c.etiqueta_id)))
+  }
+  // Mueve o copia filas de contenidos desplazando su fecha 'delta' días
+  async function moverContenidos(filas, delta, modo) {
+    if (!filas.length || (!delta && modo === 'mover')) return
+    const nueva = r => k(addDays(parseISO(String(r.fecha).slice(0, 10)), delta))
+    const yaEn = r => contenidos.some(x => x.id !== r.id && x.planificacion_id === r.planificacion_id && String(x.fecha).slice(0, 10) === nueva(r) && x.texto.trim().toLowerCase() === r.texto.trim().toLowerCase())
+    if (modo === 'copiar') {
+      const ins = filas.filter(r => !yaEn(r)).map(r => ({ planificacion_id: r.planificacion_id, fecha: nueva(r), texto: r.texto, color: r.color, etiqueta_id: r.etiqueta_id || null, orden: r.orden ?? 0 }))
+      if (!ins.length) return
+      const { data, error } = await supabase.from('planificacion_contenidos').insert(ins).select()
+      if (error) { alert('No se pudo copiar: ' + error.message); return }
+      setContenidos(cs => [...cs, ...(data || [])])
+      return
+    }
+    const dup = filas.filter(yaEn).map(r => r.id)
+    const mov = filas.filter(r => !dup.includes(r.id))
+    setContenidos(cs => cs.filter(x => !dup.includes(x.id)).map(x => { const r = mov.find(y => y.id === x.id); return r ? { ...x, fecha: nueva(r) } : x }))
+    if (dup.length) await supabase.from('planificacion_contenidos').delete().in('id', dup)
+    const porFecha = new Map(); mov.forEach(r => { const f = nueva(r); if (!porFecha.has(f)) porFecha.set(f, []); porFecha.get(f).push(r.id) })
+    for (const [f, ids] of porFecha) { const { error } = await supabase.from('planificacion_contenidos').update({ fecha: f }).in('id', ids); if (error) { alert('No se pudo mover: ' + error.message); break } }
+  }
+  // Quitar con opción de deshacer
+  const [deshacer, setDeshacer] = useState(null) // { texto, filas }
+  const timerDeshacer = useRef(null)
+  async function quitarConDeshacer(filas, etiquetaTexto) {
+    if (!filas.length) return
+    await quitarContenido(filas.map(r => r.id))
+    setDeshacer({ texto: etiquetaTexto, filas })
+    clearTimeout(timerDeshacer.current); timerDeshacer.current = setTimeout(() => setDeshacer(null), 7000)
+  }
+  async function hacerDeshacer() {
+    const d = deshacer; if (!d) return
+    setDeshacer(null)
+    const { data, error } = await supabase.from('planificacion_contenidos').insert(d.filas.map(r => ({ planificacion_id: r.planificacion_id, fecha: String(r.fecha).slice(0, 10), texto: r.texto, color: r.color, etiqueta_id: r.etiqueta_id || null, orden: r.orden ?? 0 }))).select()
+    if (error) { alert('No se pudo deshacer: ' + error.message); return }
+    setContenidos(cs => [...cs, ...(data || [])])
+  }
   const nombrePlan = pid => planes.find(x => x.id === pid)?.nombre || ''
   const abrirEditorDia = (ev, d, pid) => {
     const r = ev.currentTarget.getBoundingClientRect()
@@ -757,6 +799,22 @@ export default function TimelinePlan({
     onDragLeave: e => e.currentTarget.classList.remove('tl-drop-on'),
     onDrop: e => { const a = arrRef.current; if (a?.clase !== 'dia') return; e.preventDefault(); limpiarDrop(); arrRef.current = null; moverDia(a.fecha, k(d), modoDe(e)) },
   })
+  // Contenidos: arrastrar una píldora (con sus subcontenidos) a otro día / semana del mismo plan
+  const arrastrableCont = (pid, filas, fechaOrigen) => ({
+    draggable: true,
+    onDragStart: e => { e.stopPropagation(); arrRef.current = { clase: 'cont', pid, filas, origen: fechaOrigen }; e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', 'cont') } catch {} },
+    onDragEnd: () => { arrRef.current = null; limpiarDrop() },
+  })
+  const destinoCont = (pid, fechaDestino) => ({
+    onDragOver: e => { const a = arrRef.current; if (a?.clase !== 'cont' || a.pid !== pid) return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
+    onDragLeave: e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('tl-drop-on') },
+    onDrop: e => {
+      const a = arrRef.current; if (a?.clase !== 'cont' || a.pid !== pid) return
+      e.preventDefault(); e.stopPropagation(); limpiarDrop(); arrRef.current = null
+      moverContenidos(a.filas, differenceInCalendarDays(fechaDestino, a.origen), modoDe(e))
+    },
+  })
+
   // Edición directa de km objetivo y nota en la cuadrícula
   const [semEdit, setSemEdit] = useState({})
   async function guardarSemana(sem, campos) {
@@ -842,7 +900,14 @@ export default function TimelinePlan({
         {vision === 'micro' && <VistaSemanas semanas={1} micro />}
         {vision === 'cuadricula' && <VistaCuadricula />}
       </div>
-      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}.tl-drop-on{outline:2px dashed var(--accent)!important;outline-offset:-2px;background:rgba(45,106,79,.07)!important}.tl-tarj .tl-acc{opacity:0;transition:opacity .12s}.tl-tarj:hover .tl-acc{opacity:1}.tl-ev .tl-mas{opacity:0}.tl-ev:hover .tl-mas{opacity:1}`}</style>
+      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}.tl-drop-on{outline:2px dashed var(--accent)!important;outline-offset:-2px;background:rgba(45,106,79,.07)!important}.tl-tarj .tl-acc{opacity:0;transition:opacity .12s}.tl-tarj:hover .tl-acc{opacity:1}.tl-ev .tl-mas{opacity:0}.tl-ev:hover .tl-mas{opacity:1}.tl-pild .tl-x{opacity:0;transition:opacity .12s}.tl-pild:hover .tl-x{opacity:1}`}</style>
+      {deshacer && (
+        <div style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 90, display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderRadius: 10, background: '#1f2a24', color: '#fff', fontSize: 12.5, boxShadow: '0 8px 24px rgba(0,0,0,.25)' }}>
+          <span>Quitado {deshacer.texto}{deshacer.filas.length > 1 ? ` (${deshacer.filas.length})` : ''}</span>
+          <button onClick={hacerDeshacer} style={{ border: 'none', background: 'transparent', color: '#8fd3b0', fontWeight: 700, cursor: 'pointer', fontSize: 12.5, fontFamily: 'inherit' }}>Deshacer</button>
+          <span onClick={() => setDeshacer(null)} style={{ cursor: 'pointer', opacity: .6 }}>×</span>
+        </div>
+      )}
       <EditorContenidos abierto={editorCont} onCerrar={() => setEditorCont(null)} items={itemsEditor} sugerencias={sugerencias}
         onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} catGrupos={catGrupos} catEtiquetas={catEtiquetas} tipoPlan={planes.find(x => x.id === editorCont?.planId)?.tipo} />
     </div>
@@ -1175,8 +1240,9 @@ export default function TimelinePlan({
                 <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} info={c._info} nSubs={c._nSubs} subsAbiertos={c._subsAbiertos} onSubs={() => alternarSubs(p.id, c.etiqueta_id)} alto={22} />
                 <div style={{ display: 'flex', width: W, height: 22, background: '#fffdf4' }}>
                   {semanasCols.map(d => { const nd = semCont(d, c.texto); return (
-                    <div key={k(d)} className="tl-cont" onClick={ev => abrirEditorSemana(ev, d, p.id)} style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', cursor: 'pointer', borderRadius: 5 }}>
-                      {nd > 0 && <span title={`${c._info}\n${nd} día${nd === 1 ? '' : 's'} esta semana`} style={estiloPildora(c, 15, 9)}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
+                    <div key={k(d)} className="tl-cont" {...destinoCont(p.id, d)} onClick={ev => abrirEditorSemana(ev, d, p.id)} style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', cursor: 'pointer', borderRadius: 5 }}>
+                      {nd > 0 && <span {...arrastrableCont(p.id, filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), d)} onClick={e => e.stopPropagation()}
+                        title={`${c._info}\n${nd} día${nd === 1 ? '' : 's'} esta semana\n\nArrastra a otra semana para ${modoDrag === 'copiar' ? 'copiarla' : 'moverla'} (mismos días; Alt: copiar)`} style={{ ...estiloPildora(c, 15, 9), cursor: 'grab' }}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
                     </div>
                   ) })}
                 </div>
@@ -1233,12 +1299,19 @@ export default function TimelinePlan({
                 <EtiquetaCont texto={c.texto} color={c.color} sub={c._sub} info={c._info} nSubs={c._nSubs} subsAbiertos={c._subsAbiertos} onSubs={() => alternarSubs(p.id, c.etiqueta_id)} alto={altoFila} />
                 <Celdas alto={altoFila} fondo="#fffdf4" render={d => {
                   const esta = contDia(d, p.id).some(x => x.texto.trim().toLowerCase() === c.texto.trim().toLowerCase())
+                  const filas = esta ? filasAncladas(p.id, c, [d]) : []
+                  const nSub = filas.length - filas.filter(x => x.texto.trim().toLowerCase() === c.texto.trim().toLowerCase()).length
                   return (
-                    <div className="tl-cont" onClick={() => alternarContenido(p.id, c, d)} title={esta ? `${c._info}\n\nClic para quitarlo de este día` : `Añadir «${c.texto}» a este día`}
-                      style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', padding: '0 4px', cursor: 'pointer' }}>
-                      {esta ? <span style={{ ...estiloPildora(c, altoFila - 7, micro ? 10.5 : 9.5), padding: '0 6px' }}>
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.texto}</span></span>
-                        : <span className="tl-mas-cont" style={{ margin: '0 auto', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>}
+                    <div className="tl-cont" {...destinoCont(p.id, d)} onClick={() => !esta && alternarContenido(p.id, c, d)} title={esta ? null : `Añadir «${c.texto}» a este día`}
+                      style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', padding: '0 4px', cursor: esta ? 'default' : 'pointer' }}>
+                      {esta ? (
+                        <span className="tl-pild" {...arrastrableCont(p.id, filas, d)} title={`${c._info}${nSub ? `\nLleva ${nSub} subcontenido${nSub === 1 ? '' : 's'} anclado${nSub === 1 ? '' : 's'}` : ''}\n\nArrastra para ${modoDrag === 'copiar' ? 'copiar' : 'mover'} (Alt: copiar) · × para quitar`}
+                          style={{ ...estiloPildora(c, altoFila - 7, micro ? 10.5 : 9.5), padding: '0 6px', position: 'relative', cursor: 'grab' }}>
+                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.texto}</span>
+                          <span className="tl-x" onClick={e => { e.stopPropagation(); quitarConDeshacer(filas, `«${c.texto}» del ${format(d, "EEEE d", { locale: es })}`) }} title={`Quitar «${c.texto}» de este día${nSub ? ' (y sus subcontenidos)' : ''}`}
+                            style={{ position: 'absolute', right: 1, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, borderRadius: 99, background: '#fff', color: '#b91c1c', fontSize: 10, lineHeight: '13px', textAlign: 'center', boxShadow: '0 0 0 1px rgba(0,0,0,.15)', cursor: 'pointer' }}>×</span>
+                        </span>
+                      ) : <span className="tl-mas-cont" style={{ margin: '0 auto', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>}
                     </div>
                   )
                 }} />
