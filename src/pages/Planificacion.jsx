@@ -5,6 +5,7 @@ import { format, addWeeks, addDays, parseISO, differenceInWeeks, differenceInDay
 import { es } from 'date-fns/locale'
 import { Plus, X, ChevronDown, ChevronRight, Trophy, Calendar, Layers, Pencil, Lock } from 'lucide-react'
 import CalendarioSesiones from '../components/CalendarioSesiones'
+import TimelinePlan from '../components/TimelinePlan'
 import RecursosEntrenadora from '../components/RecursosEntrenadora'
 import EmojiPicker from '../components/EmojiPicker'
 import Seguimiento from './Seguimiento'
@@ -404,7 +405,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     if (clienteSeleccionado) { cargarPlanificacion(); cargarClienteData(clienteSeleccionado) }
   }, [clienteSeleccionado, recargarPlan])
   useEffect(() => {
-    if (tlTodayRef.current && tlZonaDRef.current && vista === 'timeline') {
+    if (tlTodayRef.current && tlZonaDRef.current && vista === 'timeline_old') {
       const el = tlTodayRef.current
       const d  = tlZonaDRef.current
       const target = el.offsetLeft - d.clientWidth / 2 + el.offsetWidth / 2
@@ -2167,7 +2168,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         )}
         {planificacion && (
           <div className="flex gap-2">
-            {[['timeline','Timeline'],['lista','Lista'],['calendario','Calendario'],['recursos','Recursos'],['seguimiento','Seguimiento']].map(([v, label]) => (
+            {[['timeline','Timeline'],['lista','Lista'],['calendario','Calendario'],['recursos','Recursos'],['seguimiento','Seguimiento'],['timeline_old','Timeline anterior']].map(([v, label]) => (
               <button key={v} className="btn btn-ghost btn-sm"
                 style={vista === v ? { background: 'var(--bg2)', fontWeight: 600 } : {}}
                 onClick={() => cambiarVista(v)}>
@@ -2315,8 +2316,31 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
             <VistaLista bloques={bloques} subbloques={subbloques} semanas={semanas} sesiones={sesiones} clienteData={clienteData} esSalud={esSalud} openModal={openModal} setVista={setVista} eliminarItem={eliminarItem} cargarPlanificacion={cargarPlanificacion} planificacion={planificacion} clienteSeleccionado={clienteSeleccionado} setSesionesContext={setSesionesContext} setPage={setPage} />
           )}
 
-          {/* ══ TIMELINE ══════════════════════════════════════════════════ */}
-          {vista === 'timeline' && totalSemanas > 0 && (() => {
+          {/* ══ TIMELINE (formato FCB: Macro / Meso / Micro) ═══════════════ */}
+          {vista === 'timeline' && planificacion?.fecha_inicio && planificacion?.fecha_fin && (
+            <TimelinePlan
+              planificacion={planificacion}
+              bloques={bloques}
+              subbloques={subbloques}
+              semanasAll={semanasAll}
+              sesiones={sesiones}
+              competiciones={competiciones}
+              controles={controles}
+              notas={notas}
+              feedbacks={feedbacks}
+              clienteNombre={clienteData?.nombre}
+              onAbrirSesion={s => { if (setSesionesContext) setSesionesContext({ clienteId: clienteSeleccionado, sesionId: s.id }); if (setPage) setPage('sesiones') }}
+              onNuevaSesion={fecha => openModal('sesion', { fecha })}
+              onEditarBloque={b => openModal('bloque', bloques.find(x => x.id === b.id) || b)}
+              onEditarSubbloque={sub => { const { _bloque, _ini, _fin, ...resto } = sub; openModal('subbloque', { ...resto, bloque_id: _bloque?.id || sub.bloque_id }) }}
+              onAbrirComp={c => openModal('comp', c)}
+              onAbrirControl={c => openModal('control', c)}
+              onAbrirNota={n => openModal('nota', n)}
+            />
+          )}
+
+          {/* ══ TIMELINE ANTERIOR ═══════════════════════════════════════════ */}
+          {vista === 'timeline_old' && totalSemanas > 0 && (() => {
             if (!planificacion?.fecha_inicio || !planificacion?.fecha_fin) return null
             const planIni   = parseISO(planificacion.fecha_inicio)
             const planFin   = parseISO(planificacion.fecha_fin)
@@ -2864,7 +2888,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
           })()}
 
 
-          {vista === 'timeline' && totalSemanas === 0 && (
+          {vista === 'timeline_old' && totalSemanas === 0 && (
             <div className="empty">
               <Layers size={40} />
               <p>Añade bloques para ver el timeline.</p>
