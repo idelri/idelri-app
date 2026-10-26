@@ -849,17 +849,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               }
             }
           }
-          const esSaludGuardar = planificacion?.tipo === 'salud'
-          const datos = { planificacion_id: planificacion.id, nombre: formData.nombre, color: formData.color || '#2d6a4f', fecha_inicio: formData.fecha_inicio, semanas: semanasCalculadas, objetivo: formData.objetivo || null, orden: modalItem?.orden ?? bloques.length,
-            ...(esSaludGuardar ? {
-              sesiones_min:       formData.sesiones_min       ? parseInt(formData.sesiones_min)       : null,
-              sesiones_max:       formData.sesiones_max       ? parseInt(formData.sesiones_max)       : null,
-              duracion_media_min: formData.duracion_media_min ? parseInt(formData.duracion_media_min) : null,
-              exigencia:          formData.exigencia          || null,
-              enfoque_prioridad:  Object.keys(formData.enfoque_prioridad || {}).length > 0 ? formData.enfoque_prioridad : null,
-              enfoque:            formData.enfoque?.length    > 0 ? formData.enfoque : null,
-            } : {}),
-          }
+          const datos = { planificacion_id: planificacion.id, nombre: formData.nombre, color: formData.color || '#2d6a4f', fecha_inicio: formData.fecha_inicio, semanas: semanasCalculadas, objetivo: formData.objetivo || null, orden: modalItem?.orden ?? bloques.length }
 
           // 5.6D: función para asignar semanas existentes a un bloque por rango de fechas
           // (ya no crea semanas nuevas — solo asocia las existentes del plan)
@@ -931,12 +921,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
             semana_inicio:      semIni,
             semana_fin:         semFin,
             notas:              formData.notas || null,
-            sesiones_min:       formData.sesiones_min ? parseInt(formData.sesiones_min) : null,
-            sesiones_max:       formData.sesiones_max ? parseInt(formData.sesiones_max) : null,
-            duracion_media_min: formData.duracion_media_min ? parseInt(formData.duracion_media_min) : null,
-            exigencia:          formData.exigencia || null,
-            enfoque:            formData.enfoque?.length ? formData.enfoque : null,
-            enfoque_prioridad:  Object.keys(formData.enfoque_prioridad || {}).length ? formData.enfoque_prioridad : null,
           }
           if (modalItem?.id) await supabase.from('subbloques').update(datos).eq('id', modalItem.id)
           else await supabase.from('subbloques').insert(datos)
@@ -1218,80 +1202,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               <label className="form-label">Descripción</label>
               <textarea className="form-textarea" value={formData.objetivo || ''} onChange={e => fd('objetivo', e.target.value)} placeholder="Qué buscamos en este periodo…" style={{ minHeight: 90 }} />
             </div>
-            {esSalud && (() => {
-              const prioridadB   = formData.enfoque_prioridad || {}
-              const totalPuntosB = Object.values(prioridadB).reduce((s, v) => s + v, 0)
-              return (
-                <>
-                  <div className="form-row">
-                    <div className="form-group">
-                      <label className="form-label">Sesiones/sem mín</label>
-                      <input className="form-input" type="number" min="1" max="7" value={formData.sesiones_min || ''} onChange={e => fd('sesiones_min', e.target.value)} />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Sesiones/sem máx</label>
-                      <input className="form-input" type="number" min="1" max="7" value={formData.sesiones_max || ''} onChange={e => fd('sesiones_max', e.target.value)} />
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Duración media (min)</label>
-                    <input className="form-input" type="number" min="1" value={formData.duracion_media_min || ''} onChange={e => fd('duracion_media_min', e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Exigencia</label>
-                    <div style={{ display: 'flex', gap: 8 }}>
-                      {[['Baja', '#10b981'], ['Moderada', '#f59e0b'], ['Alta', '#ef4444']].map(([op, col]) => {
-                        const active = formData.exigencia === op
-                        return (
-                          <button key={op} onClick={() => fd('exigencia', active ? '' : op)}
-                            style={{ flex: 1, padding: '8px 4px', borderRadius: 8, border: `1.5px solid ${active ? col : 'var(--border)'}`, background: active ? col + '20' : 'var(--bg)', cursor: 'pointer', fontSize: 12, fontWeight: active ? 600 : 400, color: active ? col : 'var(--text2)' }}>
-                            {op}
-                          </button>
-                        )
-                      })}
-                    </div>
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Enfoque / Contenidos</label>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-                      {ENFOQUES.map(op => {
-                        const puntos = prioridadB[op] || 0
-                        const pct    = totalPuntosB > 0 ? Math.round((puntos / totalPuntosB) * 100) : 0
-                        return (
-                          <div key={op} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                            <span style={{ fontSize: 12, color: puntos > 0 ? 'var(--text)' : 'var(--text3)', fontWeight: puntos > 0 ? 500 : 400, minWidth: 170, flexShrink: 0 }}>{op}</span>
-                            <div style={{ display: 'flex', gap: 3 }}>
-                              {[0, 1, 2, 3, 4, 5].map(n => (
-                                <button key={n} onClick={() => {
-                                  const np = { ...(formData.enfoque_prioridad || {}), [op]: n }
-                                  if (n === 0) delete np[op]
-                                  setFormData(f => ({ ...f, enfoque_prioridad: np, enfoque: Object.entries(np).filter(([, v]) => v > 0).map(([k]) => k) }))
-                                }} style={{ width: 24, height: 24, borderRadius: 6, border: `1.5px solid ${puntos >= n && n > 0 ? 'var(--accent)' : 'var(--border)'}`, background: puntos >= n && n > 0 ? 'var(--accent-light)' : 'var(--bg)', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: puntos >= n && n > 0 ? 'var(--accent)' : 'var(--text3)' }}>
-                                  {n === 0 ? '✕' : n}
-                                </button>
-                              ))}
-                            </div>
-                            {puntos > 0 && (
-                              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                                <div style={{ flex: 1, height: 4, background: 'var(--bg2)', borderRadius: 2, overflow: 'hidden' }}>
-                                  <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent)', borderRadius: 2 }} />
-                                </div>
-                                <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600, minWidth: 30 }}>{pct}%</span>
-                              </div>
-                            )}
-                          </div>
-                        )
-                      })}
-                      {totalPuntosB > 0 && (
-                        <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>
-                          {Object.entries(prioridadB).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${Math.round((v / totalPuntosB) * 100)}%`).join(' · ')}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </>
-              )
-            })()}
             {modalItem?.id && (
               <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', marginTop: 4 }}>
                 <button className="btn btn-ghost" style={{ color: 'var(--danger)', fontSize: 12 }} onClick={eliminarItem}>Eliminar periodo</button>
@@ -1302,8 +1212,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
 
       // ── SUB BLOQUE ────────────────────────────────────────────────────────
       case 'subbloque': {
-        const prioridad   = formData.enfoque_prioridad || {}
-        const totalPuntos = Object.values(prioridad).reduce((s, v) => s + v, 0)
         return (
           <div style={{ padding: '0 20px 4px' }}>
             {bloques.length > 1 && (
@@ -1343,76 +1251,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               <textarea className="form-textarea" value={formData.notas || ''} onChange={e => fd('notas', e.target.value)} placeholder="Qué buscamos en este subperiodo…" style={{ minHeight: 90 }} />
             </div>
 
-            {perfil === 'fuerza_salud' && (
-              <>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label className="form-label">Sesiones/sem mín</label>
-                    <input className="form-input" type="number" min="1" max="7" value={formData.sesiones_min || ''} onChange={e => fd('sesiones_min', e.target.value)} />
-                  </div>
-                  <div className="form-group">
-                    <label className="form-label">Sesiones/sem máx</label>
-                    <input className="form-input" type="number" min="1" max="7" value={formData.sesiones_max || ''} onChange={e => fd('sesiones_max', e.target.value)} />
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Duración media (min)</label>
-                  <input className="form-input" type="number" min="1" value={formData.duracion_media_min || ''} onChange={e => fd('duracion_media_min', e.target.value)} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Exigencia</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    {[['Baja', '#10b981'], ['Moderada', '#f59e0b'], ['Alta', '#ef4444']].map(([op, col]) => {
-                      const active = formData.exigencia === op
-                      return (
-                        <button key={op} onClick={() => fd('exigencia', active ? '' : op)}
-                          style={{ flex: 1, padding: '8px 4px', borderRadius: 8, border: `1.5px solid ${active ? col : 'var(--border)'}`, background: active ? col + '20' : 'var(--bg)', cursor: 'pointer', fontSize: 12, fontWeight: active ? 600 : 400, color: active ? col : 'var(--text2)' }}>
-                          {op}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Enfoque / Contenidos</label>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 4 }}>
-                    {ENFOQUES.map(op => {
-                      const puntos = prioridad[op] || 0
-                      const pct    = totalPuntos > 0 ? Math.round((puntos / totalPuntos) * 100) : 0
-                      return (
-                        <div key={op} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <span style={{ fontSize: 12, color: puntos > 0 ? 'var(--text)' : 'var(--text3)', fontWeight: puntos > 0 ? 500 : 400, minWidth: 170, flexShrink: 0 }}>{op}</span>
-                          <div style={{ display: 'flex', gap: 3 }}>
-                            {[0, 1, 2, 3, 4, 5].map(n => (
-                              <button key={n} onClick={() => {
-                                const np = { ...(formData.enfoque_prioridad || {}), [op]: n }
-                                if (n === 0) delete np[op]
-                                setFormData(f => ({ ...f, enfoque_prioridad: np, enfoque: Object.entries(np).filter(([, v]) => v > 0).map(([k]) => k) }))
-                              }} style={{ width: 24, height: 24, borderRadius: 6, border: `1.5px solid ${puntos >= n && n > 0 ? 'var(--accent)' : 'var(--border)'}`, background: puntos >= n && n > 0 ? 'var(--accent-light)' : 'var(--bg)', cursor: 'pointer', fontSize: 10, fontWeight: 600, color: puntos >= n && n > 0 ? 'var(--accent)' : 'var(--text3)' }}>
-                                {n === 0 ? '✕' : n}
-                              </button>
-                            ))}
-                          </div>
-                          {puntos > 0 && (
-                            <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
-                              <div style={{ flex: 1, height: 4, background: 'var(--bg2)', borderRadius: 2, overflow: 'hidden' }}>
-                                <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent)', borderRadius: 2 }} />
-                              </div>
-                              <span style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--accent)', fontWeight: 600, minWidth: 30 }}>{pct}%</span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
-                    {totalPuntos > 0 && (
-                      <div style={{ fontSize: 11, color: 'var(--text3)', fontFamily: 'var(--mono)', marginTop: 2 }}>
-                        {Object.entries(prioridad).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${Math.round((v / totalPuntos) * 100)}%`).join(' · ')}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </>
-            )}
 
             {modalItem?.id && (
               <div style={{ paddingTop: 12, borderTop: '1px solid var(--border)', marginTop: 4 }}>
