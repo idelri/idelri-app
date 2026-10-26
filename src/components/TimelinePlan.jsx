@@ -206,6 +206,7 @@ function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQ
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 9.5, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.05em', color: GRUPOS.pla.color }}>Contenidos</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{abierto.titulo}</div>
+          {abierto.plan && <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Plan · {abierto.plan}</div>}
         </div>
         <button onClick={onCerrar} style={{ border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: 'var(--text3)' }}>×</button>
       </div>
@@ -295,33 +296,47 @@ export default function TimelinePlan({
   const vacio = { ses: [], comps: [], ctrls: [], notas: [] }
   const dia = d => porDia.get(k(d)) || vacio
 
-  // ── Contenidos de planificación ──
-  const [contenidos, setContenidos] = useState([])
-  const { grupos: catGrupos, etiquetas: catEtiquetas } = useCategorias()
-  const [editorCont, setEditorCont] = useState(null) // { clave, titulo, x, y, fecha, lunes, modoSemana }
+  // ── Planes del deportista (todas sus planificaciones) y sus contenidos ──
+  const [planes, setPlanes] = useState([planificacion])
   useEffect(() => {
     let vivo = true
-    supabase.from('planificacion_contenidos').select('*').eq('planificacion_id', planificacion.id).order('fecha').order('orden')
+    if (!planificacion.cliente_id) { setPlanes([planificacion]); return }
+    supabase.from('planificaciones').select('id, nombre, fecha_inicio, fecha_fin, notas, tipo, cliente_id').eq('cliente_id', planificacion.cliente_id).order('fecha_inicio')
+      .then(({ data }) => { if (vivo) setPlanes((data && data.length ? data : [planificacion]).filter(x => x.fecha_inicio && x.fecha_fin)) })
+    return () => { vivo = false }
+  }, [planificacion])
+  const planIds = planes.map(x => x.id).join(',')
+  const [contenidos, setContenidos] = useState([])
+  const { grupos: catGrupos, etiquetas: catEtiquetas } = useCategorias()
+  const [editorCont, setEditorCont] = useState(null) // { clave, titulo, x, y, fecha, lunes, modoSemana, planId }
+  useEffect(() => {
+    let vivo = true
+    const ids = planIds ? planIds.split(',') : [planificacion.id]
+    supabase.from('planificacion_contenidos').select('*').in('planificacion_id', ids).order('fecha').order('orden')
       .then(({ data }) => { if (vivo) setContenidos(data || []) })
     return () => { vivo = false }
-  }, [planificacion.id])
+  }, [planIds, planificacion.id])
   const contPorDia = useMemo(() => {
-    const m = new Map(); contenidos.forEach(c => { const kk = String(c.fecha).slice(0, 10); if (!m.has(kk)) m.set(kk, []); m.get(kk).push(c) }); return m
+    const m = new Map(); contenidos.forEach(c => { const kk = c.planificacion_id + '|' + String(c.fecha).slice(0, 10); if (!m.has(kk)) m.set(kk, []); m.get(kk).push(c) }); return m
   }, [contenidos])
-  const contDia = d => contPorDia.get(k(d)) || []
+  const contDia = (d, pid) => pid ? (contPorDia.get(pid + '|' + k(d)) || []) : planes.flatMap(p => contPorDia.get(p.id + '|' + k(d)) || [])
   const agruparCont = lista => {
-    const g = new Map(); lista.forEach(c => { const key = c.texto.trim().toLowerCase(); if (!g.has(key)) g.set(key, { texto: c.texto, color: c.color, ids: [] }); g.get(key).ids.push(c.id) }); return [...g.values()]
+    const g = new Map(); lista.forEach(c => { const key = c.texto.trim().toLowerCase(); if (!g.has(key)) g.set(key, { texto: c.texto, color: c.color, etiqueta_id: c.etiqueta_id, ids: [] }); g.get(key).ids.push(c.id) }); return [...g.values()]
   }
+  // Contenidos distintos de cada plan (filas cuando el plan está desplegado), por orden de aparición
+  const contenidosPlan = pid => agruparCont(contenidos.filter(c => c.planificacion_id === pid))
   const sugerencias = useMemo(() => [...new Set(contenidos.map(c => c.texto.trim()))].sort((a, b) => a.localeCompare(b, 'es')), [contenidos])
+  const colorDe = (texto, etiqueta) => etiqueta?.color || contenidos.find(c => c.texto.trim().toLowerCase() === texto.toLowerCase())?.color || colorContenido(texto)
   async function anadirContenido(texto, alcance, etiqueta) {
     const ed = editorCont; if (!ed) return
+    const pid = ed.planId || planificacion.id
     const l = ed.lunes
     let fechas = []
     if (alcance === 'dia' && ed.fecha) fechas = [ed.fecha]
     else if (alcance === 'semana') fechas = Array.from({ length: 7 }, (_, i) => addDays(l, i))
     else { fechas = Array.from({ length: 7 }, (_, i) => addDays(l, i)).filter(d => dia(d).ses.length); if (!fechas.length) fechas = [ed.fecha || l] }
-    const filas = fechas.filter(d => !contDia(d).some(c => c.texto.trim().toLowerCase() === texto.toLowerCase()))
-      .map(d => ({ planificacion_id: planificacion.id, fecha: k(d), texto, etiqueta_id: etiqueta?.id || null, color: etiqueta?.color || contenidos.find(c => c.texto.trim().toLowerCase() === texto.toLowerCase())?.color || colorContenido(texto), orden: contDia(d).length }))
+    const filas = fechas.filter(d => !contDia(d, pid).some(c => c.texto.trim().toLowerCase() === texto.toLowerCase()))
+      .map(d => ({ planificacion_id: pid, fecha: k(d), texto, etiqueta_id: etiqueta?.id || null, color: colorDe(texto, etiqueta), orden: contDia(d, pid).length }))
     if (!filas.length) return
     const { data, error } = await supabase.from('planificacion_contenidos').insert(filas).select()
     if (error) { alert('No se pudo guardar: ' + error.message); return }
@@ -331,15 +346,27 @@ export default function TimelinePlan({
     setContenidos(cs => cs.filter(c => !ids.includes(c.id)))
     await supabase.from('planificacion_contenidos').delete().in('id', ids)
   }
-  const abrirEditorDia = (ev, d) => {
-    const r = ev.currentTarget.getBoundingClientRect()
-    setEditorCont({ clave: 'd' + k(d), titulo: format(d, "EEEE d 'de' MMMM", { locale: es }), x: r.left, y: r.bottom + 6, fecha: d, lunes: lunes(d), modoSemana: false })
+  // Fila de un contenido (plan desplegado): clic en un día lo pone o lo quita
+  async function alternarContenido(pid, c, d) {
+    const ya = contDia(d, pid).filter(x => x.texto.trim().toLowerCase() === c.texto.trim().toLowerCase())
+    if (ya.length) return quitarContenido(ya.map(x => x.id))
+    const { data, error } = await supabase.from('planificacion_contenidos').insert({ planificacion_id: pid, fecha: k(d), texto: c.texto, etiqueta_id: c.etiqueta_id || null, color: c.color || colorContenido(c.texto), orden: contDia(d, pid).length }).select()
+    if (error) { alert('No se pudo guardar: ' + error.message); return }
+    setContenidos(cs => [...cs, ...(data || [])])
   }
-  const abrirEditorSemana = (ev, l) => {
+  const nombrePlan = pid => planes.find(x => x.id === pid)?.nombre || ''
+  const abrirEditorDia = (ev, d, pid) => {
     const r = ev.currentTarget.getBoundingClientRect()
-    setEditorCont({ clave: 's' + k(l), titulo: `Semana ${numSemana(l) || ''} · ${format(l, 'd MMM', { locale: es })} – ${format(addDays(l, 6), 'd MMM', { locale: es })}`, x: r.left, y: r.bottom + 6, fecha: null, lunes: l, modoSemana: true })
+    setEditorCont({ clave: 'd' + k(d) + pid, titulo: format(d, "EEEE d 'de' MMMM", { locale: es }), plan: nombrePlan(pid), x: r.left, y: r.bottom + 6, fecha: d, lunes: lunes(d), modoSemana: false, planId: pid })
   }
-  const itemsEditor = editorCont ? agruparCont(editorCont.modoSemana ? Array.from({ length: 7 }, (_, i) => contDia(addDays(editorCont.lunes, i))).flat() : contDia(editorCont.fecha)) : []
+  const abrirEditorSemana = (ev, l, pid) => {
+    const r = ev.currentTarget.getBoundingClientRect()
+    setEditorCont({ clave: 's' + k(l) + pid, titulo: `Semana ${numSemana(l) || ''} · ${format(l, 'd MMM', { locale: es })} – ${format(addDays(l, 6), 'd MMM', { locale: es })}`, plan: nombrePlan(pid), x: r.left, y: r.bottom + 6, fecha: null, lunes: l, modoSemana: true, planId: pid })
+  }
+  const itemsEditor = editorCont ? agruparCont(editorCont.modoSemana ? Array.from({ length: 7 }, (_, i) => contDia(addDays(editorCont.lunes, i), editorCont.planId)).flat() : contDia(editorCont.fecha, editorCont.planId)) : []
+  // Planes desplegados (por defecto todos)
+  const [plegados, setPlegados] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('tlPlanesPlegados') || '[]')) } catch { return new Set() } })
+  const alternarPlegado = pid => setPlegados(s => { const n = new Set(s); n.has(pid) ? n.delete(pid) : n.add(pid); try { localStorage.setItem('tlPlanesPlegados', JSON.stringify([...n])) } catch {} ; return n })
 
   // Variables de carga con datos para este cliente
   const varsDisponibles = useMemo(() => {
@@ -726,6 +753,8 @@ export default function TimelinePlan({
               tipo="sub" huecos={huecosSubs} onHueco={h => onNuevoSubbloque?.({ bloque_id: h.bloque.id, semana_inicio: h.semana_inicio, semana_fin: h.semana_fin })} />
             : <FilaSemanasTitulo alto={26} W={W} cols={semanasCols} COL={COL} />)}
 
+          {grupos.pla && <PlanesMacro semanasCols={semanasCols} COL={COL} W={W} xDe={xDe} ini0={ini0} />}
+
           {grupos.pla && (
             <div style={{ display: 'flex', marginTop: 6 }}>
               <Etiqueta g="pla" texto="Carga" icono="📈" alto={CH + 22} extra={<SelectorVar />} />
@@ -753,26 +782,6 @@ export default function TimelinePlan({
             </div>
           )}
 
-          {grupos.pla && (() => {
-            const porSem = semanasCols.map(d => agruparCont(Array.from({ length: 7 }, (_, i) => contDia(addDays(d, i))).flat()))
-            const maxN = Math.max(1, ...porSem.map(x => x.length))
-            const alto = Math.max(56, Math.min(6, maxN) * 19 + 14)
-            return (
-              <div style={{ display: 'flex', marginTop: 4 }}>
-                <Etiqueta g="pla" texto="Contenidos" icono="▤" alto={alto} sub="Clic en una semana para añadir" />
-                <div style={{ display: 'flex', width: W, height: alto, background: GRUPOS.pla.soft, borderRadius: 8 }}>
-                  {semanasCols.map((d, i) => (
-                    <div key={k(d)} onClick={ev => abrirEditorSemana(ev, d)} className="tl-cont"
-                      style={{ width: COL - 3, margin: '0 1.5px', padding: '5px 0', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center', cursor: 'pointer', borderRadius: 6, overflow: 'hidden' }}>
-                      {porSem[i].slice(0, 6).map(c => <span key={c.texto} style={{ width: '92%', display: 'flex' }}><ChipContenido texto={COL < 44 ? c.texto.slice(0, 3) : c.texto} color={c.color} peque /></span>)}
-                      {porSem[i].length > 6 && <span style={{ fontSize: 9, color: 'var(--text3)' }}>+{porSem[i].length - 6}</span>}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )
-          })()}
-
           {grupos.pro && (
             <div style={{ display: 'flex', marginTop: 6 }}>
               <Etiqueta g="pro" texto="Sesiones" icono="◉" alto={40} />
@@ -788,6 +797,175 @@ export default function TimelinePlan({
         </div>
       </div>
     )
+  }
+
+  // ════════════════════════════ PLANES ════════════════════════════
+  function planesVisibles(ini, fin) { return planes.filter(p => parseISO(p.fecha_inicio) <= fin && parseISO(p.fecha_fin) >= ini) }
+  function tituloPlan(p) { return `${p.nombre} · ${format(parseISO(p.fecha_inicio), 'd MMM yyyy', { locale: es })} – ${format(parseISO(p.fecha_fin), 'd MMM yyyy', { locale: es })}${p.notas ? '\n\n' + p.notas : ''}` }
+  function EtiquetaPlan({ p, n, alto }) {
+    const abierto = !plegados.has(p.id)
+    return (
+      <div style={{ width: LABEL_W, minWidth: LABEL_W, height: alto, display: 'flex', alignItems: 'stretch', position: 'sticky', left: 0, zIndex: 5, background: 'var(--surface)' }}>
+        <div style={{ width: 4, background: GRUPOS.pla.color, borderRadius: 2, margin: '2px 0' }} />
+        <div onClick={() => alternarPlegado(p.id)} title={tituloPlan(p) + '\n\nClic para ' + (abierto ? 'plegar' : 'desplegar') + ' los contenidos'}
+          style={{ flex: 1, margin: '3px 8px', borderRadius: 99, background: '#e9d98f', display: 'flex', alignItems: 'center', gap: 6, padding: '0 8px 0 10px', minWidth: 0, cursor: 'pointer' }}>
+          <span style={{ fontSize: 11, fontWeight: 800, color: '#5c4a06' }}>P{n}</span>
+          <span style={{ flex: 1, fontSize: 11.5, fontWeight: 700, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nombre}</span>
+          <span style={{ fontSize: 9, color: '#5c4a06', transform: abierto ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+        </div>
+      </div>
+    )
+  }
+  function EtiquetaCont({ texto, alto, color, tenue }) { return (
+    <div style={{ width: LABEL_W, minWidth: LABEL_W, height: alto, display: 'flex', alignItems: 'stretch', position: 'sticky', left: 0, zIndex: 5, background: 'var(--surface)' }}>
+      <div style={{ width: 4, background: GRUPOS.pla.color, opacity: .35, margin: '0' }} />
+      <div title={texto} style={{ flex: 1, margin: '2px 8px 2px 22px', borderRadius: 99, background: tenue ? 'transparent' : GRUPOS.pla.bg, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 5, padding: '0 10px', minWidth: 0 }}>
+        {color && <span style={{ width: 7, height: 7, borderRadius: 99, background: color, flexShrink: 0 }} />}
+        <span style={{ fontSize: 11, color: tenue ? 'var(--text3)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{texto}</span>
+      </div>
+    </div>
+  ) }
+
+  function PlanesMacro({ semanasCols, COL, W, xDe, ini0 }) {
+    const finR = addDays(semanasCols[semanasCols.length - 1], 6)
+    const vis = planesVisibles(ini0, finR)
+    if (!vis.length) return null
+    return vis.map(p => {
+      const n = planes.indexOf(p) + 1
+      const pI = parseISO(p.fecha_inicio), pF = parseISO(p.fecha_fin)
+      const a = pI < ini0 ? ini0 : pI, b = pF > finR ? finR : pF
+      const abierto = !plegados.has(p.id)
+      const conts = contenidosPlan(p.id)
+      const semCont = (d, txt) => Array.from({ length: 7 }, (_, i) => addDays(d, i)).filter(x => contDia(x, p.id).some(c => c.texto.trim().toLowerCase() === txt.toLowerCase())).length
+      return (
+        <div key={p.id} style={{ marginTop: 6 }}>
+          <div style={{ display: 'flex' }}>
+            <EtiquetaPlan p={p} n={n} alto={28} />
+            <div style={{ position: 'relative', width: W, height: 28, background: GRUPOS.pla.soft, borderRadius: 8 }}>
+              <div title={tituloPlan(p)} style={{ position: 'absolute', left: xDe(a) + 1.5, width: Math.max(4, (differenceInCalendarDays(b, a) + 1) / 7 * COL - 3), top: 3, bottom: 3, borderRadius: 7, background: GRUPOS.pla.color + '26', border: `1px solid ${GRUPOS.pla.color}77`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '0 8px' }}>
+                <span style={{ fontSize: 11, fontWeight: 700, color: '#7a5b04', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nombre}</span>
+              </div>
+            </div>
+          </div>
+          {abierto ? <>
+            {conts.map(c => (
+              <div key={c.texto} style={{ display: 'flex' }}>
+                <EtiquetaCont texto={c.texto} color={c.color} alto={22} />
+                <div style={{ display: 'flex', width: W, height: 22, background: '#fffdf4' }}>
+                  {semanasCols.map(d => { const nd = semCont(d, c.texto); return (
+                    <div key={k(d)} className="tl-cont" onClick={ev => abrirEditorSemana(ev, d, p.id)} style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', cursor: 'pointer', borderRadius: 5 }}>
+                      {nd > 0 && <span title={`${c.texto} · ${nd} día${nd === 1 ? '' : 's'}`} style={{ width: '100%', height: 15, borderRadius: 99, background: (c.color || GRUPOS.pla.color) + 'cc', color: '#fff', fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap' }}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
+                    </div>
+                  ) })}
+                </div>
+              </div>
+            ))}
+            <div style={{ display: 'flex' }}>
+              <EtiquetaCont texto="+ Añadir contenido" alto={20} tenue />
+              <div style={{ display: 'flex', width: W, height: 20 }}>
+                {semanasCols.map(d => (
+                  <div key={k(d)} className="tl-cont" onClick={ev => abrirEditorSemana(ev, d, p.id)} title="Añadir contenidos a esta semana" style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', borderRadius: 5 }}>
+                    <span className="tl-mas-cont" style={{ fontSize: 11, color: GRUPOS.pla.color }}>＋</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </> : (() => {
+            const porSem = semanasCols.map(d => agruparCont(Array.from({ length: 7 }, (_, i) => contDia(addDays(d, i), p.id)).flat()))
+            const maxN = Math.max(1, ...porSem.map(x => x.length))
+            const alto = Math.max(34, Math.min(6, maxN) * 19 + 12)
+            return (
+              <div style={{ display: 'flex', marginTop: 2 }}>
+                <EtiquetaCont texto="Contenidos" alto={alto} tenue />
+                <div style={{ display: 'flex', width: W, height: alto, background: GRUPOS.pla.soft, borderRadius: 8 }}>
+                  {semanasCols.map((d, i) => (
+                    <div key={k(d)} onClick={ev => abrirEditorSemana(ev, d, p.id)} className="tl-cont"
+                      style={{ width: COL - 3, margin: '0 1.5px', padding: '5px 0', display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'center', cursor: 'pointer', borderRadius: 6, overflow: 'hidden' }}>
+                      {porSem[i].slice(0, 6).map(c => <span key={c.texto} style={{ width: '92%', display: 'flex' }}><ChipContenido texto={COL < 44 ? c.texto.slice(0, 3) : c.texto} color={c.color} peque /></span>)}
+                      {porSem[i].length > 6 && <span style={{ fontSize: 9, color: 'var(--text3)' }}>+{porSem[i].length - 6}</span>}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      )
+    })
+  }
+
+  function PlanesDias({ lunesList, dias, WS, GAP, COL, W, micro, Celdas }) {
+    const ini = lunesList[0], fin = addDays(lunesList[lunesList.length - 1], 6)
+    const vis = planesVisibles(ini, fin)
+    if (!vis.length) return null
+    return vis.map(p => {
+      const n = planes.indexOf(p) + 1
+      const pI = parseISO(p.fecha_inicio), pF = parseISO(p.fecha_fin)
+      const abierto = !plegados.has(p.id)
+      const conts = contenidosPlan(p.id)
+      const altoFila = micro ? 26 : 22
+      return (
+        <div key={p.id} style={{ marginTop: 6 }}>
+          <div style={{ display: 'flex' }}>
+            <EtiquetaPlan p={p} n={n} alto={28} />
+            <div style={{ display: 'flex', gap: GAP, width: W }}>
+              {lunesList.map(l => {
+                const f = addDays(l, 6)
+                const dentro = pI <= f && pF >= l
+                const a = pI < l ? l : pI, b = pF > f ? f : pF
+                return (
+                  <div key={k(l)} style={{ position: 'relative', width: WS, height: 28, background: GRUPOS.pla.soft, borderRadius: 8 }}>
+                    {dentro && <div title={tituloPlan(p)} style={{ position: 'absolute', left: differenceInCalendarDays(a, l) * COL + 3, width: (differenceInCalendarDays(b, a) + 1) * COL - 6, top: 3, bottom: 3, borderRadius: 7, background: GRUPOS.pla.color + '26', border: `1px solid ${GRUPOS.pla.color}77`, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', padding: '0 8px' }}>
+                      <span style={{ fontSize: 11, fontWeight: 700, color: '#7a5b04', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nombre}</span>
+                    </div>}
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+          {abierto ? <>
+            {conts.map(c => (
+              <div key={c.texto} style={{ display: 'flex', marginTop: 1 }}>
+                <EtiquetaCont texto={c.texto} color={c.color} alto={altoFila} />
+                <Celdas alto={altoFila} fondo="#fffdf4" render={d => {
+                  const esta = contDia(d, p.id).some(x => x.texto.trim().toLowerCase() === c.texto.trim().toLowerCase())
+                  return (
+                    <div className="tl-cont" onClick={() => alternarContenido(p.id, c, d)} title={esta ? `Quitar «${c.texto}» de este día` : `Añadir «${c.texto}» a este día`}
+                      style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', padding: '0 4px', cursor: 'pointer' }}>
+                      {esta ? <span style={{ width: '100%', height: altoFila - 7, borderRadius: 99, background: (c.color || GRUPOS.pla.color) + 'cc', color: '#fff', fontSize: micro ? 10.5 : 9.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', whiteSpace: 'nowrap', padding: '0 6px' }}>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.texto}</span></span>
+                        : <span className="tl-mas-cont" style={{ margin: '0 auto', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>}
+                    </div>
+                  )
+                }} />
+              </div>
+            ))}
+            <div style={{ display: 'flex', marginTop: 1 }}>
+              <EtiquetaCont texto="+ Añadir contenido" alto={20} tenue />
+              <Celdas alto={20} fondo="transparent" borde={false} render={d => (
+                <div className="tl-cont" onClick={ev => abrirEditorDia(ev, d, p.id)} title="Añadir contenidos a este día" style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+                  <span className="tl-mas-cont" style={{ fontSize: 11, color: GRUPOS.pla.color }}>＋</span>
+                </div>
+              )} />
+            </div>
+          </> : (() => {
+            const maxN = Math.max(1, ...dias.map(d => agruparCont(contDia(d, p.id)).length))
+            const alto = Math.max(micro ? 40 : 34, maxN * (micro ? 23 : 21) + 12)
+            return (
+              <div style={{ display: 'flex', marginTop: 2 }}>
+                <EtiquetaCont texto="Contenidos" alto={alto} tenue />
+                <Celdas alto={alto} fondo={GRUPOS.pla.soft} render={d => (
+                  <div className="tl-cont" onClick={ev => abrirEditorDia(ev, d, p.id)} style={{ position: 'absolute', inset: 0, padding: 4, display: 'flex', flexDirection: 'column', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
+                    {agruparCont(contDia(d, p.id)).map(c => <ChipContenido key={c.texto} texto={c.texto} color={c.color} peque={!micro} />)}
+                    <span className="tl-mas-cont" style={{ marginTop: 'auto', alignSelf: 'center', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>
+                  </div>
+                )} />
+              </div>
+            )
+          })()}
+        </div>
+      )
+    })
   }
 
   // Barras de bloques / subbloques sobre una escala de días
@@ -961,6 +1139,9 @@ export default function TimelinePlan({
               )}
           </>}
 
+          {/* Planes y sus contenidos */}
+          {grupos.pla && <PlanesDias lunesList={lunesList} dias={dias} WS={WS} GAP={GAP} COL={COL} W={W} micro={micro} Celdas={Celdas} />}
+
           {/* Planificación: carga del día */}
           {grupos.pla && (
             <div style={{ display: 'flex', marginTop: 6 }}>
@@ -979,23 +1160,6 @@ export default function TimelinePlan({
               }} />
             </div>
           )}
-
-          {/* Planificación: contenidos del día */}
-          {grupos.pla && (() => {
-            const maxN = Math.max(1, ...dias.map(d => agruparCont(contDia(d)).length))
-            const alto = Math.max(micro ? 64 : 58, maxN * (micro ? 23 : 21) + 14)
-            return (
-              <div style={{ display: 'flex', marginTop: 4 }}>
-                <Etiqueta g="pla" texto="Contenidos" icono="▤" alto={alto} sub="Clic en un día para añadir" />
-                <Celdas alto={alto} fondo={GRUPOS.pla.soft} render={d => (
-                  <div className="tl-cont" onClick={ev => abrirEditorDia(ev, d)} style={{ position: 'absolute', inset: 0, padding: 4, display: 'flex', flexDirection: 'column', gap: 3, cursor: 'pointer', overflow: 'hidden' }}>
-                    {agruparCont(contDia(d)).map(c => <ChipContenido key={c.texto} texto={c.texto} color={c.color} peque={!micro} />)}
-                    <span className="tl-mas-cont" style={{ marginTop: 'auto', alignSelf: 'center', fontSize: 11, color: GRUPOS.pla.color }}>＋</span>
-                  </div>
-                )} />
-              </div>
-            )
-          })()}
 
           {/* Programación: sesiones */}
           {grupos.pro && (() => {
