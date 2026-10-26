@@ -49,7 +49,7 @@ export function SelectorEtiquetas({ grupos, etiquetas, value = [], onChange, com
     const sel = new Set(value)
     if (sel.has(et.id)) sel.delete(et.id)
     else {
-      if (g.seleccion === 'unica') etiquetas.filter(x => x.grupo_id === g.id).forEach(x => sel.delete(x.id))
+      if (g.seleccion === 'unica' && !et.padre_id) etiquetas.filter(x => x.grupo_id === g.id && !x.padre_id).forEach(x => sel.delete(x.id))
       sel.add(et.id)
     }
     onChange([...sel])
@@ -70,7 +70,13 @@ export function SelectorEtiquetas({ grupos, etiquetas, value = [], onChange, com
               {g.nombre} <span style={{ fontWeight: 500, color: 'var(--text3)', textTransform: 'none', letterSpacing: 0 }}>{g.seleccion === 'unica' ? 'una' : 'varias'}</span>
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
-              {ets.map(et => <ChipEtiqueta key={et.id} etiqueta={et} activa={value.includes(et.id)} peque={compacto} onClick={() => toggle(g, et)} />)}
+              {ets.filter(et => !et.padre_id).map(et => {
+                const subs = ets.filter(x => x.padre_id === et.id)
+                return [<ChipEtiqueta key={et.id} etiqueta={et} activa={value.includes(et.id)} peque={compacto} onClick={() => toggle(g, et)} />,
+                  subs.length > 0 && <span key={et.id + 's'} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, alignItems: 'center', paddingLeft: 2, borderLeft: `2px solid ${et.color}55` }}>
+                    {subs.map(sb => <ChipEtiqueta key={sb.id} etiqueta={sb} activa={value.includes(sb.id)} peque onClick={() => toggle(g, sb)} />)}
+                  </span>]
+              })}
             </div>
           </div>
         )
@@ -100,8 +106,9 @@ function TextoEditable({ valor, editando, onEditar, onGuardar, onCancelar, estil
     style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: '2px 6px', borderRadius: 5, border: '1px solid var(--accent)', fontFamily: 'inherit', ...estilo }} />
 }
 
-function NuevoInline({ texto, onCrear, peque }) {
-  const [abierto, setAbierto] = useState(false)
+function NuevoInline({ texto, onCrear, peque, abiertoInicial, onCerrar }) {
+  const [abierto, setAbiertoS] = useState(!!abiertoInicial)
+  const setAbierto = x => { setAbiertoS(x); if (!x) onCerrar?.() }
   const [v, setV] = useState('')
   const ok = () => { const t = v.trim(); if (t) onCrear(t); setV(''); setAbierto(false) }
   if (!abierto) return <button onClick={() => setAbierto(true)} style={{ ...btnIco, fontSize: peque ? 11.5 : 12, fontWeight: 600, color: 'var(--text3)', padding: '3px 2px', textAlign: 'left' }}>+ {texto}</button>
@@ -124,6 +131,7 @@ export default function CategoriasEditor() {
   const [etiquetas, setEtiquetas] = useState([])
   const [cargado, setCargado] = useState(false)
   const [editando, setEditando] = useState(null) // 'tipo:id'
+  const [nuevaSubDe, setNuevaSubDe] = useState(null)
   const [drag, setDragS] = useState(null)   // { tipo, id }
   const dragRef = useRef(null)
   const setDrag = v => { dragRef.current = v; setDragS(v) }
@@ -155,7 +163,7 @@ export default function CategoriasEditor() {
     let msg = `¿Eliminar «${x.nombre}»?`
     if (tipo === 'seccion') { const n = grupos.filter(g => g.seccion_id === x.id).length; if (n) msg += ` Sus ${n} grupo${n === 1 ? '' : 's'} de categorías pasarán a «Sin grupo general».` }
     if (tipo === 'grupo') { const n = etiquetas.filter(e => e.grupo_id === x.id).length; if (n) msg += ` Se borrarán sus ${n} etiquetas y se quitarán de los ejercicios.` }
-    if (tipo === 'etiqueta') msg += ' Se quitará de los ejercicios que la tengan.'
+    if (tipo === 'etiqueta') { const n = etiquetas.filter(e => e.padre_id === x.id).length; msg += (n ? ` También se borrarán sus ${n} subetiquetas.` : '') + ' Se quitará de los ejercicios que la tengan.' }
     if (!window.confirm(msg)) return
     await supabase.from(tabla[tipo]).delete().eq('id', x.id); cargar()
   }
@@ -179,10 +187,20 @@ export default function CategoriasEditor() {
       await guardarOrden('grupo', hermanos.map(h => h.id === it.id ? grupos.find(x => x.id === d.id) : h), 'seccion_id', destino.padre)
     } else {
       const orig = etiquetas.find(x => x.id === d.id)
-      const it = { ...orig, grupo_id: destino.padre }
-      const hermanos = recolocar(porOrden(etiquetas.filter(x => x.grupo_id === destino.padre)), it, destino.antesDe)
-      setEtiquetas(es => es.map(x => { const j = hermanos.findIndex(h => h.id === x.id); return j >= 0 ? { ...x, grupo_id: destino.padre, orden: j } : x }))
-      await guardarOrden('etiqueta', hermanos.map(h => h.id === it.id ? orig : h), 'grupo_id', destino.padre)
+      const destinoEt = destino.antesDe ? etiquetas.find(x => x.id === destino.antesDe) : null
+      const padreEt = destinoEt ? (destinoEt.padre_id || null) : (destino.padreEt || null)
+      // Un solo nivel: una etiqueta con subetiquetas no puede pasar a ser subetiqueta
+      if (padreEt && (padreEt === orig.id || etiquetas.some(x => x.padre_id === orig.id))) return
+      const it = { ...orig, grupo_id: destino.padre, padre_id: padreEt }
+      const hermanos = recolocar(porOrden(etiquetas.filter(x => x.grupo_id === destino.padre && (x.padre_id || null) === padreEt)), it, destino.antesDe)
+      setEtiquetas(es => es.map(x => { const j = hermanos.findIndex(h => h.id === x.id); return j >= 0 ? { ...x, grupo_id: destino.padre, padre_id: padreEt, orden: j } : x }))
+      await Promise.all(hermanos.map((h, i) => {
+        const o = h.id === it.id ? orig : h
+        return (o.orden !== i || o.grupo_id !== destino.padre || (o.padre_id || null) !== padreEt) ? supabase.from('categoria_etiquetas').update({ orden: i, grupo_id: destino.padre, padre_id: padreEt }).eq('id', h.id) : null
+      }))
+      // las subetiquetas acompañan a su etiqueta si cambia de grupo
+      if (orig.grupo_id !== destino.padre) await supabase.from('categoria_etiquetas').update({ grupo_id: destino.padre }).eq('padre_id', orig.id)
+      if (orig.grupo_id !== destino.padre) cargar()
     }
   }
   // Props de arrastre para un elemento (se suelta "antes de" él)
@@ -231,7 +249,19 @@ export default function CategoriasEditor() {
             {/* Grupos de categorías, uno encima de otro */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {gs.map(g => {
-                const ets = porOrden(etiquetas.filter(e => e.grupo_id === g.id))
+                const ets = porOrden(etiquetas.filter(e => e.grupo_id === g.id && !e.padre_id))
+                const subsDe = id => porOrden(etiquetas.filter(e => e.padre_id === id))
+                const filaEt = (et, sub) => (
+                  <div key={et.id} {...arrastrable('etiqueta', et, g.id)}
+                    style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', paddingLeft: sub ? 18 : 0, opacity: drag?.id === et.id ? .4 : 1, ...marca('etiqueta', et.id) }}>
+                    <span style={{ ...asa, fontSize: 10 }}>⋮⋮</span>
+                    <Color value={et.color} onChange={c => actualizar('etiqueta', et.id, { color: c })} size={sub ? 8 : 10} />
+                    <TextoEditable valor={et.nombre} {...ed('etiqueta', et)} estilo={{ fontSize: sub ? 11.5 : 12, color: sub ? 'var(--text3)' : 'var(--text2)' }} />
+                    {!sub && <button style={btnIco} title="Añadir subetiqueta" onClick={() => setNuevaSubDe(et.id)}>↳＋</button>}
+                    <button style={btnIco} title="Renombrar" onClick={() => setEditando('etiqueta:' + et.id)}>✎</button>
+                    <button style={btnIco} title="Eliminar" onClick={() => borrar('etiqueta', et)}>🗑</button>
+                  </div>
+                )
                 return (
                   <div key={g.id} {...arrastrable('grupo', g, s?.id || null)}
                     style={{ background: 'var(--surface, #fff)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 8px', opacity: drag?.id === g.id ? .4 : 1, ...marca('grupo', g.id) }}>
@@ -245,16 +275,13 @@ export default function CategoriasEditor() {
                       <button style={btnIco} title="Eliminar" onClick={() => borrar('grupo', g)}>🗑</button>
                     </div>
                     <div style={{ marginTop: 4, paddingLeft: 4 }}>
-                      {ets.map(et => (
-                        <div key={et.id} {...arrastrable('etiqueta', et, g.id)}
-                          style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '2px 0', opacity: drag?.id === et.id ? .4 : 1, ...marca('etiqueta', et.id) }}>
-                          <span style={{ ...asa, fontSize: 10 }}>⋮⋮</span>
-                          <Color value={et.color} onChange={c => actualizar('etiqueta', et.id, { color: c })} size={10} />
-                          <TextoEditable valor={et.nombre} {...ed('etiqueta', et)} estilo={{ fontSize: 12, color: 'var(--text2)' }} />
-                          <button style={btnIco} title="Renombrar" onClick={() => setEditando('etiqueta:' + et.id)}>✎</button>
-                          <button style={btnIco} title="Eliminar" onClick={() => borrar('etiqueta', et)}>🗑</button>
-                        </div>
-                      ))}
+                      {ets.map(et => {
+                        const subs = subsDe(et.id)
+                        return [filaEt(et, false), ...subs.map(sb => filaEt(sb, true)),
+                          nuevaSubDe === et.id && <div key={et.id + 'n'} style={{ paddingLeft: 18 }}>
+                            <NuevoInline peque abiertoInicial texto="Subetiqueta" onCerrar={() => setNuevaSubDe(null)} onCrear={n => crear('etiqueta', { grupo_id: g.id, padre_id: et.id, nombre: n, color: et.color, orden: subs.length })} />
+                          </div>]
+                      })}
                       <div {...zonaFinal('etiqueta', g.id)} style={{ minHeight: 6, ...(sobre?.id === 'fin:' + g.id ? { boxShadow: '0 -2px 0 0 var(--accent)' } : {}) }}>
                         <NuevoInline peque texto="Etiqueta" onCrear={n => crear('etiqueta', { grupo_id: g.id, nombre: n, color: ets[ets.length - 1]?.color || g.color || s?.color || '#2f6fdb', orden: ets.length })} />
                       </div>
