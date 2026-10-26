@@ -380,15 +380,67 @@ export default function TimelinePlan({
     return { min, max }
   }
   // Vista previa durante el arrastre
+  const anterioresDe = (tipo, it) => ordenados(tipo === 'bloque' ? bloquesF : subsF.filter(x => x._bloque.id === it._bloque.id)).filter(x => x.id !== it.id && x._ini < it._ini)
+  const posterioresDe = (tipo, it) => ordenados(tipo === 'bloque' ? bloquesF : subsF.filter(x => x._bloque.id === it._bloque.id)).filter(x => x.id !== it.id && x._ini > it._ini)
+  // Al mover un elemento dW semanas: lo que viene detrás se empuja (consumiendo huecos) → { id: semanasDesplazadas }
+  function empujes(tipo, it, dW) {
+    const out = {}
+    if (dW <= 0) return out
+    let cursor = addDays(it._fin, dW * 7)
+    for (const x of posterioresDe(tipo, it)) {
+      if (x._ini > cursor) break
+      const n = Math.round((differenceInCalendarDays(cursor, x._ini) + 1) / 7)
+      out[x.id] = n
+      cursor = addDays(x._fin, n * 7)
+    }
+    return out
+  }
+  function limitesMover(tipo, it) {
+    const prev = anterioresDe(tipo, it).slice(-1)[0]
+    let min
+    if (prev) min = -Math.max(0, Math.round((differenceInCalendarDays(it._ini, prev._fin) - 1) / 7))
+    else min = tipo === 'bloque' ? -52 : -((it.semana_inicio || 1) - 1)
+    let max = 104
+    if (tipo === 'sub') {
+      // lo empujado no puede salirse del periodo
+      const total = it._bloque.semanas || 1
+      max = 0
+      for (let d = 1; d <= total; d++) {
+        const e = empujes(tipo, it, d)
+        const finIt = (it.semana_fin || 1) + d
+        const finUlt = Math.max(finIt, ...posterioresDe(tipo, it).filter(x => e[x.id]).map(x => (x.semana_fin || 1) + e[x.id]))
+        if (finUlt > total) break
+        max = d
+      }
+    }
+    return { min, max }
+  }
   const conArrastre = (tipo, lista) => {
     if (!arrastre || arrastre.tipo !== tipo || !arrastre.dW) return lista
     const it = lista.find(x => x.id === arrastre.id); if (!it) return lista
+    if (arrastre.modo === 'mover') {
+      const e = empujes(tipo, it, arrastre.dW)
+      return lista.map(x => {
+        if (x.id === it.id) return { ...x, _ini: addDays(x._ini, arrastre.dW * 7), _fin: addDays(x._fin, arrastre.dW * 7) }
+        if (e[x.id]) return { ...x, _ini: addDays(x._ini, e[x.id] * 7), _fin: addDays(x._fin, e[x.id] * 7), _empujado: true }
+        return x
+      })
+    }
     const nuevoFin = addDays(it._fin, arrastre.dW * 7)
     const sig = siguienteDe(tipo, it)
     return lista.map(x => {
       if (x.id === it.id) return { ...x, _fin: nuevoFin }
       if (sig && x.id === sig.id && nuevoFin >= sig._ini) return { ...x, _ini: addDays(nuevoFin, 1) }
       return x
+    })
+  }
+  // Al mover periodos, sus subperiodos se desplazan con ellos (vista previa)
+  const subsConBloquesMovidos = () => {
+    if (!arrastre || arrastre.tipo !== 'bloque' || arrastre.modo !== 'mover' || !arrastre.dW) return subsF
+    const bm = new Map(conArrastre('bloque', bloquesF).map(b => [b.id, b]))
+    return subsF.map(x => {
+      const b = bm.get(x._bloque.id); const d = b ? differenceInCalendarDays(b._ini, x._bloque._ini) : 0
+      return d ? { ...x, _ini: addDays(x._ini, d), _fin: addDays(x._fin, d) } : x
     })
   }
   async function asignarSemanasABloque(bloqueId, ini, nSem) {
@@ -438,12 +490,59 @@ export default function TimelinePlan({
     }
     setArrastre(null); setGuardandoPer(false)
   }
+  async function confirmarMover(tipo, it, dW) {
+    if (!dW) return
+    setGuardandoPer(true)
+    try {
+      const e = empujes(tipo, it, dW)
+      const lista = posterioresDe(tipo, it).filter(x => e[x.id]).reverse() // del último al primero (evita solapes)
+      if (tipo === 'bloque') {
+        const cambios = []
+        for (const x of lista) cambios.push({ x, n: e[x.id] })
+        cambios.push({ x: it, n: dW })
+        for (const { x, n } of cambios) {
+          const { error } = await supabase.from('bloques').update({ fecha_inicio: k(addDays(x._ini, n * 7)) }).eq('id', x.id)
+          if (error) throw error
+        }
+        for (const { x, n } of cambios) await asignarSemanasABloque(x.id, addDays(x._ini, n * 7), x.semanas || semanasDe(x))
+      } else {
+        const cambios = lista.map(x => ({ x, n: e[x.id] })).concat([{ x: it, n: dW }])
+        for (const { x, n } of cambios) {
+          const { error } = await supabase.from('subbloques').update({ semana_inicio: (x.semana_inicio || 1) + n, semana_fin: (x.semana_fin || 1) + n }).eq('id', x.id)
+          if (error) throw error
+        }
+      }
+      await onRecargar?.()
+    } catch (err) {
+      alert('No se pudo mover: ' + (err.message || err))
+    }
+    setArrastre(null); setGuardandoPer(false)
+  }
+  // Pulsar y arrastrar el cuerpo de la barra: mover. Sin movimiento = clic (abrir).
+  function iniciarMover(ev, tipo, it, pxSemana, onClic) {
+    if (ev.button !== 0) return
+    ev.preventDefault()
+    const x0 = ev.clientX, { min, max } = limitesMover(tipo, it)
+    let dW = 0, movido = false
+    const mover = e => {
+      if (!movido && Math.abs(e.clientX - x0) < 5) return
+      if (!movido) { movido = true; document.body.style.cursor = 'grabbing' }
+      dW = Math.max(min, Math.min(max, Math.round((e.clientX - x0) / pxSemana)))
+      setArrastre({ tipo, id: it.id, dW, modo: 'mover' })
+    }
+    const soltar = () => {
+      window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); document.body.style.cursor = ''
+      if (!movido) { setArrastre(null); onClic?.(it); return }
+      if (dW) confirmarMover(tipo, it, dW); else setArrastre(null)
+    }
+    window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar)
+  }
   function iniciarArrastre(ev, tipo, it, pxSemana) {
     ev.preventDefault(); ev.stopPropagation()
     const x0 = ev.clientX, { min, max } = limitesArrastre(tipo, it)
     let dW = 0
-    setArrastre({ tipo, id: it.id, dW: 0 })
-    const mover = e => { dW = Math.max(min, Math.min(max, Math.round((e.clientX - x0) / pxSemana))); setArrastre({ tipo, id: it.id, dW }) }
+    setArrastre({ tipo, id: it.id, dW: 0, modo: 'borde' })
+    const mover = e => { dW = Math.max(min, Math.min(max, Math.round((e.clientX - x0) / pxSemana))); setArrastre({ tipo, id: it.id, dW, modo: 'borde' }) }
     const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); document.body.style.cursor = ''; if (dW) confirmarArrastre(tipo, it, dW); else setArrastre(null) }
     window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar)
     document.body.style.cursor = 'ew-resize'
@@ -623,7 +722,7 @@ export default function TimelinePlan({
           {grupos.per && <FilaBarras alto={30} etiqueta={<Etiqueta g="per" texto="Periodo" icono="⇄" alto={30} />} W={W} items={conArrastre('bloque', bloquesF)} xDe={xDe} escala={COL / 7} rIni={ini0} grande onClick={onEditarBloque}
             tipo="bloque" huecos={huecosBloques} onHueco={h => onNuevoBloque?.({ fecha_inicio: k(h.ini), semanas: Math.max(1, Math.round((differenceInCalendarDays(h.fin, h.ini) + 1) / 7)) })} />}
           {grupos.per && (subsF.length
-            ? <FilaBarras alto={26} etiqueta={<Etiqueta g="per" texto="Subperiodo" icono="⇄" alto={26} />} W={W} items={conArrastre('sub', subsF)} xDe={xDe} escala={COL / 7} rIni={ini0} onClick={s => onEditarSubbloque(s)}
+            ? <FilaBarras alto={26} etiqueta={<Etiqueta g="per" texto="Subperiodo" icono="⇄" alto={26} />} W={W} items={conArrastre('sub', subsConBloquesMovidos())} xDe={xDe} escala={COL / 7} rIni={ini0} onClick={s => onEditarSubbloque(s)}
               tipo="sub" huecos={huecosSubs} onHueco={h => onNuevoSubbloque?.({ bloque_id: h.bloque.id, semana_inicio: h.semana_inicio, semana_fin: h.semana_fin })} />
             : <FilaSemanasTitulo alto={26} W={W} cols={semanasCols} COL={COL} />)}
 
@@ -715,10 +814,11 @@ export default function TimelinePlan({
             const activo = arrastre && arrastre.id === it.id
             const semanasTxt = Math.round((differenceInCalendarDays(it._fin, it._ini) + 1) / 7)
             return (
-              <div key={it.id} onClick={() => !arrastre && onClick?.(it)} title={`${it.nombre} · ${format(it._ini, 'd MMM', { locale: es })} – ${format(it._fin, 'd MMM', { locale: es })} (${semanasTxt} sem.)${it.objetivo ? '\n' + it.objetivo : ''}${editable ? '\nArrastra el borde derecho para cambiar la duración' : ''}`}
-                style={{ position: 'absolute', left: x + 1.5, width: Math.max(4, Math.min(w, W - x) - 3), top: 3, bottom: 3, borderRadius: 7, cursor: 'pointer', overflow: 'hidden',
-                  background: grande ? col + '26' : col + '14', border: `1px solid ${activo ? col : col + '66'}`, boxShadow: activo ? `0 0 0 2px ${col}33` : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px 0 6px' }}>
-                <span style={{ fontSize: grande ? 11 : 10, fontWeight: grande ? 700 : 600, color: col, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.nombre}{activo ? ` · ${semanasTxt} sem.` : ''}</span>
+              <div key={it.id} onClick={editable ? undefined : () => onClick?.(it)} onMouseDown={editable ? ev => iniciarMover(ev, tipo, it, escala * 7, onClick) : undefined}
+                title={`${it.nombre} · ${format(it._ini, 'd MMM', { locale: es })} – ${format(it._fin, 'd MMM', { locale: es })} (${semanasTxt} sem.)${it.objetivo ? '\n' + it.objetivo : ''}${editable ? '\nClic para editar · arrastra para mover · arrastra el borde derecho para cambiar la duración' : ''}`}
+                style={{ position: 'absolute', left: x + 1.5, width: Math.max(4, Math.min(w, W - x) - 3), top: 3, bottom: 3, borderRadius: 7, cursor: activo && arrastre.modo === 'mover' ? 'grabbing' : editable ? 'grab' : 'pointer', overflow: 'hidden', userSelect: 'none',
+                  background: grande ? col + '26' : col + '14', border: `1px ${it._empujado ? 'dashed' : 'solid'} ${activo || it._empujado ? col : col + '66'}`, boxShadow: activo ? `0 0 0 2px ${col}33` : 'none', zIndex: activo ? 2 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px 0 6px' }}>
+                <span style={{ fontSize: grande ? 11 : 10, fontWeight: grande ? 700 : 600, color: col, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.nombre}{activo ? (arrastre.modo === 'mover' ? ` · ${format(it._ini, 'd MMM', { locale: es })}` : ` · ${semanasTxt} sem.`) : ''}</span>
                 {editable && (
                   <span onMouseDown={ev => iniciarArrastre(ev, tipo, it, escala * 7)} onClick={ev => ev.stopPropagation()} className="tl-asa"
                     style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 9, cursor: 'ew-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
