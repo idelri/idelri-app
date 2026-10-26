@@ -813,10 +813,71 @@ export default function TimelinePlan({
   const arrRef = useRef(null) // { clase: 'items', items } | { clase: 'dia', fecha }
   const editableCal = !!onMoverItems
   const limpiarDrop = () => document.querySelectorAll('.tl-drop-on').forEach(el => el.classList.remove('tl-drop-on'))
+  // ── Selección múltiple (Ctrl/⌘+clic, Mayús+clic para un tramo, o la semana entera) ──
+  const [sel, setSel] = useState(() => new Map()) // clave 'tipo:id' → item con _tipo
+  const ultimoSel = useRef(null)
+  const claveSel = (tipo, id) => tipo + ':' + id
+  const fechaDeItem = it => String(it.fecha || '').slice(0, 10)
+  const estaSel = (tipo, id) => sel.has(claveSel(tipo, id))
+  const limpiarSel = () => setSel(new Map())
+  useEffect(() => { const f = e => { if (e.key === 'Escape') setSel(m => m.size ? new Map() : m) }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f) }, [])
+  // Clic sobre un elemento: true si se ha usado para seleccionar (y no hay que abrirlo)
+  function clicSeleccion(e, item, tipo) {
+    if (!editableCal) return false
+    if (e.metaKey || e.ctrlKey) {
+      e.preventDefault(); e.stopPropagation()
+      setSel(m => { const n = new Map(m); const kk = claveSel(tipo, item.id); n.has(kk) ? n.delete(kk) : n.set(kk, { ...item, _tipo: tipo }); return n })
+      ultimoSel.current = { ...item, _tipo: tipo }
+      return true
+    }
+    if (e.shiftKey && ultimoSel.current) {
+      e.preventDefault(); e.stopPropagation()
+      const a = fechaDeItem(ultimoSel.current), b = fechaDeItem(item)
+      const [ini, fin] = a <= b ? [a, b] : [b, a]
+      const lista = tipo === 'sesion' ? (sesiones || []).filter(z => z.fecha && !z.recurso) : tipo === 'nota' ? notasLoc : tipo === 'competicion' ? (competiciones || []) : (controles || [])
+      setSel(m => { const n = new Map(m); lista.filter(z => { const f = fechaDeItem(z); return f >= ini && f <= fin }).forEach(z => n.set(claveSel(tipo, z.id), { ...z, _tipo: tipo })); return n })
+      return true
+    }
+    if (sel.size) limpiarSel()
+    return false
+  }
+  // Seleccionar todas las sesiones de unos días (semana entera); con Ctrl/⌘ se añaden a lo ya seleccionado
+  function seleccionarSesionesDe(diasL, añadir) {
+    const fs = new Set(diasL.map(k))
+    setSel(m => { const n = añadir ? new Map(m) : new Map(); (sesiones || []).filter(z => z.fecha && !z.recurso && fs.has(fechaDeItem(z))).forEach(z => n.set(claveSel('sesion', z.id), { ...z, _tipo: 'sesion' })); return n })
+  }
   const arrastrableItem = (item, tipo) => !editableCal ? {} : {
     draggable: true,
-    onDragStart: e => { e.stopPropagation(); arrRef.current = { clase: 'items', items: [{ ...item, _tipo: tipo }] }; e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', item.id) } catch {} },
+    onDragStart: e => {
+      e.stopPropagation()
+      const varios = sel.size > 1 && sel.has(claveSel(tipo, item.id))
+      arrRef.current = varios ? { clase: 'items', items: [...sel.values()], ancla: { ...item, _tipo: tipo } } : { clase: 'items', items: [{ ...item, _tipo: tipo }] }
+      e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', item.id) } catch {}
+    },
     onDragEnd: () => { arrRef.current = null; limpiarDrop() },
+  }
+  // Pegar / mover varios elementos conservando su separación en días respecto a una referencia
+  function moverConDesplazamiento(items, delta, modo) {
+    if (!delta && modo === 'mover') return
+    const porFecha = new Map()
+    items.forEach(it => { const f = k(addDays(parseISO(fechaDeItem(it)), delta)); if (!porFecha.has(f)) porFecha.set(f, []); porFecha.get(f).push(it) })
+    porFecha.forEach((its, f) => onMoverItems(its, f, modo))
+  }
+  const [portaVarios, setPortaVarios] = useState(null) // varios elementos copiados
+  function pegarVarios(d) {
+    const its = portaVarios; if (!its?.length) return
+    const base = its.map(fechaDeItem).sort()[0]
+    moverConDesplazamiento(its, differenceInCalendarDays(d, parseISO(base)), 'copiar')
+  }
+  async function eliminarSeleccion() {
+    const its = [...sel.values()]; if (!its.length) return
+    if (!window.confirm(`¿Eliminar ${its.length} elemento${its.length === 1 ? '' : 's'} seleccionado${its.length === 1 ? '' : 's'}? No se puede deshacer.`)) return
+    const tablas = { sesion: 'sesiones', competicion: 'competiciones', control: 'controles', nota: 'sesion_notas' }
+    for (const [tipo, tabla] of Object.entries(tablas)) {
+      const ids = its.filter(x => x._tipo === tipo).map(x => x.id)
+      if (ids.length) { const { error } = await supabase.from(tabla).delete().in('id', ids); if (error) { alert('No se pudo eliminar: ' + error.message); break } }
+    }
+    limpiarSel(); await onRecargar?.()
   }
   const modoDe = e => (e.altKey || modoDrag === 'copiar') ? 'copiar' : 'mover'
   // destino: fechaDe(item) → 'yyyy-MM-dd' donde cae cada elemento
@@ -827,6 +888,11 @@ export default function TimelinePlan({
       const a = arrRef.current; if (a?.clase !== 'items') return
       e.preventDefault(); e.stopPropagation(); limpiarDrop(); arrRef.current = null
       const modo = modoDe(e)
+      if (a.ancla) { // varios: todos se desplazan lo mismo que el que se arrastra
+        const f = fechaDe(a.ancla); if (!f) return
+        moverConDesplazamiento(a.items, differenceInCalendarDays(parseISO(f), parseISO(fechaDeItem(a.ancla))), modo)
+        limpiarSel(); return
+      }
       const porFecha = new Map()
       a.items.forEach(it => { const f = fechaDe(it); if (!f || (modo === 'mover' && String(it.fecha).slice(0, 10) === f)) return; if (!porFecha.has(f)) porFecha.set(f, []); porFecha.get(f).push(it) })
       porFecha.forEach((its, f) => onMoverItems(its, f, modo))
@@ -951,6 +1017,20 @@ export default function TimelinePlan({
       <div style={{ flex: 1 }} />
       {editableCal && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {sel.size > 0 && (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11.5, padding: '3px 4px 3px 9px', borderRadius: 8, background: 'var(--accent)', color: '#fff' }}>
+              <b>{sel.size} seleccionada{sel.size === 1 ? '' : 's'}</b>
+              <button onClick={() => { setPortaVarios([...sel.values()]); onCopiar?.(null); limpiarSel() }} title="Copiar: luego pulsa 📋 en el día donde quieras que empiece" style={btnSel}>⧉ Copiar</button>
+              <button onClick={eliminarSeleccion} title="Eliminar las seleccionadas" style={btnSel}>🗑</button>
+              <button onClick={limpiarSel} title="Quitar la selección (Esc)" style={btnSel}>✕</button>
+            </span>
+          )}
+          {portaVarios?.length > 0 && !sel.size && (
+            <span title="Pulsa 📋 en el día donde quieras que empiece: se pegan en el mismo orden" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '4px 8px', borderRadius: 8, background: 'var(--accent-light)', color: 'var(--accent-text)' }}>
+              📋 {portaVarios.length} copiada{portaVarios.length === 1 ? '' : 's'}
+              <span onClick={() => setPortaVarios(null)} style={{ cursor: 'pointer', opacity: .7 }} title="Vaciar">×</span>
+            </span>
+          )}
           {clipboard && (
             <span title="Pulsa 📋 en un día para pegarla" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '4px 8px', borderRadius: 8, background: 'var(--accent-light)', color: 'var(--accent-text)', maxWidth: 220 }}>
               📋 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{clipboard.titulo || clipboard.nombre || clipboard.texto || 'Copiado'}</span>
@@ -1144,11 +1224,12 @@ export default function TimelinePlan({
                   const caben = Math.max(1, Math.floor((COL - 6) / 15) * 2)
                   return (
                     <div key={k(s.d)} {...destinoItems(it => { const off = differenceInCalendarDays(parseISO(String(it.fecha).slice(0, 10)), lunes(parseISO(String(it.fecha).slice(0, 10)))); return k(addDays(s.d, off)) })}
-                      title={editableCal ? 'Arrastra una sesión a otra semana: cae el mismo día de la semana' : ''}
+                      onClick={e => { if (editableCal && (e.metaKey || e.ctrlKey || e.shiftKey)) seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(s.d, i)), true) }}
+                      title={editableCal ? 'Arrastra una sesión a otra semana: cae el mismo día de la semana\nCtrl/⌘+clic en un icono: seleccionar varias · Ctrl/⌘+clic en el hueco: toda la semana' : ''}
                       style={{ width: COL - 3, margin: '0 1.5px', minHeight: 36, padding: '3px 0', display: 'flex', flexWrap: 'wrap', alignContent: 'center', justifyContent: 'center', gap: 2, borderRadius: 6 }}>
                       {lista.length <= caben
-                        ? lista.map(z => <span key={z.id} {...arrastrableItem(z, 'sesion')} onClick={() => onAbrirSesion?.(z)} title={`${format(parseISO(String(z.fecha).slice(0, 10)), 'EEE d', { locale: es })} · ${z.titulo || 'Sesión'}`}
-                            style={{ width: 13, height: 15, borderRadius: 4, background: z.tipo_sesion === 'opcional' ? 'transparent' : GRUPOS.pro.color + '22', border: `1px ${z.tipo_sesion === 'opcional' ? 'dashed' : 'solid'} ${GRUPOS.pro.color}66`, fontSize: 8.5, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: editableCal ? 'grab' : 'pointer' }}>{iconoSesion(z)}</span>)
+                        ? lista.map(z => <span key={z.id} {...arrastrableItem(z, 'sesion')} onClick={e => { e.stopPropagation(); if (!clicSeleccion(e, z, 'sesion')) onAbrirSesion?.(z) }} title={`${format(parseISO(String(z.fecha).slice(0, 10)), 'EEE d', { locale: es })} · ${z.titulo || 'Sesión'}`}
+                            style={{ boxShadow: estaSel('sesion', z.id) ? '0 0 0 2px var(--accent)' : 'none', width: 13, height: 15, borderRadius: 4, background: z.tipo_sesion === 'opcional' ? 'transparent' : GRUPOS.pro.color + '22', border: `1px ${z.tipo_sesion === 'opcional' ? 'dashed' : 'solid'} ${GRUPOS.pro.color}66`, fontSize: 8.5, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: editableCal ? 'grab' : 'pointer' }}>{iconoSesion(z)}</span>)
                         : lista.length > 0 && <span style={{ minWidth: 20, height: 20, padding: '0 4px', borderRadius: 6, background: GRUPOS.pro.color + 'cc', color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{lista.length}</span>}
                     </div>
                   )
@@ -1316,8 +1397,8 @@ export default function TimelinePlan({
                     return (
                       <div key={k(d)} className="tl-celda-ses" {...destinoItems(() => k(d))} style={{ width: COL, borderLeft: i ? '1px solid rgba(0,0,0,.05)' : 'none', padding: 3, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 3, background: isSameDay(d, hoy) ? 'rgba(45,106,79,.06)' : 'transparent' }}>
                         {ns.map(n => (
-                          <div key={n.id} {...arrastrableItem(n, 'nota')} onClick={ev => editarNotaDia(ev, n)} title={`${cli ? '👁 La ve el cliente' : '🔒 Nota interna'}\n\n${n.texto}\n\nClic para editar · arrastra para mover`}
-                            style={{ fontSize: micro ? 11 : 9.5, lineHeight: 1.3, color: 'var(--text2)', background: '#fff', border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: 5, padding: '3px 5px', cursor: 'pointer', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor(((micro ? 40 : 34) + ex(clave) / Math.max(1, ns.length) - 8) / (micro ? 14 : 12.5))), WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{n.texto}</div>
+                          <div key={n.id} {...arrastrableItem(n, 'nota')} onClick={ev => { if (!clicSeleccion(ev, n, 'nota')) editarNotaDia(ev, n) }} title={`${cli ? '👁 La ve el cliente' : '🔒 Nota interna'}\n\n${n.texto}\n\nClic para editar · arrastra para mover`}
+                            style={{ fontSize: micro ? 11 : 9.5, lineHeight: 1.3, color: 'var(--text2)', background: '#fff', border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: 5, padding: '3px 5px', cursor: 'pointer', boxShadow: estaSel('nota', n.id) ? '0 0 0 2px var(--accent)' : 'none', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor(((micro ? 40 : 34) + ex(clave) / Math.max(1, ns.length) - 8) / (micro ? 14 : 12.5))), WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{n.texto}</div>
                         ))}
                         <button className="tl-mas" onClick={ev => nuevaNotaDia(ev, d, vis)} title={`Nueva nota ${cli ? 'para el cliente' : 'interna'}`}
                           style={{ marginTop: 'auto', alignSelf: 'center', border: `1px dashed ${color}88`, background: 'transparent', color, borderRadius: 6, fontSize: 12, width: 24, height: 18, cursor: 'pointer', lineHeight: 1 }}>+</button>
@@ -1635,9 +1716,15 @@ export default function TimelinePlan({
                     {micro ? (
                       <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
                         Programación{clienteNombre ? ` · ${clienteNombre}` : ''} <span style={{ color: 'var(--text3)', fontWeight: 500 }}>({format(l, 'd MMM', { locale: es })} – {format(addDays(l, 6), 'd MMM', { locale: es })})</span>
+                        {editableCal && <button onClick={e => seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(l, i)), e.metaKey || e.ctrlKey || e.shiftKey)} title="Seleccionar todas las sesiones de esta semana"
+                          style={{ marginLeft: 8, verticalAlign: 'middle', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 5, fontSize: 10.5, fontWeight: 600, color: 'var(--text3)', padding: '2px 6px', cursor: 'pointer' }}>☐ sesiones</button>}
                       </div>
                     ) : (
-                      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', color: 'var(--text2)', textTransform: 'uppercase' }}>Semana {n || '—'}</div>
+                      <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', color: 'var(--text2)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                        Semana {n || '—'}
+                        {editableCal && <button onClick={e => seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(l, i)), e.metaKey || e.ctrlKey || e.shiftKey)} title="Seleccionar todas las sesiones de esta semana (con Ctrl/⌘ o Mayús se suman a la selección)"
+                          style={{ border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 5, fontSize: 9.5, fontWeight: 600, color: 'var(--text3)', padding: '1px 5px', cursor: 'pointer', letterSpacing: 0, textTransform: 'none' }}>☐ sesiones</button>}
+                      </div>
                     )}
                     {t && <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t}</div>}
                   </div>
@@ -1671,8 +1758,8 @@ export default function TimelinePlan({
                 const opc = x.ses.length - entreno
                 return (
                   <div className="tl-ev" {...destinoItems(() => k(d))} style={{ position: 'relative', padding: 4, display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch', overflow: 'hidden', height: '100%', boxSizing: 'border-box' }}>
-                    {x.comps.map(c => <Chip key={c.id} onClick={() => onAbrirComp?.(c)} bg="#fef3c7" color="#92400e" titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'competicion')}>🏆 {c.nombre}</Chip>)}
-                    {x.ctrls.map(c => <Chip key={c.id} onClick={() => onAbrirControl?.(c)} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'control')}>🔬 {c.nombre}</Chip>)}
+                    {x.comps.map(c => <Chip key={c.id} onClick={e => { if (!clicSeleccion(e, c, 'competicion')) onAbrirComp?.(c) }} style={estaSel('competicion', c.id) ? { boxShadow: '0 0 0 2px var(--accent)' } : undefined} bg="#fef3c7" color="#92400e" titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'competicion')}>🏆 {c.nombre}</Chip>)}
+                    {x.ctrls.map(c => <Chip key={c.id} onClick={e => { if (!clicSeleccion(e, c, 'control')) onAbrirControl?.(c) }} style={estaSel('control', c.id) ? { boxShadow: '0 0 0 2px var(--accent)' } : undefined} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'control')}>🔬 {c.nombre}</Chip>)}
                     {entreno > 0 && <Chip bg="var(--accent)" color="#fff" titulo={`${entreno} sesión(es)`}>Entreno{entreno > 1 ? ` ×${entreno}` : ''}</Chip>}
                     {opc > 0 && <Chip bg="transparent" color="var(--accent)" borde={`1px dashed var(--accent)`} titulo="Sesión opcional">☆{COL >= 90 ? ' Opcional' : ''}{opc > 1 ? ` ×${opc}` : ''}</Chip>}
                     {(onNuevaCompeticion || onNuevaValoracion || onNuevaNota) && (
@@ -1746,7 +1833,9 @@ export default function TimelinePlan({
                     <div style={{ marginTop: 'auto', alignSelf: 'center', display: 'flex', gap: 3 }}>
                       {onNuevaSesion && <button className="tl-mas" onClick={() => onNuevaSesion(k(d))} title="Nueva sesión"
                         style={{ border: '1px dashed ' + GRUPOS.pro.color + '88', background: 'transparent', color: GRUPOS.pro.color, borderRadius: 6, fontSize: 12, width: 24, height: 20, cursor: 'pointer', lineHeight: 1 }}>+</button>}
-                      {clipboard && onPegar && <button className="tl-mas" onClick={() => onPegar(clipboard, k(d))} title={`Pegar «${clipboard.titulo || clipboard.nombre || clipboard.texto || ''}» aquí`}
+                      {portaVarios?.length > 0 && <button className="tl-mas" onClick={() => pegarVarios(d)} title={`Pegar ${portaVarios.length} elemento${portaVarios.length === 1 ? '' : 's'} empezando aquí (en el mismo orden)`}
+                        style={{ border: '1px dashed ' + GRUPOS.pro.color + '88', background: 'transparent', borderRadius: 6, fontSize: 11, height: 20, padding: '0 4px', cursor: 'pointer', lineHeight: 1 }}>📋{portaVarios.length}</button>}
+                      {!portaVarios?.length && clipboard && onPegar && <button className="tl-mas" onClick={() => onPegar(clipboard, k(d))} title={`Pegar «${clipboard.titulo || clipboard.nombre || clipboard.texto || ''}» aquí`}
                         style={{ border: '1px dashed ' + GRUPOS.pro.color + '88', background: 'transparent', borderRadius: 6, fontSize: 11, width: 24, height: 20, cursor: 'pointer', lineHeight: 1 }}>📋</button>}
                     </div>
                   </div>
@@ -1797,8 +1886,8 @@ export default function TimelinePlan({
     const est = estadoColor(s, fb)
     const opc = s.tipo_sesion === 'opcional'
     return (
-      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={() => onAbrirSesion?.(s)} title={[[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null].filter(Boolean).join(' · '), s.indicaciones ? '\n👁 ' + textoPlano(s.indicaciones).slice(0, 220) : null, s.notas_entrenador ? '\n🔒 ' + textoPlano(s.notas_entrenador).slice(0, 220) : null, editableCal ? '\nArrastra para mover (Alt: copiar)' : null].filter(Boolean).join('\n')}
-        style={{ position: 'relative', height: alto, flexShrink: 0, borderRadius: 8, background: '#fff', border: `1px ${opc ? 'dashed' : 'solid'} ${GRUPOS.pro.color}${opc ? '88' : '55'}`, boxShadow: '0 1px 2px rgba(0,0,0,.05)', padding: micro ? '7px 9px' : '5px 6px', cursor: 'pointer', overflow: 'hidden', boxSizing: 'border-box', opacity: opc ? .85 : 1 }}>
+      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={e => { if (!clicSeleccion(e, s, 'sesion')) onAbrirSesion?.(s) }} title={[[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null].filter(Boolean).join(' · '), s.indicaciones ? '\n👁 ' + textoPlano(s.indicaciones).slice(0, 220) : null, s.notas_entrenador ? '\n🔒 ' + textoPlano(s.notas_entrenador).slice(0, 220) : null, editableCal ? '\nArrastra para mover (Alt: copiar) · Ctrl/⌘+clic para seleccionar varias' : null].filter(Boolean).join('\n')}
+        style={{ position: 'relative', height: alto, flexShrink: 0, borderRadius: 8, background: estaSel('sesion', s.id) ? 'var(--accent-light, #e7f5ed)' : '#fff', border: `1px ${opc ? 'dashed' : 'solid'} ${GRUPOS.pro.color}${opc ? '88' : '55'}`, boxShadow: estaSel('sesion', s.id) ? '0 0 0 2px var(--accent)' : '0 1px 2px rgba(0,0,0,.05)', padding: micro ? '7px 9px' : '5px 6px', cursor: 'pointer', overflow: 'hidden', boxSizing: 'border-box', opacity: opc ? .85 : 1 }}>
         {est && <span style={{ position: 'absolute', top: 5, right: 5, width: 7, height: 7, borderRadius: 4, background: est }} />}
         {editableCal && (onCopiar || onEliminar) && (
           <div className="tl-acc" style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', gap: 2, background: '#fff', borderRadius: 5, boxShadow: '0 0 0 1px var(--border)' }}>
@@ -1822,12 +1911,13 @@ export default function TimelinePlan({
   }
 }
 
+const btnSel = { border: 'none', background: 'rgba(255,255,255,.18)', color: '#fff', borderRadius: 6, fontSize: 11, padding: '2px 7px', cursor: 'pointer', fontFamily: 'inherit' }
 const btnMini = { border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10.5, padding: '1px 3px', lineHeight: 1, color: 'var(--text2)' }
 
-function Chip({ children, bg, color, borde, titulo, onClick, multi, ...rest }) {
+function Chip({ children, bg, color, borde, titulo, onClick, multi, style: extra, ...rest }) {
   return (
     <div onClick={onClick} title={titulo} {...rest}
-      style={{ fontSize: 9.5, fontWeight: 700, padding: '3px 4px', borderRadius: 6, background: bg, color, border: borde || 'none', whiteSpace: multi ? 'normal' : 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: onClick ? 'pointer' : 'default', textAlign: multi ? 'left' : 'center', lineHeight: multi ? 1.3 : 'normal', overflowWrap: 'anywhere', flexShrink: 0 }}>
+      style={{ ...(extra || {}), fontSize: 9.5, fontWeight: 700, padding: '3px 4px', borderRadius: 6, background: bg, color, border: borde || 'none', whiteSpace: multi ? 'normal' : 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: onClick ? 'pointer' : 'default', textAlign: multi ? 'left' : 'center', lineHeight: multi ? 1.3 : 'normal', overflowWrap: 'anywhere', flexShrink: 0 }}>
       {children}
     </div>
   )
