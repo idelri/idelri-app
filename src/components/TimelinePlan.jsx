@@ -489,6 +489,19 @@ export default function TimelinePlan({
   const [cuadCod, setCuadCodS] = useState(() => { try { const v = localStorage.getItem('tlCuadCod'); return v === null ? null : v } catch { return null } })
   const setCuadColor = v => { setCuadColorS(v); try { localStorage.setItem('tlCuadColor', v) } catch {} }
   const setCuadCod = v => { setCuadCodS(v); try { localStorage.setItem('tlCuadCod', v) } catch {} }
+  // Altura extra de filas que acumulan cosas (se estira arrastrando su borde inferior)
+  const [extraAlto, setExtraAlto] = useState(() => { try { return JSON.parse(localStorage.getItem('tlExtraAlto') || '{}') } catch { return {} } })
+  const ex = clave => extraAlto[clave] || 0
+  function iniciarEstirar(ev, clave) {
+    ev.preventDefault()
+    const y0 = ev.clientY, e0 = ex(clave)
+    let v = e0
+    const mover = e => { v = Math.max(0, Math.min(600, Math.round(e0 + e.clientY - y0))); setExtraAlto(x => ({ ...x, [clave]: v })) }
+    const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); document.body.style.cursor = ''; setExtraAlto(x => { const n = { ...x, [clave]: v }; try { localStorage.setItem('tlExtraAlto', JSON.stringify(n)) } catch {} ; return n }) }
+    window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar)
+    document.body.style.cursor = 'ns-resize'
+  }
+  const resetEstirar = clave => setExtraAlto(x => { const n = { ...x, [clave]: 0 }; try { localStorage.setItem('tlExtraAlto', JSON.stringify(n)) } catch {} ; return n })
   // Subcontenidos desplegados por plan y etiqueta padre ('pid|etiquetaId'); por defecto plegados
   const [subsAb, setSubsAb] = useState(() => { try { return new Set(JSON.parse(localStorage.getItem('tlSubsAbiertos') || '[]')) } catch { return new Set() } })
   const guardarSubs = n => { try { localStorage.setItem('tlSubsAbiertos', JSON.stringify([...n])) } catch {} ; return n }
@@ -900,7 +913,7 @@ export default function TimelinePlan({
         {vision === 'micro' && <VistaSemanas semanas={1} micro />}
         {vision === 'cuadricula' && <VistaCuadricula />}
       </div>
-      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}.tl-drop-on{outline:2px dashed var(--accent)!important;outline-offset:-2px;background:rgba(45,106,79,.07)!important}.tl-tarj .tl-acc{opacity:0;transition:opacity .12s}.tl-tarj:hover .tl-acc{opacity:1}.tl-ev .tl-mas{opacity:0}.tl-ev:hover .tl-mas{opacity:1}.tl-pild .tl-x{opacity:0;transition:opacity .12s}.tl-pild:hover .tl-x{opacity:1}`}</style>
+      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}.tl-drop-on{outline:2px dashed var(--accent)!important;outline-offset:-2px;background:rgba(45,106,79,.07)!important}.tl-tarj .tl-acc{opacity:0;transition:opacity .12s}.tl-tarj:hover .tl-acc{opacity:1}.tl-ev .tl-mas{opacity:0}.tl-ev:hover .tl-mas{opacity:1}.tl-estirar .tl-grip{opacity:.35;transition:opacity .12s}.tl-estirar:hover .tl-grip{opacity:1;background:var(--accent)!important}.tl-pild .tl-x{opacity:0;transition:opacity .12s}.tl-pild:hover .tl-x{opacity:1}`}</style>
       {deshacer && (
         <div style={{ position: 'fixed', left: '50%', bottom: 24, transform: 'translateX(-50%)', zIndex: 90, display: 'flex', alignItems: 'center', gap: 12, padding: '9px 14px', borderRadius: 10, background: '#1f2a24', color: '#fff', fontSize: 12.5, boxShadow: '0 8px 24px rgba(0,0,0,.25)' }}>
           <span>Quitado {deshacer.texto}{deshacer.filas.length > 1 ? ` (${deshacer.filas.length})` : ''}</span>
@@ -1099,7 +1112,7 @@ export default function TimelinePlan({
               <tr style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
                 <th style={{ width: 22 }} /><th style={{ textAlign: 'left', padding: '0 4px' }}>SEM.</th><th />
                 {DIAS.map(dd => <th key={dd} style={{ fontWeight: 600 }}>{dd.slice(0, 1)}</th>)}
-                <th style={{ textAlign: 'right', padding: '0 6px' }}>KM OBJ.</th><th style={{ textAlign: 'left', padding: '0 8px' }}>NOTA DE LA SEMANA</th>
+                <th style={{ textAlign: 'right', padding: '0 6px' }}>KM OBJ.</th><th style={{ textAlign: 'left', padding: '0 8px' }} title="El texto de la semana que ve el cliente en su vista semanal">👁 TEXTO PARA EL CLIENTE</th><th style={{ textAlign: 'left', padding: '0 8px' }} title="Solo la ves tú">🔒 NOTA INTERNA</th>
               </tr>
             </thead>
             <tbody>
@@ -1153,10 +1166,14 @@ export default function TimelinePlan({
                         </div>
                       ) : null}
                     </td>
-                    <td style={{ padding: '0 6px', minWidth: 260 }}>
+                    <td style={{ padding: '0 8px', maxWidth: 220 }}>
+                      {sem?.objetivo ? <div title={'Lo ve el cliente en su semana:\n\n' + textoPlano(sem.objetivo)} style={{ fontSize: 11.5, color: 'var(--text2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>
+                        <b style={{ color: 'var(--text)' }}>{tituloSemana(l)}</b>{textoPlano(sem.objetivo).replace(tituloSemana(l) || '', '').replace(/^[\s:·-]+/, '') ? ' · ' + textoPlano(sem.objetivo).replace(tituloSemana(l) || '', '').replace(/^[\s:·-]+/, '').replace(/\n/g, ' ') : ''}
+                      </div> : null}
+                    </td>
+                    <td style={{ padding: '0 6px', minWidth: 220 }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        {tituloSemana(l) && <span title={sem?.objetivo || ''} style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', whiteSpace: 'nowrap', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tituloSemana(l)}</span>}
-                        {sem?.id && <input key={'nt' + sem.id + (semE.notas ?? sem.notas ?? '')} defaultValue={semE.notas ?? sem.notas ?? ''} placeholder="Nota de la semana…" className="tl-inl" title={semE.notas ?? sem.notas ?? ''}
+                        {sem?.id && <input key={'nt' + sem.id + (semE.notas ?? sem.notas ?? '')} defaultValue={semE.notas ?? sem.notas ?? ''} placeholder="Nota interna…" className="tl-inl" title={semE.notas ?? sem.notas ?? ''}
                           onBlur={e => { const v = e.target.value.trim() || null; if (v !== (semE.notas ?? sem.notas ?? null)) guardarSemana(sem, { notas: v }) }}
                           onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.currentTarget.value = semE.notas ?? sem.notas ?? ''; e.currentTarget.blur() } }} style={{ flex: 1, minWidth: 160 }} />}
                       </div>
@@ -1168,6 +1185,17 @@ export default function TimelinePlan({
           </table>
         </div>
         <div style={{ fontSize: 11, color: 'var(--text3)', margin: '8px 2px 0' }}>Clic en un día para editar sus contenidos · arrastra un día a otro para moverlo entero (Alt o modo Copiar: copiar) · km y nota de la semana se editan ahí mismo · el punto indica que hay nota · la esquina, un segundo valor del grupo de color · clic en el nº de semana para abrirla.</div>
+      </div>
+    )
+  }
+
+  function BarraEstirar({ clave, W }) {
+    return (
+      <div className="tl-estirar" onMouseDown={e => iniciarEstirar(e, clave)} onDoubleClick={() => resetEstirar(clave)}
+        title={ex(clave) ? 'Arrastra para cambiar la altura · doble clic para volver a la altura automática' : 'Arrastra hacia abajo para ampliar esta fila'}
+        style={{ display: 'flex', height: 9, cursor: 'ns-resize', alignItems: 'center', width: LABEL_W + W }}>
+        <div style={{ width: LABEL_W, minWidth: LABEL_W, position: 'sticky', left: 0 }} />
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center' }}><span className="tl-grip" style={{ width: 42, height: 3, borderRadius: 3, background: 'var(--border2, #cbd5e1)' }} /></div>
       </div>
     )
   }
@@ -1465,7 +1493,7 @@ export default function TimelinePlan({
                 )
               }} />
             </div>
-            {(() => { const nMax = Math.max(0, ...dias.map(d => { const x = dia(d); return x.comps.length + x.ctrls.length + x.notas.length + (x.ses.length ? 1 : 0) + (x.ses.some(z => z.tipo_sesion === 'opcional') ? 1 : 0) })); const altoEv = Math.max(micro ? 64 : 58, nMax * 21 + 10); return (
+            {(() => { const nMax = Math.max(0, ...dias.map(d => { const x = dia(d); return x.comps.length + x.ctrls.length + x.notas.length + (x.ses.length ? 1 : 0) + (x.ses.some(z => z.tipo_sesion === 'opcional') ? 1 : 0) })); const multi = ex('ev') > 0; const altoEv = Math.max(micro ? 64 : 58, nMax * 21 + 10) + ex('ev'); return (<>
             <div style={{ display: 'flex', marginTop: 4 }}>
               <Etiqueta g="cal" texto="Eventos" icono="⚑" alto={altoEv} />
               <Celdas alto={altoEv} fondo={GRUPOS.cal.soft} render={d => {
@@ -1474,11 +1502,11 @@ export default function TimelinePlan({
                 const opc = x.ses.length - entreno
                 return (
                   <div className="tl-ev" {...destinoItems(() => k(d))} style={{ position: 'relative', padding: 4, display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch', overflow: 'hidden', height: '100%', boxSizing: 'border-box' }}>
-                    {x.comps.map(c => <Chip key={c.id} onClick={() => onAbrirComp?.(c)} bg="#fef3c7" color="#92400e" titulo={c.nombre} {...arrastrableItem(c, 'competicion')}>🏆 {c.nombre}</Chip>)}
-                    {x.ctrls.map(c => <Chip key={c.id} onClick={() => onAbrirControl?.(c)} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre} {...arrastrableItem(c, 'control')}>🔬 {c.nombre}</Chip>)}
+                    {x.comps.map(c => <Chip key={c.id} onClick={() => onAbrirComp?.(c)} bg="#fef3c7" color="#92400e" titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'competicion')}>🏆 {c.nombre}</Chip>)}
+                    {x.ctrls.map(c => <Chip key={c.id} onClick={() => onAbrirControl?.(c)} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'control')}>🔬 {c.nombre}</Chip>)}
                     {entreno > 0 && <Chip bg="var(--accent)" color="#fff" titulo={`${entreno} sesión(es)`}>Entreno{entreno > 1 ? ` ×${entreno}` : ''}</Chip>}
                     {opc > 0 && <Chip bg="transparent" color="var(--accent)" borde={`1px dashed var(--accent)`} titulo="Sesión opcional">☆{COL >= 90 ? ' Opcional' : ''}{opc > 1 ? ` ×${opc}` : ''}</Chip>}
-                    {x.notas.map(n => <Chip key={n.id} onClick={() => onAbrirNota?.(n)} bg="#f1f5f9" color="#475569" borde="1px solid #cbd5e1" titulo={n.texto} {...arrastrableItem(n, 'nota')}>📝 {n.texto}</Chip>)}
+                    {x.notas.map(n => <Chip key={n.id} onClick={() => onAbrirNota?.(n)} bg="#f1f5f9" color="#475569" borde="1px solid #cbd5e1" titulo={n.texto} multi={multi} {...arrastrableItem(n, 'nota')}>📝 {n.texto}</Chip>)}
                     {(onNuevaCompeticion || onNuevaValoracion || onNuevaNota) && (
                       <div className="tl-mas" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'center', gap: 2 }}>
                         {[[onNuevaCompeticion, '🏆', 'Nueva competición'], [onNuevaValoracion, '🔬', 'Nueva valoración'], [onNuevaNota, '📝', 'Nueva nota']].filter(([f]) => f).map(([f, ic, t]) => (
@@ -1490,7 +1518,8 @@ export default function TimelinePlan({
                 )
               }} />
             </div>
-            ) })()}
+            <BarraEstirar clave="ev" W={W} />
+            </>) })()}
           </>}
 
           {/* Periodización */}
@@ -1518,12 +1547,12 @@ export default function TimelinePlan({
           {/* Planificación: carga del día */}
           {grupos.pla && (
             <div style={{ display: 'flex', marginTop: 6 }}>
-              <Etiqueta g="pla" texto="Carga día" icono="📈" alto={CH} extra={<SelectorVar />} />
-              <Celdas alto={CH} fondo={GRUPOS.pla.soft} render={d => {
+              <Etiqueta g="pla" texto="Carga día" icono="📈" alto={CH + ex('carga')} extra={<SelectorVar />} />
+              <Celdas alto={CH + ex('carga')} fondo={GRUPOS.pla.soft} render={d => {
                 if (!varActiva) return null
                 const v = valorCarga(varActiva.key, dia(d).ses, fbMap)
                 if (v == null) return null
-                const h = Math.max(3, (CH - 26) * (v / maxC))
+                const h = Math.max(3, (CH + ex('carga') - 26) * (v / maxC))
                 return (
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', alignItems: 'center', paddingBottom: 6 }}>
                     <span style={{ fontSize: 9.5, fontWeight: 700, color: '#8a6a07', fontFamily: 'var(--mono)', marginBottom: 2 }}>{fmtVal(varActiva.key, v)}</span>
@@ -1533,13 +1562,14 @@ export default function TimelinePlan({
               }} />
             </div>
           )}
+          {grupos.pla && <BarraEstirar clave="carga" W={W} />}
 
           {/* Programación: sesiones */}
           {grupos.pro && (() => {
             const maxSes = Math.max(1, ...dias.map(d => dia(d).ses.length))
-            const altoCard = micro ? 74 : 58
+            const altoCard = (micro ? 74 : 58) + Math.floor(ex('ses') / maxSes)
             const alto = Math.max(micro ? 200 : 84, maxSes * (altoCard + 5) + 30)
-            return (
+            return (<>
               <div style={{ display: 'flex', marginTop: 6 }}>
                 <Etiqueta g="pro" texto="Sesiones" icono="◉" alto={alto} />
                 <Celdas alto={alto} fondo={GRUPOS.pro.soft} render={d => (
@@ -1554,7 +1584,8 @@ export default function TimelinePlan({
                   </div>
                 )} />
               </div>
-            )
+              <BarraEstirar clave="ses" W={W} />
+            </>)
           })()}
           
         </div>
@@ -1605,12 +1636,12 @@ export default function TimelinePlan({
           </div>
         )}
         {micro ? (
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', lineHeight: 1.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', paddingRight: 8 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', lineHeight: 1.25, display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor((alto - 34) / 15)), WebkitBoxOrient: 'vertical', overflow: 'hidden', paddingRight: 8 }}>
             <span style={{ marginRight: 3 }}>{iconoSesion(s)}</span>{s.titulo}
           </div>
         ) : (<>
           <div style={{ fontSize: 11, lineHeight: 1 }}>{iconoSesion(s)}</div>
-          <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, marginTop: 2, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', hyphens: 'auto' }} lang="es">{s.titulo}</div>
+          <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, marginTop: 2, display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor((alto - 34) / 11.5)), WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', hyphens: 'auto' }} lang="es">{s.titulo}</div>
         </>)}
         <div style={{ fontSize: micro ? 10.5 : 9.5, color: 'var(--text3)', marginTop: 2, fontFamily: 'var(--mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {[s.hora_inicio ? String(s.hora_inicio).slice(0, 5) : null, s.duracion_min ? s.duracion_min + "'" : null, opc && micro ? '☆ opcional' : opc ? '☆' : null].filter(Boolean).join(' · ')}
@@ -1622,10 +1653,10 @@ export default function TimelinePlan({
 
 const btnMini = { border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10.5, padding: '1px 3px', lineHeight: 1, color: 'var(--text2)' }
 
-function Chip({ children, bg, color, borde, titulo, onClick, ...rest }) {
+function Chip({ children, bg, color, borde, titulo, onClick, multi, ...rest }) {
   return (
     <div onClick={onClick} title={titulo} {...rest}
-      style={{ fontSize: 9.5, fontWeight: 700, padding: '3px 4px', borderRadius: 6, background: bg, color, border: borde || 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: onClick ? 'pointer' : 'default', textAlign: 'center', flexShrink: 0 }}>
+      style={{ fontSize: 9.5, fontWeight: 700, padding: '3px 4px', borderRadius: 6, background: bg, color, border: borde || 'none', whiteSpace: multi ? 'normal' : 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: onClick ? 'pointer' : 'default', textAlign: multi ? 'left' : 'center', lineHeight: multi ? 1.3 : 'normal', overflowWrap: 'anywhere', flexShrink: 0 }}>
       {children}
     </div>
   )
