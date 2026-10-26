@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import TextoEstructurado, { ComoFuncionaPlan } from '../components/TextoEstructurado'
 import FeedbackForm from '../components/FeedbackForm'
-import CalendarioPortal from '../components/CalendarioPortal'
+import CalendarioPortal, { BadgeOpcional } from '../components/CalendarioPortal'
 import PlanPortal from '../components/PlanPortal'
 import RecursosPortal from '../components/RecursosPortal'
 import { format, startOfWeek, endOfWeek,
@@ -686,11 +686,14 @@ export default function ClientePortal({ token }) {
                         return (
                           <div key={item.id} onClick={() => abrirSesion(item)}
                             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderBottom: !isLast ? `1px solid ${T.bg2}` : 'none', cursor: item.token_publico ? 'pointer' : 'default' }}>
-                            <div style={{ width: 34, height: 34, borderRadius: 8, background: `${colNav}18`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>{iconoSesion(item)}</div>
+                            <div style={{ width: 34, height: 34, borderRadius: 8, background: item.tipo_sesion === 'opcional' ? 'transparent' : `${colNav}18`, border: item.tipo_sesion === 'opcional' ? `1.5px dashed ${colNav}66` : 'none', boxSizing: 'border-box', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, opacity: item.tipo_sesion === 'opcional' ? .8 : 1 }}>{iconoSesion(item)}</div>
                             <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 12, fontWeight: 500, color: T.ink }}>{item.titulo}</div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                                <span style={{ fontSize: 12, fontWeight: 500, color: item.tipo_sesion === 'opcional' ? T.ink2 : T.ink }}>{item.titulo}</span>
+                                {item.tipo_sesion === 'opcional' && <BadgeOpcional />}
+                              </div>
                               <div style={{ fontFamily: T.mono, fontSize: 10, color: T.ink3, marginTop: 1 }}>
-                                {item.duracion_min ? `${item.duracion_min} min` : ''}{item.duracion_min && item.tipo_sesion ? ' · ' : ''}{item.tipo_sesion === 'opcional' ? 'Opcional' : item.tipo_sesion === 'flexible' ? 'Flexible' : item.tipo_sesion === 'programada' ? 'Programada' : item.tipo_sesion === 'manual_cliente' ? 'Registrada por mí' : ''}
+                                {item.duracion_min ? `${item.duracion_min} min` : ''}{item.duracion_min && item.tipo_sesion && item.tipo_sesion !== 'opcional' ? ' · ' : ''}{item.tipo_sesion === 'opcional' ? (item.duracion_min ? ' · si te apetece' : 'Si te apetece') : item.tipo_sesion === 'flexible' ? 'Flexible' : item.tipo_sesion === 'programada' ? 'Programada' : item.tipo_sesion === 'manual_cliente' ? 'Registrada por mí' : ''}
                               </div>
                               {item.completada_el && item.fecha && item.completada_el !== item.fecha && <div style={{ fontSize: 9, color: T.ink3, marginTop: 1 }}>Prevista: {format(parseISO(item.fecha), "EEE d MMM", { locale: es })}</div>}
                             </div>
