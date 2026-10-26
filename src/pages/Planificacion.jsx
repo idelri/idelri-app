@@ -2336,6 +2336,9 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               onAbrirComp={c => openModal('comp', c)}
               onAbrirControl={c => openModal('control', c)}
               onAbrirNota={n => openModal('nota', n)}
+              onNuevoBloque={pre => openModal('bloque', pre)}
+              onNuevoSubbloque={pre => openModal('subbloque', pre)}
+              onRecargar={cargarPlanificacion}
             />
           )}
 

@@ -256,6 +256,7 @@ function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQ
 export default function TimelinePlan({
   planificacion, bloques, subbloques, semanasAll, sesiones, competiciones, controles, notas, feedbacks,
   clienteNombre, onAbrirSesion, onNuevaSesion, onEditarBloque, onEditarSubbloque, onAbrirComp, onAbrirControl, onAbrirNota,
+  onNuevoBloque, onNuevoSubbloque, onRecargar,
 }) {
   const planIni = useMemo(() => parseISO(planificacion.fecha_inicio), [planificacion.fecha_inicio])
   const planFin = useMemo(() => parseISO(planificacion.fecha_fin), [planificacion.fecha_fin])
@@ -356,6 +357,116 @@ export default function TimelinePlan({
   const subsF = useMemo(() => bloquesF.flatMap(b => (subbloques?.[b.id] || []).map(s => ({
     ...s, _bloque: b, _ini: addDays(b._ini, ((s.semana_inicio || 1) - 1) * 7), _fin: addDays(b._ini, (s.semana_fin || s.semana_inicio || 1) * 7 - 1),
   }))), [bloquesF, subbloques])
+  // ── Redimensionar periodos (bloques) y subperiodos arrastrando su borde derecho ──
+  const [arrastre, setArrastre] = useState(null) // { tipo, id, dW }
+  const [guardandoPer, setGuardandoPer] = useState(false)
+  const ordenados = lista => [...lista].sort((a, b) => a._ini - b._ini)
+  const siguienteDe = (tipo, it) => {
+    const lista = tipo === 'bloque' ? bloquesF : subsF.filter(x => x._bloque.id === it._bloque.id)
+    return ordenados(lista).find(x => x.id !== it.id && x._ini > it._ini) || null
+  }
+  const semanasDe = it => Math.round((differenceInCalendarDays(it._fin, it._ini) + 1) / 7)
+  function limitesArrastre(tipo, it) {
+    const sig = siguienteDe(tipo, it)
+    const hueco = sig ? Math.max(0, Math.round((differenceInCalendarDays(sig._ini, it._fin) - 1) / 7)) : 0 // semanas libres entre ambos
+    let min = 1 - semanasDe(it)
+    if (tipo === 'bloque') {
+      const maxIniSub = Math.max(1, ...subsF.filter(x => x._bloque.id === it.id).map(x => x.semana_inicio || 1))
+      min = maxIniSub - semanasDe(it)
+    }
+    let max
+    if (sig) max = hueco + (semanasDe(sig) - 1)
+    else max = tipo === 'bloque' ? 104 : (it._bloque.semanas - (it.semana_fin || 1))
+    return { min, max }
+  }
+  // Vista previa durante el arrastre
+  const conArrastre = (tipo, lista) => {
+    if (!arrastre || arrastre.tipo !== tipo || !arrastre.dW) return lista
+    const it = lista.find(x => x.id === arrastre.id); if (!it) return lista
+    const nuevoFin = addDays(it._fin, arrastre.dW * 7)
+    const sig = siguienteDe(tipo, it)
+    return lista.map(x => {
+      if (x.id === it.id) return { ...x, _fin: nuevoFin }
+      if (sig && x.id === sig.id && nuevoFin >= sig._ini) return { ...x, _ini: addDays(nuevoFin, 1) }
+      return x
+    })
+  }
+  async function asignarSemanasABloque(bloqueId, ini, nSem) {
+    const lunesL = Array.from({ length: nSem }, (_, i) => k(addDays(ini, i * 7)))
+    await supabase.from('semanas').update({ bloque_id: null }).eq('bloque_id', bloqueId).not('fecha_inicio_semana', 'in', `(${lunesL.map(d => `"${d}"`).join(',')})`)
+    await supabase.from('semanas').update({ bloque_id: bloqueId }).eq('planificacion_id', planificacion.id).in('fecha_inicio_semana', lunesL)
+  }
+  async function confirmarArrastre(tipo, it, dW) {
+    if (!dW) return
+    setGuardandoPer(true)
+    try {
+      const sig = siguienteDe(tipo, it)
+      if (tipo === 'bloque') {
+        const nuevasSem = (it.semanas || semanasDe(it)) + dW
+        const nuevoFin = addDays(it._ini, nuevasSem * 7 - 1)
+        if (sig && nuevoFin >= sig._ini) {
+          const recorte = Math.round((differenceInCalendarDays(nuevoFin, sig._ini) + 1) / 7)
+          const subsSig = subsF.filter(x => x._bloque.id === sig.id)
+          const seBorran = subsSig.filter(x => (x.semana_fin || 1) - recorte < 1)
+          if (seBorran.length && !window.confirm(`Al alargar «${it.nombre}», «${sig.nombre}» empieza ${recorte} semana${recorte === 1 ? '' : 's'} más tarde y se quedarían fuera estos subperiodos: ${seBorran.map(x => x.nombre).join(', ')}.\n\n¿Eliminarlos y continuar?`)) { setGuardandoPer(false); setArrastre(null); return }
+          const nIni = addDays(sig._ini, recorte * 7)
+          const { error } = await supabase.from('bloques').update({ fecha_inicio: k(nIni), semanas: sig.semanas - recorte }).eq('id', sig.id)
+          if (error) throw error
+          for (const sb of subsSig) {
+            const ini = (sb.semana_inicio || 1) - recorte, fin = (sb.semana_fin || 1) - recorte
+            if (fin < 1) await supabase.from('subbloques').delete().eq('id', sb.id)
+            else await supabase.from('subbloques').update({ semana_inicio: Math.max(1, ini), semana_fin: fin }).eq('id', sb.id)
+          }
+          await asignarSemanasABloque(sig.id, nIni, sig.semanas - recorte)
+        }
+        const { error } = await supabase.from('bloques').update({ semanas: nuevasSem }).eq('id', it.id)
+        if (error) throw error
+        if (dW < 0) for (const sb of subsF.filter(x => x._bloque.id === it.id && (x.semana_fin || 1) > nuevasSem)) await supabase.from('subbloques').update({ semana_fin: nuevasSem }).eq('id', sb.id)
+        await asignarSemanasABloque(it.id, it._ini, nuevasSem)
+      } else {
+        const nuevoFinSem = (it.semana_fin || 1) + dW
+        if (sig && nuevoFinSem >= (sig.semana_inicio || 1)) {
+          const { error } = await supabase.from('subbloques').update({ semana_inicio: nuevoFinSem + 1 }).eq('id', sig.id)
+          if (error) throw error
+        }
+        const { error } = await supabase.from('subbloques').update({ semana_fin: nuevoFinSem }).eq('id', it.id)
+        if (error) throw error
+      }
+      await onRecargar?.()
+    } catch (e) {
+      alert('No se pudo cambiar la duración: ' + (e.message || e))
+    }
+    setArrastre(null); setGuardandoPer(false)
+  }
+  function iniciarArrastre(ev, tipo, it, pxSemana) {
+    ev.preventDefault(); ev.stopPropagation()
+    const x0 = ev.clientX, { min, max } = limitesArrastre(tipo, it)
+    let dW = 0
+    setArrastre({ tipo, id: it.id, dW: 0 })
+    const mover = e => { dW = Math.max(min, Math.min(max, Math.round((e.clientX - x0) / pxSemana))); setArrastre({ tipo, id: it.id, dW }) }
+    const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); document.body.style.cursor = ''; if (dW) confirmarArrastre(tipo, it, dW); else setArrastre(null) }
+    window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar)
+    document.body.style.cursor = 'ew-resize'
+  }
+  // Huecos sin periodo (para el botón +)
+  const huecosBloques = useMemo(() => {
+    const ls = ordenados(bloquesF), out = []
+    let cursorD = planIni
+    ls.forEach(b => { if (differenceInCalendarDays(b._ini, cursorD) >= 7) out.push({ ini: cursorD, fin: addDays(b._ini, -1) }); if (b._fin >= cursorD) cursorD = addDays(b._fin, 1) })
+    if (differenceInCalendarDays(planFin, cursorD) >= 6) out.push({ ini: cursorD, fin: planFin })
+    return out
+  }, [bloquesF, planIni, planFin])
+  const huecosSubs = useMemo(() => bloquesF.flatMap(b => {
+    const ocup = new Set(); subsF.filter(x => x._bloque.id === b.id).forEach(x => { for (let w = x.semana_inicio || 1; w <= (x.semana_fin || 1); w++) ocup.add(w) })
+    const out = []; let ini = null
+    for (let w = 1; w <= (b.semanas || 1) + 1; w++) {
+      const libre = w <= (b.semanas || 1) && !ocup.has(w)
+      if (libre && ini == null) ini = w
+      if (!libre && ini != null) { out.push({ bloque: b, semana_inicio: ini, semana_fin: w - 1, ini: addDays(b._ini, (ini - 1) * 7), fin: addDays(b._ini, (w - 1) * 7 - 1) }); ini = null }
+    }
+    return out
+  }), [bloquesF, subsF])
+
   const semanaPorLunes = useMemo(() => new Map((semanasAll || []).map(s => [s.fecha_inicio_semana, s])), [semanasAll])
   const numSemana = d => {
     const s = semanaPorLunes.get(k(lunes(d)))
@@ -426,7 +537,7 @@ export default function TimelinePlan({
         {vision === 'meso' && <VistaSemanas semanas={3} />}
         {vision === 'micro' && <VistaSemanas semanas={1} micro />}
       </div>
-      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}`}</style>
+      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}`}</style>
       <EditorContenidos abierto={editorCont} onCerrar={() => setEditorCont(null)} items={itemsEditor} sugerencias={sugerencias}
         onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} catGrupos={catGrupos} catEtiquetas={catEtiquetas} />
     </div>
@@ -509,9 +620,11 @@ export default function TimelinePlan({
             </div>
           </>}
 
-          {grupos.per && <FilaBarras alto={30} etiqueta={<Etiqueta g="per" texto="Periodo" icono="⇄" alto={30} />} W={W} items={bloquesF} xDe={xDe} escala={COL / 7} rIni={ini0} grande onClick={onEditarBloque} />}
+          {grupos.per && <FilaBarras alto={30} etiqueta={<Etiqueta g="per" texto="Periodo" icono="⇄" alto={30} />} W={W} items={conArrastre('bloque', bloquesF)} xDe={xDe} escala={COL / 7} rIni={ini0} grande onClick={onEditarBloque}
+            tipo="bloque" huecos={huecosBloques} onHueco={h => onNuevoBloque?.({ fecha_inicio: k(h.ini), semanas: Math.max(1, Math.round((differenceInCalendarDays(h.fin, h.ini) + 1) / 7)) })} />}
           {grupos.per && (subsF.length
-            ? <FilaBarras alto={26} etiqueta={<Etiqueta g="per" texto="Subperiodo" icono="⇄" alto={26} />} W={W} items={subsF} xDe={xDe} escala={COL / 7} rIni={ini0} onClick={s => onEditarSubbloque(s)} />
+            ? <FilaBarras alto={26} etiqueta={<Etiqueta g="per" texto="Subperiodo" icono="⇄" alto={26} />} W={W} items={conArrastre('sub', subsF)} xDe={xDe} escala={COL / 7} rIni={ini0} onClick={s => onEditarSubbloque(s)}
+              tipo="sub" huecos={huecosSubs} onHueco={h => onNuevoSubbloque?.({ bloque_id: h.bloque.id, semana_inicio: h.semana_inicio, semana_fin: h.semana_fin })} />
             : <FilaSemanasTitulo alto={26} W={W} cols={semanasCols} COL={COL} />)}
 
           {grupos.pla && (
@@ -579,21 +692,39 @@ export default function TimelinePlan({
   }
 
   // Barras de bloques / subbloques sobre una escala de días
-  function FilaBarras({ alto, etiqueta, W, items, xDe, escala, rIni, grande, onClick }) {
+  function FilaBarras({ alto, etiqueta, W, items, xDe, escala, rIni, grande, onClick, tipo, huecos = [], onHueco }) {
+    const editable = !!tipo && !!onRecargar
     return (
       <div style={{ display: 'flex', marginTop: 4 }}>
         {etiqueta}
-        <div style={{ position: 'relative', width: W, height: alto, background: GRUPOS.per.soft, borderRadius: 8 }}>
+        <div style={{ position: 'relative', width: W, height: alto, background: GRUPOS.per.soft, borderRadius: 8, opacity: guardandoPer ? .6 : 1 }}>
+          {editable && !arrastre && huecos.map(h => {
+            const iniV = h.ini < rIni ? rIni : h.ini
+            const x = xDe(iniV), w = (differenceInCalendarDays(h.fin, iniV) + 1) * escala
+            if (x + w <= 0 || x >= W || w < 14) return null
+            return (
+              <button key={k(h.ini)} onClick={() => onHueco?.(h)} title={`Añadir ${tipo === 'bloque' ? 'periodo' : 'subperiodo'} · ${format(h.ini, 'd MMM', { locale: es })} – ${format(h.fin, 'd MMM', { locale: es })}`}
+                className="tl-hueco" style={{ position: 'absolute', left: x + 2, width: Math.min(w, W - x) - 4, top: 3, bottom: 3, borderRadius: 7, border: `1px dashed ${GRUPOS.per.color}66`, background: 'transparent', color: GRUPOS.per.color, fontSize: 14, fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>+</button>
+            )
+          })}
           {items.map(it => {
             const iniV = it._ini < rIni ? rIni : it._ini
             const x = xDe(iniV), w = (differenceInCalendarDays(it._fin, iniV) + 1) * escala
             if (x + w <= 0 || x >= W) return null
             const col = (it._bloque?.color || it.color || '#2d6a4f')
+            const activo = arrastre && arrastre.id === it.id
+            const semanasTxt = Math.round((differenceInCalendarDays(it._fin, it._ini) + 1) / 7)
             return (
-              <div key={it.id} onClick={() => onClick?.(it)} title={`${it.nombre} · ${format(it._ini, 'd MMM', { locale: es })} – ${format(it._fin, 'd MMM', { locale: es })}${it.objetivo ? '\n' + it.objetivo : ''}`}
+              <div key={it.id} onClick={() => !arrastre && onClick?.(it)} title={`${it.nombre} · ${format(it._ini, 'd MMM', { locale: es })} – ${format(it._fin, 'd MMM', { locale: es })} (${semanasTxt} sem.)${it.objetivo ? '\n' + it.objetivo : ''}${editable ? '\nArrastra el borde derecho para cambiar la duración' : ''}`}
                 style={{ position: 'absolute', left: x + 1.5, width: Math.max(4, Math.min(w, W - x) - 3), top: 3, bottom: 3, borderRadius: 7, cursor: 'pointer', overflow: 'hidden',
-                  background: grande ? col + '26' : col + '14', border: `1px solid ${col}66`, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 6px' }}>
-                <span style={{ fontSize: grande ? 11 : 10, fontWeight: grande ? 700 : 600, color: col, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.nombre}</span>
+                  background: grande ? col + '26' : col + '14', border: `1px solid ${activo ? col : col + '66'}`, boxShadow: activo ? `0 0 0 2px ${col}33` : 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px 0 6px' }}>
+                <span style={{ fontSize: grande ? 11 : 10, fontWeight: grande ? 700 : 600, color: col, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.nombre}{activo ? ` · ${semanasTxt} sem.` : ''}</span>
+                {editable && (
+                  <span onMouseDown={ev => iniciarArrastre(ev, tipo, it, escala * 7)} onClick={ev => ev.stopPropagation()} className="tl-asa"
+                    style={{ position: 'absolute', right: 0, top: 0, bottom: 0, width: 9, cursor: 'ew-resize', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <span style={{ width: 3, height: '55%', borderRadius: 2, background: col, opacity: .55 }} />
+                  </span>
+                )}
               </div>
             )
           })}
