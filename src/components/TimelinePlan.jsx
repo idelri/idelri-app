@@ -11,6 +11,7 @@ import { format, parseISO, addDays, addWeeks, startOfWeek, differenceInCalendarD
 import { es } from 'date-fns/locale'
 import { textoPlano, tituloTexto } from './TextoEstructurado'
 import { supabase } from '../lib/supabase'
+import { useCategorias } from './Categorias'
 
 const GRUPOS = {
   cal: { label: 'Calendarización', color: '#2f6fdb', bg: '#eef3fd', soft: '#f6f9fe', icono: '▣' },
@@ -179,7 +180,7 @@ function ChipContenido({ texto, color, peque, onQuitar }) {
     </span>
   )
 }
-function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQuitar, modoSemana }) {
+function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQuitar, modoSemana, catGrupos = [], catEtiquetas = [] }) {
   const [texto, setTexto] = useState('')
   const [alcance, setAlcance] = useState(modoSemana ? 'ses_semana' : 'dia')
   const ref = useRef(null)
@@ -191,14 +192,16 @@ function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQ
     return () => { clearTimeout(t); document.removeEventListener('mousedown', fn) }
   }, [abierto, onCerrar])
   if (!abierto) return null
-  const enviar = t => { const v = (t ?? texto).trim(); if (!v) return; onAnadir(v, alcance); setTexto('') }
-  const sug = sugerencias.filter(x => !items.some(i => i.texto.toLowerCase() === x.toLowerCase()) && (!texto || x.toLowerCase().includes(texto.toLowerCase()))).slice(0, 12)
-  const left = Math.min(abierto.x, window.innerWidth - 330), top = Math.min(abierto.y, window.innerHeight - 320)
+  const enviar = (t, et) => { const v = (t ?? texto).trim(); if (!v) return; onAnadir(v, alcance, et); setTexto('') }
+  const yaEsta = n => items.some(i => i.texto.toLowerCase() === n.toLowerCase())
+  const catFiltradas = catEtiquetas.filter(e => !yaEsta(e.nombre) && (!texto || e.nombre.toLowerCase().includes(texto.toLowerCase())))
+  const sug = sugerencias.filter(x => !catEtiquetas.some(e => e.nombre.toLowerCase() === x.toLowerCase())).filter(x => !items.some(i => i.texto.toLowerCase() === x.toLowerCase()) && (!texto || x.toLowerCase().includes(texto.toLowerCase()))).slice(0, 12)
+  const left = Math.min(abierto.x, window.innerWidth - 330), top = Math.max(10, Math.min(abierto.y, window.innerHeight - 470))
   const opciones = modoSemana
     ? [['ses_semana', 'Días con sesión'], ['semana', 'Toda la semana']]
     : [['dia', 'Este día'], ['ses_semana', 'Días con sesión de la semana'], ['semana', 'Toda la semana']]
   return (
-    <div ref={ref} style={{ position: 'fixed', left, top, width: 310, zIndex: 80, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,.16)', padding: 12, fontFamily: 'var(--font)' }}>
+    <div ref={ref} style={{ position: 'fixed', left, top, width: 310, maxHeight: 'calc(100vh - 20px)', overflowY: 'auto', zIndex: 80, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,.16)', padding: 12, fontFamily: 'var(--font)' }}>
       <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: 9.5, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.05em', color: GRUPOS.pla.color }}>Contenidos</div>
@@ -220,9 +223,26 @@ function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQ
           <button key={v} onClick={() => setAlcance(v)} style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${alcance === v ? 'var(--accent)' : 'var(--border)'}`, background: alcance === v ? 'var(--accent-light)' : 'transparent', color: alcance === v ? 'var(--accent-text)' : 'var(--text2)', fontWeight: alcance === v ? 600 : 400 }}>{l}</button>
         ))}
       </div>
+      {catFiltradas.length > 0 && (
+        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8, maxHeight: 190, overflowY: 'auto' }}>
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 5 }}>De tus categorías (clic para añadir)</div>
+          {catGrupos.map(g => {
+            const ets = catFiltradas.filter(e => e.grupo_id === g.id)
+            if (!ets.length) return null
+            return (
+              <div key={g.id} style={{ marginBottom: 6 }}>
+                <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text2)', marginBottom: 3 }}>{g.nombre}</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                  {ets.map(e => <span key={e.id} onClick={() => enviar(e.nombre, e)} style={{ cursor: 'pointer' }}><ChipContenido texto={e.nombre} color={e.color} peque /></span>)}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
       {sug.length > 0 && (
         <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 5 }}>Usados en este plan (clic para añadir)</div>
+          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 5 }}>Otros usados en este plan</div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
             {sug.map(x => <span key={x} onClick={() => enviar(x)} style={{ cursor: 'pointer' }}><ChipContenido texto={x} peque /></span>)}
           </div>
@@ -276,6 +296,7 @@ export default function TimelinePlan({
 
   // ── Contenidos de planificación ──
   const [contenidos, setContenidos] = useState([])
+  const { grupos: catGrupos, etiquetas: catEtiquetas } = useCategorias()
   const [editorCont, setEditorCont] = useState(null) // { clave, titulo, x, y, fecha, lunes, modoSemana }
   useEffect(() => {
     let vivo = true
@@ -291,7 +312,7 @@ export default function TimelinePlan({
     const g = new Map(); lista.forEach(c => { const key = c.texto.trim().toLowerCase(); if (!g.has(key)) g.set(key, { texto: c.texto, color: c.color, ids: [] }); g.get(key).ids.push(c.id) }); return [...g.values()]
   }
   const sugerencias = useMemo(() => [...new Set(contenidos.map(c => c.texto.trim()))].sort((a, b) => a.localeCompare(b, 'es')), [contenidos])
-  async function anadirContenido(texto, alcance) {
+  async function anadirContenido(texto, alcance, etiqueta) {
     const ed = editorCont; if (!ed) return
     const l = ed.lunes
     let fechas = []
@@ -299,7 +320,7 @@ export default function TimelinePlan({
     else if (alcance === 'semana') fechas = Array.from({ length: 7 }, (_, i) => addDays(l, i))
     else { fechas = Array.from({ length: 7 }, (_, i) => addDays(l, i)).filter(d => dia(d).ses.length); if (!fechas.length) fechas = [ed.fecha || l] }
     const filas = fechas.filter(d => !contDia(d).some(c => c.texto.trim().toLowerCase() === texto.toLowerCase()))
-      .map(d => ({ planificacion_id: planificacion.id, fecha: k(d), texto, color: contenidos.find(c => c.texto.trim().toLowerCase() === texto.toLowerCase())?.color || colorContenido(texto), orden: contDia(d).length }))
+      .map(d => ({ planificacion_id: planificacion.id, fecha: k(d), texto, etiqueta_id: etiqueta?.id || null, color: etiqueta?.color || contenidos.find(c => c.texto.trim().toLowerCase() === texto.toLowerCase())?.color || colorContenido(texto), orden: contDia(d).length }))
     if (!filas.length) return
     const { data, error } = await supabase.from('planificacion_contenidos').insert(filas).select()
     if (error) { alert('No se pudo guardar: ' + error.message); return }
@@ -407,7 +428,7 @@ export default function TimelinePlan({
       </div>
       <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}`}</style>
       <EditorContenidos abierto={editorCont} onCerrar={() => setEditorCont(null)} items={itemsEditor} sugerencias={sugerencias}
-        onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} />
+        onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} catGrupos={catGrupos} catEtiquetas={catEtiquetas} />
     </div>
   )
 

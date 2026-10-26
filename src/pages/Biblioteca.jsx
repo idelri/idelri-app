@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { Search, Plus, X, Pencil, Trash2, ChevronDown, ChevronUp, LayoutGrid, List, Table2, Check, Play } from 'lucide-react'
 import BibliotecaSesiones from './BibliotecaSesiones'
 import EditorTareaCampo, { DiagramaCampo } from '../components/TareaCampo'
+import CategoriasEditor, { useCategorias, SelectorEtiquetas, ChipEtiqueta } from '../components/Categorias'
 
 function ytId(url) {
   if (!url) return null
@@ -11,7 +12,7 @@ function ytId(url) {
 }
 
 const EMPTY = {
-  nombre: '', descripcion: '', media_tipo: '', media_url: '', video_url: '', notas: '', carpeta: 'fuerza',
+  nombre: '', descripcion: '', media_tipo: '', media_url: '', video_url: '', notas: '', carpeta: 'fuerza', etiquetas: [],
 }
 
 // Carpetas de la biblioteca de ejercicios (columna ejercicios_biblioteca.carpeta)
@@ -223,14 +224,35 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
   const [videoConflicto, setVideoConflicto] = useState(null)
   const [carpeta, setCarpeta] = useState(() => { try { return localStorage.getItem('bibCarpeta') || 'fuerza' } catch { return 'fuerza' } })
   const elegirCarpeta = k => { setCarpeta(k); setInlineEj(null); try { localStorage.setItem('bibCarpeta', k) } catch {} }
+  const { grupos: catGrupos, etiquetas: catEtiquetas, recargar: recargarCategorias } = useCategorias()
+  const [etiquetasEj, setEtiquetasEj] = useState({}) // ejercicio_id → [etiqueta_id]
+  const [filtroEtiquetas, setFiltroEtiquetas] = useState([])
+  const [verFiltros, setVerFiltros] = useState(false)
+  const etiquetaPorId = Object.fromEntries(catEtiquetas.map(e => [e.id, e]))
 
   useEffect(() => { cargar() }, [])
+  useEffect(() => { if (tabPrincipal === 'ejercicios') { recargarCategorias(); cargarEtiquetasEj() } }, [tabPrincipal]) // tras editar categorías
 
   async function cargar() {
     setLoading(true)
-    const { data } = await supabase.from('ejercicios_biblioteca').select('*').order('nombre')
+    const [{ data }] = await Promise.all([
+      supabase.from('ejercicios_biblioteca').select('*').order('nombre'),
+      cargarEtiquetasEj(),
+    ])
     setEjercicios(data || [])
     setLoading(false)
+  }
+  async function cargarEtiquetasEj() {
+    const { data } = await supabase.from('ejercicio_etiquetas').select('ejercicio_id, etiqueta_id')
+    const m = {}; (data || []).forEach(r => { (m[r.ejercicio_id] = m[r.ejercicio_id] || []).push(r.etiqueta_id) })
+    setEtiquetasEj(m)
+  }
+  async function guardarEtiquetasEjercicio(ejercicioId, ids) {
+    const antes = etiquetasEj[ejercicioId] || []
+    const quitar = antes.filter(x => !ids.includes(x)), poner = ids.filter(x => !antes.includes(x))
+    if (quitar.length) await supabase.from('ejercicio_etiquetas').delete().eq('ejercicio_id', ejercicioId).in('etiqueta_id', quitar)
+    if (poner.length) await supabase.from('ejercicio_etiquetas').insert(poner.map(etiqueta_id => ({ ejercicio_id: ejercicioId, etiqueta_id })))
+    setEtiquetasEj(m => ({ ...m, [ejercicioId]: ids }))
   }
 
   function mostrarToast(tipo) {
@@ -263,6 +285,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       nombre: e.nombre || '', descripcion: e.descripcion || '',
       media_tipo: e.media_tipo || '', media_url: e.media_url || '',
       video_url: e.video_url || '', notas: e.notas || '', carpeta: e.carpeta || 'fuerza',
+      etiquetas: etiquetasEj[e.id] || [],
     })
     setModal(e)
   }
@@ -286,9 +309,10 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       video_url: form.video_url || null, notas: form.notas || null,
       carpeta: form.carpeta || 'fuerza',
     }
-    const { error } = modal === 'nuevo'
-      ? await supabase.from('ejercicios_biblioteca').insert(datos)
-      : await supabase.from('ejercicios_biblioteca').update(datos).eq('id', modal.id)
+    const { data: guardado, error } = modal === 'nuevo'
+      ? await supabase.from('ejercicios_biblioteca').insert(datos).select('id').single()
+      : await supabase.from('ejercicios_biblioteca').update(datos).eq('id', modal.id).select('id').single()
+    if (!error && guardado?.id) await guardarEtiquetasEjercicio(guardado.id, form.etiquetas || [])
     setSaving(false)
     if (error) { mostrarToast('error'); return }
     setModal(null)
@@ -318,7 +342,12 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
 
   const textoBusqueda = busquedaTexto.toLowerCase()
   const enCarpeta = ejercicios.filter(e => (e.carpeta || 'fuerza') === carpeta)
+  // Filtro por etiquetas: dentro de un grupo vale cualquiera (O); entre grupos, todas (Y)
+  const filtroPorGrupo = {}
+  filtroEtiquetas.forEach(id => { const g = etiquetaPorId[id]?.grupo_id; if (g) (filtroPorGrupo[g] = filtroPorGrupo[g] || []).push(id) })
+  const pasaFiltro = e => Object.values(filtroPorGrupo).every(ids => ids.some(id => (etiquetasEj[e.id] || []).includes(id)))
   const filtrados = enCarpeta.filter(e => {
+    if (!pasaFiltro(e)) return false
     if (!textoBusqueda) return true
     return e.nombre.toLowerCase().includes(textoBusqueda) || (e.descripcion || '').toLowerCase().includes(textoBusqueda)
   }).sort((a, b) => {
@@ -359,7 +388,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
       </div>
 
       <div style={{ display: 'flex', gap: 0, marginBottom: 20, borderBottom: '1px solid var(--border)' }}>
-        {[['ejercicios', '🏋️ Ejercicios'], ['bloques', '🧱 Bloques'], ['sesiones', '📋 Sesiones']].map(([id, label]) => (
+        {[['ejercicios', '🏋️ Ejercicios'], ['bloques', '🧱 Bloques'], ['sesiones', '📋 Sesiones'], ['categorias', '🏷 Categorías']].map(([id, label]) => (
           <button key={id} onClick={() => setTabPrincipal(id)}
             style={{ fontSize: 14, padding: '8px 22px', border: 'none', background: 'transparent', borderBottom: `2px solid ${tabPrincipal === id ? 'var(--accent)' : 'transparent'}`, color: tabPrincipal === id ? 'var(--accent)' : 'var(--text2)', fontWeight: tabPrincipal === id ? 600 : 400, cursor: 'pointer', marginBottom: -1 }}>
             {label}
@@ -369,6 +398,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
 
       {tabPrincipal === 'sesiones' && <BibliotecaSesiones setPage={setPage} setSesionesContext={setSesionesContext} />}
       {tabPrincipal === 'bloques' && <BibliotecaBloques />}
+      {tabPrincipal === 'categorias' && <CategoriasEditor />}
 
       {tabPrincipal === 'ejercicios' && (<>
         {/* Carpetas */}
@@ -402,6 +432,12 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
               <input className="form-input" style={{ paddingLeft: 32 }} placeholder="Buscar ejercicio..." value={busquedaTexto} onChange={e => setBusquedaTexto(e.target.value)} />
               {busquedaTexto && <button onClick={() => setBusquedaTexto('')} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)' }}><X size={13} /></button>}
             </div>
+            {catEtiquetas.length > 0 && (
+              <button className="btn btn-ghost" onClick={() => setVerFiltros(v => !v)}
+                style={{ border: `1px solid ${filtroEtiquetas.length ? 'var(--accent)' : 'var(--border)'}`, color: filtroEtiquetas.length ? 'var(--accent)' : 'var(--text2)', background: filtroEtiquetas.length ? 'var(--accent-light)' : undefined }}>
+                🏷 Etiquetas{filtroEtiquetas.length ? ` (${filtroEtiquetas.length})` : ''} {verFiltros ? '▴' : '▾'}
+              </button>
+            )}
             <div style={{ display: 'flex', gap: 2, marginLeft: 'auto', background: 'var(--bg2)', borderRadius: 8, padding: 3, border: '1px solid var(--border)' }}>
               {[{ id: 'cards', icon: <LayoutGrid size={14} />, title: 'Cards' }, { id: 'lista', icon: <List size={14} />, title: 'Lista' }, { id: 'tabla', icon: <Table2 size={14} />, title: 'Tabla' }].map(({ id, icon, title }) => (
                 <button key={id} title={title} onClick={() => setVista(id)}
@@ -412,6 +448,16 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
             </div>
           </div>
         </div>
+
+        {verFiltros && catEtiquetas.length > 0 && (
+          <div className="card" style={{ padding: '12px 14px', marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
+              <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Filtra por etiquetas: dentro de un grupo vale cualquiera de las marcadas; entre grupos, deben cumplirse todos.</span>
+              {filtroEtiquetas.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => setFiltroEtiquetas([])}>Quitar filtros</button>}
+            </div>
+            <SelectorEtiquetas grupos={catGrupos.map(g => ({ ...g, seleccion: 'multiple' }))} etiquetas={catEtiquetas} value={filtroEtiquetas} onChange={setFiltroEtiquetas} compacto />
+          </div>
+        )}
 
         {loading ? (
           <div className="empty"><p>Cargando...</p></div>
@@ -478,6 +524,11 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                       </div>
                     )}
 
+                    {!editando && (etiquetasEj[e.id] || []).length > 0 && (
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 7 }}>
+                        {(etiquetasEj[e.id] || []).map(id => etiquetaPorId[id]).filter(Boolean).map(et => <ChipEtiqueta key={et.id} etiqueta={et} peque />)}
+                      </div>
+                    )}
                     {editando ? (
                       <InlineActions />
                     ) : (
@@ -539,6 +590,11 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                               {abierto ? 'menos' : 'más'}
                             </button>
                           )}
+                        </div>
+                      )}
+                      {!editando && (etiquetasEj[e.id] || []).length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 5 }}>
+                          {(etiquetasEj[e.id] || []).map(id => etiquetaPorId[id]).filter(Boolean).map(et => <ChipEtiqueta key={et.id} etiqueta={et} peque />)}
                         </div>
                       )}
                       {editando && <InlineActions />}
@@ -631,6 +687,10 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                   <div className="form-group">
                     <label className="form-label">Descripción</label>
                     <textarea className="form-input" value={form.descripcion} onChange={e => fd('descripcion', e.target.value)} placeholder="Explicación del ejercicio..." rows={8} style={{ resize: 'vertical' }} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Etiquetas</label>
+                    <SelectorEtiquetas grupos={catGrupos} etiquetas={catEtiquetas} value={form.etiquetas || []} onChange={ids => fd('etiquetas', ids)} compacto />
                   </div>
                 </div>
 
