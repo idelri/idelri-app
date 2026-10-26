@@ -180,9 +180,18 @@ function ChipContenido({ texto, color, peque, onQuitar }) {
     </span>
   )
 }
-function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQuitar, modoSemana, catGrupos = [], catEtiquetas = [] }) {
+function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQuitar, modoSemana, catGrupos = [], catEtiquetas = [], tipoPlan }) {
   const [texto, setTexto] = useState('')
   const [alcance, setAlcance] = useState(modoSemana ? 'ses_semana' : 'dia')
+  // Navegación: grupo general → grupo de categorías → etiquetas
+  const secciones = useMemo(() => {
+    const m = new Map(); catGrupos.forEach(g => { const key = g._seccion?.id || 'sin'; if (!m.has(key)) m.set(key, { id: key, nombre: g._seccion?.nombre || 'Otros', color: g._seccion?.color || '#64748b', grupos: [] }); m.get(key).grupos.push(g) })
+    return [...m.values()].filter(x => x.grupos.some(g => catEtiquetas.some(e => e.grupo_id === g.id)))
+  }, [catGrupos, catEtiquetas])
+  const secPorTipo = () => { const t = (tipoPlan || '').toLowerCase(); const want = /deport|resist|carrera/.test(t) ? /resist/i : /salud|fuerza/.test(t) ? /fuerza/i : null; return want ? secciones.find(x => want.test(x.nombre))?.id : null }
+  const [secSel, setSecSel] = useState(() => { try { return localStorage.getItem('tlContSec') || null } catch { return null } })
+  const [grupoAbierto, setGrupoAbierto] = useState(() => { try { return localStorage.getItem('tlContGrupo') || null } catch { return null } })
+  const [verOtros, setVerOtros] = useState(false)
   const ref = useRef(null)
   useEffect(() => { setTexto(''); setAlcance(modoSemana ? 'ses_semana' : 'dia') }, [abierto?.clave, modoSemana])
   useEffect(() => {
@@ -192,69 +201,112 @@ function EditorContenidos({ abierto, onCerrar, items, sugerencias, onAnadir, onQ
     return () => { clearTimeout(t); document.removeEventListener('mousedown', fn) }
   }, [abierto, onCerrar])
   if (!abierto) return null
+  const sec = secciones.find(x => x.id === secSel) || secciones.find(x => x.id === secPorTipo()) || secciones[0]
+  const elegirSec = id => { setSecSel(id); try { localStorage.setItem('tlContSec', id) } catch {} }
+  const abrirGrupo = id => { const v = grupoAbierto === id ? null : id; setGrupoAbierto(v); try { localStorage.setItem('tlContGrupo', v || '') } catch {} }
   const enviar = (t, et) => { const v = (t ?? texto).trim(); if (!v) return; onAnadir(v, alcance, et); setTexto('') }
   const yaEsta = n => items.some(i => i.texto.toLowerCase() === n.toLowerCase())
-  const catFiltradas = catEtiquetas.filter(e => !yaEsta(e.nombre) && (!texto || e.nombre.toLowerCase().includes(texto.toLowerCase())))
-  const sug = sugerencias.filter(x => !catEtiquetas.some(e => e.nombre.toLowerCase() === x.toLowerCase())).filter(x => !items.some(i => i.texto.toLowerCase() === x.toLowerCase()) && (!texto || x.toLowerCase().includes(texto.toLowerCase()))).slice(0, 12)
-  const left = Math.min(abierto.x, window.innerWidth - 330), top = Math.max(10, Math.min(abierto.y, window.innerHeight - 470))
+  const q = texto.trim().toLowerCase()
+  const coincidencias = q ? catEtiquetas.filter(e => e.nombre.toLowerCase().includes(q)).slice(0, 12) : []
+  const sug = sugerencias.filter(x => !catEtiquetas.some(e => e.nombre.toLowerCase() === x.toLowerCase()) && !yaEsta(x) && (!q || x.toLowerCase().includes(q))).slice(0, 14)
+  const left = Math.min(abierto.x, window.innerWidth - 350), top = Math.max(10, Math.min(abierto.y, window.innerHeight - 520))
   const opciones = modoSemana
     ? [['ses_semana', 'Días con sesión'], ['semana', 'Toda la semana']]
-    : [['dia', 'Este día'], ['ses_semana', 'Días con sesión de la semana'], ['semana', 'Toda la semana']]
+    : [['dia', 'Este día'], ['ses_semana', 'Días con sesión'], ['semana', 'Toda la semana']]
+  const FilaEt = ({ e, sub }) => {
+    const esta = yaEsta(e.nombre)
+    return (
+      <div onClick={() => !esta && enviar(e.nombre, e)} title={esta ? 'Ya está' : 'Añadir'}
+        style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '3px 6px', paddingLeft: sub ? 22 : 6, borderRadius: 6, cursor: esta ? 'default' : 'pointer', opacity: esta ? .45 : 1 }}
+        onMouseEnter={ev => { if (!esta) ev.currentTarget.style.background = 'var(--bg2)' }} onMouseLeave={ev => { ev.currentTarget.style.background = 'transparent' }}>
+        <span style={{ width: sub ? 7 : 9, height: sub ? 7 : 9, borderRadius: 2, background: e.color || '#94a3b8', flexShrink: 0 }} />
+        <span style={{ flex: 1, fontSize: sub ? 11.5 : 12, color: sub ? 'var(--text2)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.nombre}</span>
+        {esta ? <span style={{ fontSize: 10, color: 'var(--text3)' }}>✓</span> : <span style={{ fontSize: 12, color: 'var(--text3)' }}>+</span>}
+      </div>
+    )
+  }
+  const tit = { fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--text3)', margin: '0 0 4px' }
   return (
-    <div ref={ref} style={{ position: 'fixed', left, top, width: 310, maxHeight: 'calc(100vh - 20px)', overflowY: 'auto', zIndex: 80, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,.16)', padding: 12, fontFamily: 'var(--font)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', marginBottom: 8 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 9.5, fontFamily: 'var(--mono)', textTransform: 'uppercase', letterSpacing: '.05em', color: GRUPOS.pla.color }}>Contenidos</div>
-          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{abierto.titulo}</div>
-          {abierto.plan && <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Plan · {abierto.plan}</div>}
+    <div ref={ref} style={{ position: 'fixed', left, top, width: 336, maxHeight: 'calc(100vh - 20px)', display: 'flex', flexDirection: 'column', zIndex: 80, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 32px rgba(0,0,0,.16)', fontFamily: 'var(--font)' }}>
+      <div style={{ padding: '11px 12px 8px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start' }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)' }}>{abierto.titulo.charAt(0).toUpperCase() + abierto.titulo.slice(1)}</div>
+            {abierto.plan && <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>Plan · {abierto.plan}</div>}
+          </div>
+          <button onClick={onCerrar} style={{ border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: 'var(--text3)', lineHeight: 1 }}>×</button>
         </div>
-        <button onClick={onCerrar} style={{ border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: 'var(--text3)' }}>×</button>
+        {/* Lo que ya hay */}
+        <div style={{ marginTop: 8 }}>
+          {items.length ? items.map(i => (
+            <div key={i.texto} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '2px 0' }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: i.color || colorContenido(i.texto), flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{i.texto}</span>
+              <button onClick={() => onQuitar(i.ids)} title="Quitar" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text3)', fontSize: 13, lineHeight: 1, padding: '0 2px' }}>×</button>
+            </div>
+          )) : <div style={{ fontSize: 11.5, color: 'var(--text3)' }}>Todavía no hay contenidos.</div>}
+        </div>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 10, minHeight: 20 }}>
-        {items.length ? items.map(i => <ChipContenido key={i.texto} texto={i.texto} color={i.color} onQuitar={() => onQuitar(i.ids)} />)
-          : <span style={{ fontSize: 11.5, color: 'var(--text3)' }}>Todavía no hay contenidos.</span>}
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input autoFocus value={texto} onChange={e => setTexto(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') enviar(); if (e.key === 'Escape') onCerrar() }}
+            placeholder="Buscar o escribir uno nuevo…" style={{ flex: 1, padding: '6px 9px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12.5, fontFamily: 'inherit', background: 'var(--bg)' }} />
+          <button onClick={() => enviar()} disabled={!texto.trim()} style={{ padding: '0 11px', borderRadius: 8, border: 'none', background: texto.trim() ? 'var(--accent)' : 'var(--bg3)', color: '#fff', fontWeight: 600, fontSize: 12, cursor: texto.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}>Añadir</button>
+        </div>
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 6 }}>
+          {opciones.map(([v, l]) => (
+            <button key={v} onClick={() => setAlcance(v)} style={{ fontSize: 10.5, padding: '2px 8px', borderRadius: 6, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${alcance === v ? 'var(--accent)' : 'var(--border)'}`, background: alcance === v ? 'var(--accent-light)' : 'transparent', color: alcance === v ? 'var(--accent-text)' : 'var(--text2)', fontWeight: alcance === v ? 600 : 400 }}>{l}</button>
+          ))}
+        </div>
       </div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        <input autoFocus value={texto} onChange={e => setTexto(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') enviar(); if (e.key === 'Escape') onCerrar() }}
-          placeholder="p. ej. Fuerza máxima, Umbral, Técnica…" style={{ flex: 1, padding: '7px 9px', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12.5, fontFamily: 'inherit', background: 'var(--bg)' }} />
-        <button onClick={() => enviar()} disabled={!texto.trim()} style={{ padding: '0 12px', borderRadius: 8, border: 'none', background: texto.trim() ? 'var(--accent)' : 'var(--bg3)', color: '#fff', fontWeight: 600, fontSize: 12.5, cursor: texto.trim() ? 'pointer' : 'default', fontFamily: 'inherit' }}>Añadir</button>
-      </div>
-      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 8 }}>
-        {opciones.map(([v, l]) => (
-          <button key={v} onClick={() => setAlcance(v)} style={{ fontSize: 10.5, padding: '3px 8px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${alcance === v ? 'var(--accent)' : 'var(--border)'}`, background: alcance === v ? 'var(--accent-light)' : 'transparent', color: alcance === v ? 'var(--accent-text)' : 'var(--text2)', fontWeight: alcance === v ? 600 : 400 }}>{l}</button>
-        ))}
-      </div>
-      {catFiltradas.length > 0 && (
-        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8, maxHeight: 190, overflowY: 'auto' }}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 5 }}>De tus categorías (clic para añadir)</div>
-          {catGrupos.map(g => {
-            const ets = catFiltradas.filter(e => e.grupo_id === g.id)
+      <div style={{ overflowY: 'auto', padding: '8px 8px 10px', minHeight: 0 }}>
+        {q ? (<>
+          {coincidencias.length > 0 && <div style={{ ...tit, padding: '0 6px' }}>De tus categorías</div>}
+          {coincidencias.map(e => <FilaEt key={e.id} e={e} sub={!!e.padre_id} />)}
+          {sug.length > 0 && <div style={{ ...tit, padding: '6px 6px 0' }}>Usados en este plan</div>}
+          {sug.map(x => <FilaEt key={x} e={{ id: x, nombre: x, color: colorContenido(x) }} />)}
+          {!coincidencias.length && !sug.length && <div style={{ fontSize: 11.5, color: 'var(--text3)', padding: '2px 6px' }}>Pulsa «Añadir» para crear «{texto.trim()}».</div>}
+        </>) : (<>
+          {secciones.length > 0 && (
+            <div style={{ display: 'flex', gap: 4, padding: '0 4px 8px', flexWrap: 'wrap' }}>
+              {secciones.map(x => {
+                const on = sec?.id === x.id
+                return <button key={x.id} onClick={() => elegirSec(x.id)} style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '4px 10px', borderRadius: 7, cursor: 'pointer', fontFamily: 'inherit', border: `1px solid ${on ? x.color : 'var(--border)'}`, background: on ? x.color + '18' : 'transparent', color: on ? x.color : 'var(--text3)' }}>{x.nombre}</button>
+              })}
+            </div>
+          )}
+          {sec && sec.grupos.map(g => {
+            const ets = catEtiquetas.filter(e => e.grupo_id === g.id)
             if (!ets.length) return null
+            const abiertoG = grupoAbierto === g.id || sec.grupos.filter(x => catEtiquetas.some(e => e.grupo_id === x.id)).length === 1
+            const padres = ets.filter(e => !e.padre_id)
+            const nUsadas = ets.filter(e => yaEsta(e.nombre)).length
             return (
-              <div key={g.id} style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--text2)', marginBottom: 3 }}>{g.nombre}</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                  {ets.filter(e => !e.padre_id || !ets.some(x => x.id === e.padre_id)).map(e => {
-                    const subs = ets.filter(x => x.padre_id === e.id)
-                    return [<span key={e.id} onClick={() => enviar(e.nombre, e)} style={{ cursor: 'pointer' }}><ChipContenido texto={e.nombre} color={e.color} peque /></span>,
-                      subs.length > 0 && <span key={e.id + 's'} style={{ display: 'inline-flex', flexWrap: 'wrap', gap: 3, paddingLeft: 3, borderLeft: `2px solid ${e.color}55` }}>
-                        {subs.map(sb => <span key={sb.id} onClick={() => enviar(sb.nombre, sb)} style={{ cursor: 'pointer', opacity: .85 }}><ChipContenido texto={sb.nombre} color={sb.color} peque /></span>)}
-                      </span>]
-                  })}
+              <div key={g.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <div onClick={() => abrirGrupo(g.id)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 6px', cursor: 'pointer' }}>
+                  <span style={{ fontSize: 8, color: 'var(--text3)', transform: abiertoG ? 'rotate(90deg)' : 'none', transition: 'transform .15s' }}>▶</span>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 700, color: 'var(--text)' }}>{g.nombre}</span>
+                  {nUsadas > 0 && <span style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 600 }}>{nUsadas} ✓</span>}
+                  <span style={{ fontSize: 10, color: 'var(--text3)' }}>{padres.length}</span>
                 </div>
+                {abiertoG && <div style={{ paddingBottom: 6 }}>
+                  {padres.map(e => [<FilaEt key={e.id} e={e} />, ...ets.filter(x => x.padre_id === e.id).map(sb => <FilaEt key={sb.id} e={sb} sub />)])}
+                </div>}
               </div>
             )
           })}
-        </div>
-      )}
-      {sug.length > 0 && (
-        <div style={{ marginTop: 10, borderTop: '1px solid var(--border)', paddingTop: 8 }}>
-          <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 5 }}>Otros usados en este plan</div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-            {sug.map(x => <span key={x} onClick={() => enviar(x)} style={{ cursor: 'pointer' }}><ChipContenido texto={x} peque /></span>)}
-          </div>
-        </div>
-      )}
+          {sug.length > 0 && (
+            <div style={{ borderTop: '1px solid var(--border)' }}>
+              <div onClick={() => setVerOtros(v => !v)} style={{ display: 'flex', alignItems: 'center', gap: 7, padding: '7px 6px', cursor: 'pointer' }}>
+                <span style={{ fontSize: 8, color: 'var(--text3)', transform: verOtros ? 'rotate(90deg)' : 'none' }}>▶</span>
+                <span style={{ flex: 1, fontSize: 12, fontWeight: 600, color: 'var(--text2)' }}>Otros usados en este plan</span>
+                <span style={{ fontSize: 10, color: 'var(--text3)' }}>{sug.length}</span>
+              </div>
+              {verOtros && sug.map(x => <FilaEt key={x} e={{ id: x, nombre: x, color: colorContenido(x) }} />)}
+            </div>
+          )}
+        </>)}
+      </div>
     </div>
   )
 }
@@ -264,6 +316,7 @@ export default function TimelinePlan({
   planificacion, bloques, subbloques, semanasAll, sesiones, competiciones, controles, notas, feedbacks,
   clienteNombre, onAbrirSesion, onNuevaSesion, onEditarBloque, onEditarSubbloque, onAbrirComp, onAbrirControl, onAbrirNota,
   onNuevoBloque, onNuevoSubbloque, onRecargar,
+  modoDrag = 'mover', setModoDrag, onMoverItems, clipboard, onCopiar, onPegar, onEliminar, onNuevaCompeticion, onNuevaValoracion, onNuevaNota,
 }) {
   const planIni = useMemo(() => parseISO(planificacion.fecha_inicio), [planificacion.fecha_inicio])
   const planFin = useMemo(() => parseISO(planificacion.fecha_fin), [planificacion.fecha_fin])
@@ -625,6 +678,72 @@ export default function TimelinePlan({
   const tituloSemana = d => { const s = semanaPorLunes.get(k(lunes(d))); return s?.objetivo ? (tituloTexto(s.objetivo) || textoPlano(s.objetivo).slice(0, 60)) : null }
   const bloqueDe = d => bloquesF.find(b => d >= b._ini && d <= b._fin)
 
+  // ── Arrastrar / copiar elementos del calendario (sesiones, eventos, notas) y días de la cuadrícula ──
+  // Sin estado de React durante el arrastre (las vistas se vuelven a montar en cada render): ref + clases en el DOM.
+  const arrRef = useRef(null) // { clase: 'items', items } | { clase: 'dia', fecha }
+  const editableCal = !!onMoverItems
+  const limpiarDrop = () => document.querySelectorAll('.tl-drop-on').forEach(el => el.classList.remove('tl-drop-on'))
+  const arrastrableItem = (item, tipo) => !editableCal ? {} : {
+    draggable: true,
+    onDragStart: e => { e.stopPropagation(); arrRef.current = { clase: 'items', items: [{ ...item, _tipo: tipo }] }; e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', item.id) } catch {} },
+    onDragEnd: () => { arrRef.current = null; limpiarDrop() },
+  }
+  const modoDe = e => (e.altKey || modoDrag === 'copiar') ? 'copiar' : 'mover'
+  // destino: fechaDe(item) → 'yyyy-MM-dd' donde cae cada elemento
+  const destinoItems = fechaDe => !editableCal ? {} : {
+    onDragOver: e => { if (arrRef.current?.clase !== 'items') return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
+    onDragLeave: e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('tl-drop-on') },
+    onDrop: e => {
+      const a = arrRef.current; if (a?.clase !== 'items') return
+      e.preventDefault(); e.stopPropagation(); limpiarDrop(); arrRef.current = null
+      const modo = modoDe(e)
+      const porFecha = new Map()
+      a.items.forEach(it => { const f = fechaDe(it); if (!f || (modo === 'mover' && String(it.fecha).slice(0, 10) === f)) return; if (!porFecha.has(f)) porFecha.set(f, []); porFecha.get(f).push(it) })
+      porFecha.forEach((its, f) => onMoverItems(its, f, modo))
+    },
+  }
+  // Cuadrícula: mover / copiar un día entero (contenidos, notas y sesiones)
+  async function moverDia(origen, destino, modo) {
+    if (origen === destino) return
+    const o = parseISO(origen)
+    const conts = contenidos.filter(c => String(c.fecha).slice(0, 10) === origen)
+    const x = dia(o)
+    const items = [...x.ses.map(z => ({ ...z, _tipo: 'sesion' })), ...x.notas.map(z => ({ ...z, _tipo: 'nota' }))]
+    if (!conts.length && !items.length) return
+    if (items.length) onMoverItems?.(items, destino, modo)
+    if (!conts.length) return
+    const yaEn = (pid, t) => contenidos.some(c => c.planificacion_id === pid && String(c.fecha).slice(0, 10) === destino && c.texto.trim().toLowerCase() === t.trim().toLowerCase())
+    if (modo === 'copiar') {
+      const filas = conts.filter(c => !yaEn(c.planificacion_id, c.texto)).map(c => ({ planificacion_id: c.planificacion_id, fecha: destino, texto: c.texto, color: c.color, etiqueta_id: c.etiqueta_id || null, orden: c.orden ?? 0 }))
+      if (!filas.length) return
+      const { data, error } = await supabase.from('planificacion_contenidos').insert(filas).select()
+      if (error) { alert('No se pudo copiar: ' + error.message); return }
+      setContenidos(cs => [...cs, ...(data || [])])
+    } else {
+      const duplic = conts.filter(c => yaEn(c.planificacion_id, c.texto)).map(c => c.id)
+      const mover = conts.filter(c => !duplic.includes(c.id)).map(c => c.id)
+      setContenidos(cs => cs.filter(c => !duplic.includes(c.id)).map(c => mover.includes(c.id) ? { ...c, fecha: destino } : c))
+      if (duplic.length) await supabase.from('planificacion_contenidos').delete().in('id', duplic)
+      if (mover.length) { const { error } = await supabase.from('planificacion_contenidos').update({ fecha: destino }).in('id', mover); if (error) alert('No se pudo mover: ' + error.message) }
+    }
+  }
+  const arrastrableDia = d => ({
+    draggable: true,
+    onDragStart: e => { arrRef.current = { clase: 'dia', fecha: k(d) }; e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', k(d)) } catch {} },
+    onDragEnd: () => { arrRef.current = null; limpiarDrop() },
+    onDragOver: e => { if (arrRef.current?.clase !== 'dia') return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
+    onDragLeave: e => e.currentTarget.classList.remove('tl-drop-on'),
+    onDrop: e => { const a = arrRef.current; if (a?.clase !== 'dia') return; e.preventDefault(); limpiarDrop(); arrRef.current = null; moverDia(a.fecha, k(d), modoDe(e)) },
+  })
+  // Edición directa de km objetivo y nota en la cuadrícula
+  const [semEdit, setSemEdit] = useState({})
+  async function guardarSemana(sem, campos) {
+    if (!sem?.id) return
+    setSemEdit(x => ({ ...x, [sem.id]: { ...(x[sem.id] || {}), ...campos } }))
+    const { error } = await supabase.from('semanas').update(campos).eq('id', sem.id)
+    if (error) alert('No se pudo guardar la semana: ' + error.message)
+  }
+
   // ── Barra superior ──
   const Toolbar = (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', padding: '14px 16px', borderBottom: '1px solid var(--border)' }}>
@@ -642,6 +761,21 @@ export default function TimelinePlan({
         })}
       </div>
       <div style={{ flex: 1 }} />
+      {editableCal && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          {clipboard && (
+            <span title="Pulsa 📋 en un día para pegarla" style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 11, padding: '4px 8px', borderRadius: 8, background: 'var(--accent-light)', color: 'var(--accent-text)', maxWidth: 220 }}>
+              📋 <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{clipboard.titulo || clipboard.nombre || clipboard.texto || 'Copiado'}</span>
+              <span onClick={() => onCopiar?.(null)} style={{ cursor: 'pointer', opacity: .7 }} title="Vaciar">×</span>
+            </span>
+          )}
+          <div title="Qué hace arrastrar. Con la tecla Alt pulsada al soltar, siempre copia." style={{ display: 'flex', padding: 2, gap: 2, borderRadius: 9, border: '1px solid var(--border)', background: 'var(--bg)' }}>
+            {[['mover', '↔ Mover'], ['copiar', '⧉ Copiar']].map(([v, l]) => (
+              <button key={v} onClick={() => setModoDrag?.(v)} style={{ height: 26, padding: '0 9px', borderRadius: 7, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: modoDrag === v ? 600 : 500, background: modoDrag === v ? 'var(--surface)' : 'transparent', boxShadow: modoDrag === v ? '0 1px 2px rgba(0,0,0,.1)' : 'none', color: modoDrag === v ? 'var(--text)' : 'var(--text3)' }}>{l}</button>
+            ))}
+          </div>
+        </div>
+      )}
       <button onClick={() => { setCursor(lunes(hoy)); if (hoy < rango.ini || hoy > rango.fin) setRango({ ini: planIni < hoy ? planIni : lunes(hoy), fin: planFin > hoy ? planFin : addDays(lunes(hoy), 27) }) }}
         style={{ height: 34, padding: '0 14px', borderRadius: 9, border: 'none', background: 'var(--text2)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
       <SelectorPeriodo rango={rango} onCambiar={setRango} planIni={planIni} planFin={planFin} />
@@ -686,9 +820,9 @@ export default function TimelinePlan({
         {vision === 'micro' && <VistaSemanas semanas={1} micro />}
         {vision === 'cuadricula' && <VistaCuadricula />}
       </div>
-      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}`}</style>
+      <style>{`.tl-celda-ses .tl-mas,.tl-cont .tl-mas-cont{opacity:0;transition:opacity .15s}.tl-celda-ses:hover .tl-mas,.tl-cont:hover .tl-mas-cont{opacity:1}.tl-cont:hover{background:rgba(193,143,5,.08)}.tl-hueco{opacity:.35;transition:opacity .15s}.tl-hueco:hover{opacity:1;background:rgba(207,70,70,.06)!important}.tl-asa{opacity:.6}.tl-asa:hover{opacity:1}.tl-drop-on{outline:2px dashed var(--accent)!important;outline-offset:-2px;background:rgba(45,106,79,.07)!important}.tl-tarj .tl-acc{opacity:0;transition:opacity .12s}.tl-tarj:hover .tl-acc{opacity:1}.tl-ev .tl-mas{opacity:0}.tl-ev:hover .tl-mas{opacity:1}`}</style>
       <EditorContenidos abierto={editorCont} onCerrar={() => setEditorCont(null)} items={itemsEditor} sugerencias={sugerencias}
-        onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} catGrupos={catGrupos} catEtiquetas={catEtiquetas} />
+        onAnadir={anadirContenido} onQuitar={quitarContenido} modoSemana={!!editorCont?.modoSemana} catGrupos={catGrupos} catEtiquetas={catEtiquetas} tipoPlan={planes.find(x => x.id === editorCont?.planId)?.tipo} />
     </div>
   )
 
@@ -809,11 +943,20 @@ export default function TimelinePlan({
             <div style={{ display: 'flex', marginTop: 6 }}>
               <Etiqueta g="pro" texto="Sesiones" icono="◉" alto={40} />
               <div style={{ display: 'flex', width: W, background: GRUPOS.pro.soft, borderRadius: 8, alignItems: 'center' }}>
-                {datosSemana.map(s => (
-                  <div key={k(s.d)} style={{ width: COL, display: 'flex', justifyContent: 'center' }}>
-                    {s.ses > 0 && <span style={{ minWidth: 20, height: 20, padding: '0 4px', borderRadius: 6, background: GRUPOS.pro.color + 'cc', color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{s.ses}</span>}
-                  </div>
-                ))}
+                {datosSemana.map(s => {
+                  const lista = s.dias.flatMap(x => x.ses)
+                  const caben = Math.max(1, Math.floor((COL - 6) / 15) * 2)
+                  return (
+                    <div key={k(s.d)} {...destinoItems(it => { const off = differenceInCalendarDays(parseISO(String(it.fecha).slice(0, 10)), lunes(parseISO(String(it.fecha).slice(0, 10)))); return k(addDays(s.d, off)) })}
+                      title={editableCal ? 'Arrastra una sesión a otra semana: cae el mismo día de la semana' : ''}
+                      style={{ width: COL - 3, margin: '0 1.5px', minHeight: 36, padding: '3px 0', display: 'flex', flexWrap: 'wrap', alignContent: 'center', justifyContent: 'center', gap: 2, borderRadius: 6 }}>
+                      {lista.length <= caben
+                        ? lista.map(z => <span key={z.id} {...arrastrableItem(z, 'sesion')} onClick={() => onAbrirSesion?.(z)} title={`${format(parseISO(String(z.fecha).slice(0, 10)), 'EEE d', { locale: es })} · ${z.titulo || 'Sesión'}`}
+                            style={{ width: 13, height: 15, borderRadius: 4, background: z.tipo_sesion === 'opcional' ? 'transparent' : GRUPOS.pro.color + '22', border: `1px ${z.tipo_sesion === 'opcional' ? 'dashed' : 'solid'} ${GRUPOS.pro.color}66`, fontSize: 8.5, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: editableCal ? 'grab' : 'pointer' }}>{iconoSesion(z)}</span>)
+                        : lista.length > 0 && <span style={{ minWidth: 20, height: 20, padding: '0 4px', borderRadius: 6, background: GRUPOS.pro.color + 'cc', color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{lista.length}</span>}
+                    </div>
+                  )
+                })}
               </div>
             </div>
           )}
@@ -863,7 +1006,7 @@ export default function TimelinePlan({
           </div>
         </div>
         <div style={{ overflowX: 'auto' }}>
-          <style>{`table.tl-cuad{width:auto!important;margin:0}.tl-cuad th,.tl-cuad td{border:none;background:none;padding:0;height:auto;font-family:inherit;text-transform:none;letter-spacing:0}.tl-cuad thead th{font-size:10px;color:var(--text3);font-weight:600;padding-bottom:3px}`}</style>
+          <style>{`table.tl-cuad{width:auto!important;margin:0}.tl-inl{font:inherit;font-size:11.5px;color:var(--text);border:1px solid transparent;background:transparent;border-radius:5px;padding:3px 5px;-moz-appearance:textfield}.tl-inl::-webkit-inner-spin-button{-webkit-appearance:none}.tl-inl:hover{border-color:var(--border)}.tl-inl:focus{outline:none;border-color:var(--accent);background:var(--surface)}.tl-inl::placeholder{color:var(--text3)}.tl-cuad th,.tl-cuad td{border:none;background:none;padding:0;height:auto;font-family:inherit;text-transform:none;letter-spacing:0}.tl-cuad thead th{font-size:10px;color:var(--text3);font-weight:600;padding-bottom:3px}`}</style>
           <table className="tl-cuad" style={{ borderCollapse: 'separate', borderSpacing: 3, fontVariantNumeric: 'tabular-nums' }}>
             <thead>
               <tr style={{ fontSize: 10, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '.05em' }}>
@@ -878,6 +1021,7 @@ export default function TimelinePlan({
                 const primeraDelBloque = b && (wi === 0 || bloqueDe(addDays(semanas[wi - 1], 3))?.id !== b.id)
                 const nFilas = b ? semanas.filter(x => bloqueDe(addDays(x, 3))?.id === b.id).length : 1
                 const sem = semanaPorLunes.get(k(l))
+                const semE = (sem?.id && semEdit[sem.id]) || {}
                 const esHoy = hoy >= l && hoy <= addDays(l, 6)
                 return (
                   <tr key={k(l)}>
@@ -901,7 +1045,7 @@ export default function TimelinePlan({
                       const pid = (planesVisibles(d, d)[0] || planificacion).id
                       return (
                         <td key={k(d)} style={{ padding: 0 }}>
-                          <div onClick={ev => abrirEditorDia(ev, d, pid)} title={tip}
+                          <div onClick={ev => abrirEditorDia(ev, d, pid)} title={tip + (editableCal ? '\n\nArrastra a otro día para mover el día entero (Alt: copiar)' : '')} {...(editableCal ? arrastrableDia(d) : {})}
                             style={{ width: CW, height: CHh, borderRadius: 5, background: col || (todos.length || x.notas.length ? 'var(--bg3)' : 'var(--bg2)'), color: claro ? '#18232b' : '#fff', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 11, fontWeight: 800, outline: isSameDay(d, hoy) ? `2px solid ${GRUPOS.cal.color}` : 'none', outlineOffset: 1 }}>
                             {cc[0] && <span style={{ opacity: .9 }}>{codigoEtiqueta(cc[0].texto).charAt(0)}</span>}
                             {cod.slice(0, 2).map(c => <span key={c.id} style={{ fontSize: 10, padding: '0 2px', borderRadius: 3, background: col ? 'rgba(0,0,0,.2)' : 'transparent', color: col ? 'inherit' : 'var(--text2)' }}>{codigoEtiqueta(c.texto)}</span>)}
@@ -912,9 +1056,23 @@ export default function TimelinePlan({
                         </td>
                       )
                     })}
-                    <td style={{ textAlign: 'right', fontSize: 12, padding: '0 6px', color: 'var(--text2)', fontWeight: 600 }}>{sem?.km_objetivo ? sem.km_objetivo + ' km' : ''}</td>
-                    <td title={[sem?.objetivo, sem?.notas].filter(Boolean).join('\n')} style={{ fontSize: 11.5, color: 'var(--text2)', padding: '0 8px', maxWidth: 340, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {[tituloSemana(l), sem?.notas ? textoPlano(sem.notas).replace(/\n/g, ' · ') : null].filter(Boolean).join(' · ')}
+                    <td style={{ padding: '0 4px' }}>
+                      {sem?.id ? (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 2 }}>
+                          <input key={'km' + sem.id + (semE.km_objetivo ?? sem.km_objetivo ?? '')} type="number" min="0" defaultValue={semE.km_objetivo ?? sem.km_objetivo ?? ''} placeholder="—" className="tl-inl"
+                            onBlur={e => { const v = e.target.value === '' ? null : parseInt(e.target.value, 10); if (v !== (semE.km_objetivo ?? sem.km_objetivo ?? null)) guardarSemana(sem, { km_objetivo: v }) }}
+                            onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur() }} style={{ width: 44, textAlign: 'right', fontWeight: 600 }} />
+                          <span style={{ fontSize: 10.5, color: 'var(--text3)' }}>km</span>
+                        </div>
+                      ) : null}
+                    </td>
+                    <td style={{ padding: '0 6px', minWidth: 260 }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {tituloSemana(l) && <span title={sem?.objetivo || ''} style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', whiteSpace: 'nowrap', maxWidth: 140, overflow: 'hidden', textOverflow: 'ellipsis' }}>{tituloSemana(l)}</span>}
+                        {sem?.id && <input key={'nt' + sem.id + (semE.notas ?? sem.notas ?? '')} defaultValue={semE.notas ?? sem.notas ?? ''} placeholder="Nota de la semana…" className="tl-inl" title={semE.notas ?? sem.notas ?? ''}
+                          onBlur={e => { const v = e.target.value.trim() || null; if (v !== (semE.notas ?? sem.notas ?? null)) guardarSemana(sem, { notas: v }) }}
+                          onKeyDown={e => { if (e.key === 'Enter') e.currentTarget.blur(); if (e.key === 'Escape') { e.currentTarget.value = semE.notas ?? sem.notas ?? ''; e.currentTarget.blur() } }} style={{ flex: 1, minWidth: 160 }} />}
+                      </div>
                     </td>
                   </tr>
                 )
@@ -922,7 +1080,7 @@ export default function TimelinePlan({
             </tbody>
           </table>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text3)', margin: '8px 2px 0' }}>Clic en un día para editar sus contenidos · el punto indica que hay nota · la esquina, un segundo valor del grupo de color · clic en el nº de semana para abrirla.</div>
+        <div style={{ fontSize: 11, color: 'var(--text3)', margin: '8px 2px 0' }}>Clic en un día para editar sus contenidos · arrastra un día a otro para moverlo entero (Alt o modo Copiar: copiar) · km y nota de la semana se editan ahí mismo · el punto indica que hay nota · la esquina, un segundo valor del grupo de color · clic en el nº de semana para abrirla.</div>
       </div>
     )
   }
@@ -1238,12 +1396,19 @@ export default function TimelinePlan({
                 const entreno = x.ses.filter(s => s.tipo_sesion !== 'opcional').length
                 const opc = x.ses.length - entreno
                 return (
-                  <div style={{ padding: 4, display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch', overflow: 'hidden', height: '100%', boxSizing: 'border-box' }}>
-                    {x.comps.map(c => <Chip key={c.id} onClick={() => onAbrirComp?.(c)} bg="#fef3c7" color="#92400e" titulo={c.nombre}>🏆 {c.nombre}</Chip>)}
-                    {x.ctrls.map(c => <Chip key={c.id} onClick={() => onAbrirControl?.(c)} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre}>🔬 {c.nombre}</Chip>)}
+                  <div className="tl-ev" {...destinoItems(() => k(d))} style={{ position: 'relative', padding: 4, display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch', overflow: 'hidden', height: '100%', boxSizing: 'border-box' }}>
+                    {x.comps.map(c => <Chip key={c.id} onClick={() => onAbrirComp?.(c)} bg="#fef3c7" color="#92400e" titulo={c.nombre} {...arrastrableItem(c, 'competicion')}>🏆 {c.nombre}</Chip>)}
+                    {x.ctrls.map(c => <Chip key={c.id} onClick={() => onAbrirControl?.(c)} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre} {...arrastrableItem(c, 'control')}>🔬 {c.nombre}</Chip>)}
                     {entreno > 0 && <Chip bg="var(--accent)" color="#fff" titulo={`${entreno} sesión(es)`}>Entreno{entreno > 1 ? ` ×${entreno}` : ''}</Chip>}
                     {opc > 0 && <Chip bg="transparent" color="var(--accent)" borde={`1px dashed var(--accent)`} titulo="Sesión opcional">☆{COL >= 90 ? ' Opcional' : ''}{opc > 1 ? ` ×${opc}` : ''}</Chip>}
-                    {x.notas.map(n => <Chip key={n.id} onClick={() => onAbrirNota?.(n)} bg="#f1f5f9" color="#475569" borde="1px solid #cbd5e1" titulo={n.texto}>📝 {n.texto}</Chip>)}
+                    {x.notas.map(n => <Chip key={n.id} onClick={() => onAbrirNota?.(n)} bg="#f1f5f9" color="#475569" borde="1px solid #cbd5e1" titulo={n.texto} {...arrastrableItem(n, 'nota')}>📝 {n.texto}</Chip>)}
+                    {(onNuevaCompeticion || onNuevaValoracion || onNuevaNota) && (
+                      <div className="tl-mas" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'center', gap: 2 }}>
+                        {[[onNuevaCompeticion, '🏆', 'Nueva competición'], [onNuevaValoracion, '🔬', 'Nueva valoración'], [onNuevaNota, '📝', 'Nueva nota']].filter(([f]) => f).map(([f, ic, t]) => (
+                          <button key={t} onClick={() => f(k(d))} title={t} style={{ border: '1px dashed var(--border2)', background: 'var(--surface)', borderRadius: 5, fontSize: 10, padding: '0 3px', cursor: 'pointer', lineHeight: '16px' }}>{ic}</button>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )
               }} />
@@ -1301,10 +1466,14 @@ export default function TimelinePlan({
               <div style={{ display: 'flex', marginTop: 6 }}>
                 <Etiqueta g="pro" texto="Sesiones" icono="◉" alto={alto} />
                 <Celdas alto={alto} fondo={GRUPOS.pro.soft} render={d => (
-                  <div className="tl-celda-ses" style={{ padding: 4, display: 'flex', flexDirection: 'column', gap: 5, height: '100%', boxSizing: 'border-box' }}>
+                  <div className="tl-celda-ses" {...destinoItems(() => k(d))} style={{ padding: 4, display: 'flex', flexDirection: 'column', gap: 5, height: '100%', boxSizing: 'border-box' }}>
                     {dia(d).ses.map(s => <TarjetaSesion key={s.id} s={s} micro={micro} alto={altoCard} />)}
-                    {onNuevaSesion && <button className="tl-mas" onClick={() => onNuevaSesion(k(d))} title="Nueva sesión"
-                      style={{ marginTop: 'auto', alignSelf: 'center', border: '1px dashed ' + GRUPOS.pro.color + '88', background: 'transparent', color: GRUPOS.pro.color, borderRadius: 6, fontSize: 12, width: 24, height: 20, cursor: 'pointer', lineHeight: 1 }}>+</button>}
+                    <div style={{ marginTop: 'auto', alignSelf: 'center', display: 'flex', gap: 3 }}>
+                      {onNuevaSesion && <button className="tl-mas" onClick={() => onNuevaSesion(k(d))} title="Nueva sesión"
+                        style={{ border: '1px dashed ' + GRUPOS.pro.color + '88', background: 'transparent', color: GRUPOS.pro.color, borderRadius: 6, fontSize: 12, width: 24, height: 20, cursor: 'pointer', lineHeight: 1 }}>+</button>}
+                      {clipboard && onPegar && <button className="tl-mas" onClick={() => onPegar(clipboard, k(d))} title={`Pegar «${clipboard.titulo || clipboard.nombre || clipboard.texto || ''}» aquí`}
+                        style={{ border: '1px dashed ' + GRUPOS.pro.color + '88', background: 'transparent', borderRadius: 6, fontSize: 11, width: 24, height: 20, cursor: 'pointer', lineHeight: 1 }}>📋</button>}
+                    </div>
                   </div>
                 )} />
               </div>
@@ -1349,9 +1518,15 @@ export default function TimelinePlan({
     const est = estadoColor(s, fb)
     const opc = s.tipo_sesion === 'opcional'
     return (
-      <div onClick={() => onAbrirSesion?.(s)} title={[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null].filter(Boolean).join(' · ')}
+      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={() => onAbrirSesion?.(s)} title={[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null, editableCal ? 'Arrastra para mover (Alt: copiar)' : null].filter(Boolean).join(' · ')}
         style={{ position: 'relative', height: alto, flexShrink: 0, borderRadius: 8, background: '#fff', border: `1px ${opc ? 'dashed' : 'solid'} ${GRUPOS.pro.color}${opc ? '88' : '55'}`, boxShadow: '0 1px 2px rgba(0,0,0,.05)', padding: micro ? '7px 9px' : '5px 6px', cursor: 'pointer', overflow: 'hidden', boxSizing: 'border-box', opacity: opc ? .85 : 1 }}>
         {est && <span style={{ position: 'absolute', top: 5, right: 5, width: 7, height: 7, borderRadius: 4, background: est }} />}
+        {editableCal && (onCopiar || onEliminar) && (
+          <div className="tl-acc" style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', gap: 2, background: '#fff', borderRadius: 5, boxShadow: '0 0 0 1px var(--border)' }}>
+            {onCopiar && <button onClick={e => { e.stopPropagation(); onCopiar({ ...s, _tipo: 'sesion' }) }} title="Copiar (luego 📋 en otro día para pegar)" style={btnMini}>⧉</button>}
+            {onEliminar && <button onClick={e => { e.stopPropagation(); onEliminar({ ...s, _tipo: 'sesion' }) }} title="Eliminar" style={{ ...btnMini, color: '#dc2626' }}>🗑</button>}
+          </div>
+        )}
         {micro ? (
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', lineHeight: 1.25, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', paddingRight: 8 }}>
             <span style={{ marginRight: 3 }}>{iconoSesion(s)}</span>{s.titulo}
@@ -1368,9 +1543,11 @@ export default function TimelinePlan({
   }
 }
 
-function Chip({ children, bg, color, borde, titulo, onClick }) {
+const btnMini = { border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 10.5, padding: '1px 3px', lineHeight: 1, color: 'var(--text2)' }
+
+function Chip({ children, bg, color, borde, titulo, onClick, ...rest }) {
   return (
-    <div onClick={onClick} title={titulo}
+    <div onClick={onClick} title={titulo} {...rest}
       style={{ fontSize: 9.5, fontWeight: 700, padding: '3px 4px', borderRadius: 6, background: bg, color, border: borde || 'none', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', cursor: onClick ? 'pointer' : 'default', textAlign: 'center', flexShrink: 0 }}>
       {children}
     </div>

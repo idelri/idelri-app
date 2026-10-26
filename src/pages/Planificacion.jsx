@@ -2339,6 +2339,16 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               onNuevoBloque={pre => openModal('bloque', pre)}
               onNuevoSubbloque={pre => openModal('subbloque', pre)}
               onRecargar={cargarPlanificacion}
+              modoDrag={modoDrag}
+              setModoDrag={setModoDrag}
+              onMoverItems={moverItemsCalendario}
+              clipboard={clipboardSesion}
+              onCopiar={setClipboardSesion}
+              onPegar={pegarItemCalendario}
+              onEliminar={item => eliminarItem(item._tipo === 'sesion' ? 'sesion' : item._tipo === 'competicion' ? 'comp' : item._tipo === 'control' ? 'control' : 'nota', item.id)}
+              onNuevaCompeticion={fecha => openModal('comp', { fecha })}
+              onNuevaValoracion={fecha => openModal('control', { fecha })}
+              onNuevaNota={fecha => openModal('nota', { fecha })}
             />
           )}
 
