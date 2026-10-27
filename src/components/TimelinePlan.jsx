@@ -834,6 +834,15 @@ export default function TimelinePlan({
       e.preventDefault(); e.stopPropagation()
       const a = fechaDeItem(ultimoSel.current), b = fechaDeItem(item)
       const [ini, fin] = a <= b ? [a, b] : [b, a]
+      if (tipo === 'dia' || tipo === 'cont') {
+        const nuevos = []
+        for (let d = parseISO(ini); k(d) <= fin; d = addDays(d, 1)) {
+          if (tipo === 'dia') nuevos.push({ id: k(d), fecha: k(d), _tipo: 'dia' })
+          else { const filas = filasAncladas(item._pid, item._c, [d]); if (filas.some(r => r.texto.trim().toLowerCase() === item._c.texto.trim().toLowerCase())) nuevos.push({ ...item, id: `${item._pid}|${item._c.texto}|${k(d)}`, fecha: k(d), filas, _tipo: 'cont' }) }
+        }
+        setSel(m => { const n = new Map(m); nuevos.forEach(z => n.set(claveSel(tipo, z.id), z)); return n })
+        return true
+      }
       const lista = tipo === 'sesion' ? (sesiones || []).filter(z => z.fecha && !z.recurso) : tipo === 'nota' ? notasLoc : tipo === 'competicion' ? (competiciones || []) : (controles || [])
       setSel(m => { const n = new Map(m); lista.filter(z => { const f = fechaDeItem(z); return f >= ini && f <= fin }).forEach(z => n.set(claveSel(tipo, z.id), { ...z, _tipo: tipo })); return n })
       return true
@@ -844,7 +853,15 @@ export default function TimelinePlan({
   // Seleccionar todas las sesiones de unos días (semana entera); con Ctrl/⌘ se añaden a lo ya seleccionado
   function seleccionarSesionesDe(diasL, añadir) {
     const fs = new Set(diasL.map(k))
-    setSel(m => { const n = añadir ? new Map(m) : new Map(); (sesiones || []).filter(z => z.fecha && !z.recurso && fs.has(fechaDeItem(z))).forEach(z => n.set(claveSel('sesion', z.id), { ...z, _tipo: 'sesion' })); return n })
+    setSel(m => {
+      const n = añadir ? new Map(m) : new Map()
+      ;(sesiones || []).filter(z => z.fecha && !z.recurso && fs.has(fechaDeItem(z))).forEach(z => n.set(claveSel('sesion', z.id), { ...z, _tipo: 'sesion' }))
+      notasLoc.filter(z => fs.has(fechaDeItem(z))).forEach(z => n.set(claveSel('nota', z.id), { ...z, _tipo: 'nota' }))
+      const porDiaPlan = new Map()
+      contenidos.filter(c => fs.has(String(c.fecha).slice(0, 10))).forEach(c => { const kk = c.planificacion_id + '|*|' + String(c.fecha).slice(0, 10); if (!porDiaPlan.has(kk)) porDiaPlan.set(kk, []); porDiaPlan.get(kk).push(c) })
+      porDiaPlan.forEach((filas, kk) => n.set(claveSel('cont', kk), { id: kk, fecha: String(filas[0].fecha).slice(0, 10), filas, _tipo: 'cont', texto: filas.map(f => f.texto).join(', ') }))
+      return n
+    })
   }
   const arrastrableItem = (item, tipo) => !editableCal ? {} : {
     draggable: true,
@@ -855,6 +872,18 @@ export default function TimelinePlan({
       e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', item.id) } catch {}
     },
     onDragEnd: () => { arrRef.current = null; limpiarDrop() },
+  }
+  // Mueve o copia una selección mezclada (sesiones, eventos, notas, contenidos y días) desplazándola 'delta' días
+  async function moverSeleccion(items, delta, modo) {
+    if (!delta && modo === 'mover') return
+    const normales = items.filter(x => ['sesion', 'nota', 'competicion', 'control'].includes(x._tipo))
+    if (normales.length) moverConDesplazamiento(normales, delta, modo)
+    const filas = []; const vistos = new Set()
+    items.filter(x => x._tipo === 'cont').forEach(x => (x.filas || []).forEach(r => { if (!vistos.has(r.id)) { vistos.add(r.id); filas.push(r) } }))
+    if (filas.length) await moverContenidos(filas, delta, modo)
+    const dias = items.filter(x => x._tipo === 'dia').map(x => x.fecha).sort()
+    if (delta > 0) dias.reverse()
+    for (const f of dias) await moverDia(f, k(addDays(parseISO(f), delta)), modo)
   }
   // Pegar / mover varios elementos conservando su separación en días respecto a una referencia
   function moverConDesplazamiento(items, delta, modo) {
@@ -867,16 +896,19 @@ export default function TimelinePlan({
   function pegarVarios(d) {
     const its = portaVarios; if (!its?.length) return
     const base = its.map(fechaDeItem).sort()[0]
-    moverConDesplazamiento(its, differenceInCalendarDays(d, parseISO(base)), 'copiar')
+    moverSeleccion(its, differenceInCalendarDays(d, parseISO(base)), 'copiar')
   }
   async function eliminarSeleccion() {
     const its = [...sel.values()]; if (!its.length) return
-    if (!window.confirm(`¿Eliminar ${its.length} elemento${its.length === 1 ? '' : 's'} seleccionado${its.length === 1 ? '' : 's'}? No se puede deshacer.`)) return
+    const nDias = its.filter(x => x._tipo === 'dia').length
+    if (!window.confirm(`¿Eliminar ${its.length - nDias} elemento${its.length - nDias === 1 ? '' : 's'} seleccionado${its.length - nDias === 1 ? '' : 's'}?${nDias ? ' (Los días de la cuadrícula no se eliminan: se pueden mover o copiar.)' : ''} No se puede deshacer.`)) return
     const tablas = { sesion: 'sesiones', competicion: 'competiciones', control: 'controles', nota: 'sesion_notas' }
     for (const [tipo, tabla] of Object.entries(tablas)) {
       const ids = its.filter(x => x._tipo === tipo).map(x => x.id)
       if (ids.length) { const { error } = await supabase.from(tabla).delete().in('id', ids); if (error) { alert('No se pudo eliminar: ' + error.message); break } }
     }
+    const filasC = [...new Set(its.filter(x => x._tipo === 'cont').flatMap(x => (x.filas || []).map(r => r.id)))]
+    if (filasC.length) await quitarContenido(filasC)
     limpiarSel(); await onRecargar?.()
   }
   const modoDe = e => (e.altKey || modoDrag === 'copiar') ? 'copiar' : 'mover'
@@ -890,7 +922,7 @@ export default function TimelinePlan({
       const modo = modoDe(e)
       if (a.ancla) { // varios: todos se desplazan lo mismo que el que se arrastra
         const f = fechaDe(a.ancla); if (!f) return
-        moverConDesplazamiento(a.items, differenceInCalendarDays(parseISO(f), parseISO(fechaDeItem(a.ancla))), modo)
+        moverSeleccion(a.items, differenceInCalendarDays(parseISO(f), parseISO(fechaDeItem(a.ancla))), modo)
         limpiarSel(); return
       }
       const porFecha = new Map()
@@ -925,23 +957,39 @@ export default function TimelinePlan({
   }
   const arrastrableDia = d => ({
     draggable: true,
-    onDragStart: e => { arrRef.current = { clase: 'dia', fecha: k(d) }; e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', k(d)) } catch {} },
+    onDragStart: e => {
+      const varios = sel.size > 1 && sel.has(claveSel('dia', k(d)))
+      arrRef.current = varios ? { clase: 'items', items: [...sel.values()], ancla: { id: k(d), fecha: k(d), _tipo: 'dia' } } : { clase: 'dia', fecha: k(d) }
+      e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', k(d)) } catch {}
+    },
     onDragEnd: () => { arrRef.current = null; limpiarDrop() },
-    onDragOver: e => { if (arrRef.current?.clase !== 'dia') return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
+    onDragOver: e => { const a = arrRef.current; if (a?.clase !== 'dia' && !(a?.clase === 'items' && a.ancla)) return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
     onDragLeave: e => e.currentTarget.classList.remove('tl-drop-on'),
-    onDrop: e => { const a = arrRef.current; if (a?.clase !== 'dia') return; e.preventDefault(); limpiarDrop(); arrRef.current = null; moverDia(a.fecha, k(d), modoDe(e)) },
+    onDrop: e => {
+      const a = arrRef.current; if (!a) return
+      if (a.clase === 'items' && a.ancla) { e.preventDefault(); limpiarDrop(); arrRef.current = null; moverSeleccion(a.items, differenceInCalendarDays(d, parseISO(fechaDeItem(a.ancla))), modoDe(e)); limpiarSel(); return }
+      if (a.clase !== 'dia') return
+      e.preventDefault(); limpiarDrop(); arrRef.current = null; moverDia(a.fecha, k(d), modoDe(e))
+    },
   })
   // Contenidos: arrastrar una píldora (con sus subcontenidos) a otro día / semana del mismo plan
-  const arrastrableCont = (pid, filas, fechaOrigen) => ({
+  const arrastrableCont = (pid, filas, fechaOrigen, claveC) => ({
     draggable: true,
-    onDragStart: e => { e.stopPropagation(); arrRef.current = { clase: 'cont', pid, filas, origen: fechaOrigen }; e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', 'cont') } catch {} },
+    onDragStart: e => {
+      e.stopPropagation()
+      const varios = claveC && sel.size > 1 && sel.has(claveSel('cont', claveC))
+      arrRef.current = varios ? { clase: 'items', items: [...sel.values()], ancla: { id: claveC, fecha: k(fechaOrigen), _tipo: 'cont' } } : { clase: 'cont', pid, filas, origen: fechaOrigen }
+      e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', 'cont') } catch {}
+    },
     onDragEnd: () => { arrRef.current = null; limpiarDrop() },
   })
   const destinoCont = (pid, fechaDestino) => ({
-    onDragOver: e => { const a = arrRef.current; if (a?.clase !== 'cont' || a.pid !== pid) return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
+    onDragOver: e => { const a = arrRef.current; if (!((a?.clase === 'cont' && a.pid === pid) || (a?.clase === 'items' && a.ancla))) return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
     onDragLeave: e => { if (!e.currentTarget.contains(e.relatedTarget)) e.currentTarget.classList.remove('tl-drop-on') },
     onDrop: e => {
-      const a = arrRef.current; if (a?.clase !== 'cont' || a.pid !== pid) return
+      const a = arrRef.current
+      if (a?.clase === 'items' && a.ancla) { e.preventDefault(); e.stopPropagation(); limpiarDrop(); arrRef.current = null; moverSeleccion(a.items, differenceInCalendarDays(fechaDestino, parseISO(fechaDeItem(a.ancla))), modoDe(e)); limpiarSel(); return }
+      if (a?.clase !== 'cont' || a.pid !== pid) return
       e.preventDefault(); e.stopPropagation(); limpiarDrop(); arrRef.current = null
       moverContenidos(a.filas, differenceInCalendarDays(fechaDestino, a.origen), modoDe(e))
     },
@@ -1323,8 +1371,8 @@ export default function TimelinePlan({
                       const pid = (planesVisibles(d, d)[0] || planificacion).id
                       return (
                         <td key={k(d)} style={{ padding: 0 }}>
-                          <div onClick={ev => abrirEditorDia(ev, d, pid)} title={tip + (editableCal ? '\n\nArrastra a otro día para mover el día entero (Alt: copiar)' : '')} {...(editableCal ? arrastrableDia(d) : {})}
-                            style={{ width: CW, height: CHh, borderRadius: 5, background: col || (todos.length || x.notas.length ? 'var(--bg3)' : 'var(--bg2)'), color: claro ? '#18232b' : '#fff', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 11, fontWeight: 800, outline: isSameDay(d, hoy) ? `2px solid ${GRUPOS.cal.color}` : 'none', outlineOffset: 1 }}>
+                          <div onClick={ev => { if (!clicSeleccion(ev, { id: k(d), fecha: k(d) }, 'dia')) abrirEditorDia(ev, d, pid) }} title={tip + (editableCal ? '\n\nArrastra a otro día para mover el día entero (Alt: copiar)' : '')} {...(editableCal ? arrastrableDia(d) : {})}
+                            style={{ width: CW, height: CHh, borderRadius: 5, background: col || (todos.length || x.notas.length ? 'var(--bg3)' : 'var(--bg2)'), color: claro ? '#18232b' : '#fff', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 2, fontSize: 11, fontWeight: 800, outline: estaSel('dia', k(d)) ? '3px solid var(--accent)' : isSameDay(d, hoy) ? `2px solid ${GRUPOS.cal.color}` : 'none', outlineOffset: 1 }}>
                             {cc[0] && <span style={{ opacity: .9 }}>{codigoEtiqueta(cc[0].texto).charAt(0)}</span>}
                             {cod.slice(0, 2).map(c => <span key={c.id} style={{ fontSize: 10, padding: '0 2px', borderRadius: 3, background: col ? 'rgba(0,0,0,.2)' : 'transparent', color: col ? 'inherit' : 'var(--text2)' }}>{codigoEtiqueta(c.texto)}</span>)}
                             {secund[0] && <span title={'Secundario: ' + secund.map(e => e.nombre).join(', ')} style={{ position: 'absolute', left: 0, top: 0, borderStyle: 'solid', borderWidth: '10px 10px 0 0', borderColor: `${secund[0].color} transparent transparent transparent`, borderRadius: '5px 0 0 0' }} />}
@@ -1364,7 +1412,7 @@ export default function TimelinePlan({
             </tbody>
           </table>
         </div>
-        <div style={{ fontSize: 11, color: 'var(--text3)', margin: '8px 2px 0' }}>Clic en un día para editar sus contenidos · arrastra un día a otro para moverlo entero (Alt o modo Copiar: copiar) · km y nota de la semana se editan ahí mismo · el punto indica que hay nota · la esquina, un segundo valor del grupo de color · clic en el nº de semana para abrirla.</div>
+        <div style={{ fontSize: 11, color: 'var(--text3)', margin: '8px 2px 0' }}>Clic en un día para editar sus contenidos · Ctrl/⌘+clic (o Mayús+clic) selecciona varios días · arrastra un día a otro para moverlo entero (Alt o modo Copiar: copiar) · km y nota de la semana se editan ahí mismo · el punto indica que hay nota · la esquina, un segundo valor del grupo de color · clic en el nº de semana para abrirla.</div>
       </div>
     )
   }
@@ -1519,8 +1567,9 @@ export default function TimelinePlan({
                 <div style={{ display: 'flex', width: W, height: 22, background: '#fffdf4' }}>
                   {semanasCols.map(d => { const nd = semCont(d, c.texto); return (
                     <div key={k(d)} className="tl-cont" {...destinoCont(p.id, d)} onClick={ev => abrirEditorSemana(ev, d, p.id)} style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', cursor: 'pointer', borderRadius: 5 }}>
-                      {nd > 0 && <span {...arrastrableCont(p.id, filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), d)} onClick={e => e.stopPropagation()}
-                        title={`${c._info}\n${nd} día${nd === 1 ? '' : 's'} esta semana\n\nArrastra a otra semana para ${modoDrag === 'copiar' ? 'copiarla' : 'moverla'} (mismos días; Alt: copiar)`} style={{ ...estiloPildora(c, 15, 9), cursor: 'grab' }}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
+                      {nd > 0 && <span {...arrastrableCont(p.id, filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), d, `${p.id}|${c.texto}|w${k(d)}`)}
+                        onClick={e => { e.stopPropagation(); clicSeleccion(e, { id: `${p.id}|${c.texto}|w${k(d)}`, fecha: k(d), filas: filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), texto: c.texto, _pid: p.id, _c: c }, 'cont') }}
+                        title={`${c._info}\n${nd} día${nd === 1 ? '' : 's'} esta semana\n\nArrastra a otra semana para ${modoDrag === 'copiar' ? 'copiarla' : 'moverla'} (mismos días; Alt: copiar) · Ctrl/⌘+clic para seleccionar`} style={{ ...estiloPildora(c, 15, 9), cursor: 'grab', boxShadow: estaSel('cont', `${p.id}|${c.texto}|w${k(d)}`) ? '0 0 0 2px var(--accent)' : 'none' }}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
                     </div>
                   ) })}
                 </div>
@@ -1583,8 +1632,9 @@ export default function TimelinePlan({
                     <div className="tl-cont" {...destinoCont(p.id, d)} onClick={() => !esta && alternarContenido(p.id, c, d)} title={esta ? null : `Añadir «${c.texto}» a este día`}
                       style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', padding: '0 4px', cursor: esta ? 'default' : 'pointer' }}>
                       {esta ? (
-                        <span className="tl-pild" {...arrastrableCont(p.id, filas, d)} title={`${c._info}${nSub ? `\nLleva ${nSub} subcontenido${nSub === 1 ? '' : 's'} anclado${nSub === 1 ? '' : 's'}` : ''}\n\nArrastra para ${modoDrag === 'copiar' ? 'copiar' : 'mover'} (Alt: copiar) · × para quitar`}
-                          style={{ ...estiloPildora(c, altoFila - 7, micro ? 10.5 : 9.5), padding: '0 6px', position: 'relative', cursor: 'grab' }}>
+                        <span className="tl-pild" {...arrastrableCont(p.id, filas, d, `${p.id}|${c.texto}|${k(d)}`)}
+                          onClick={e => { e.stopPropagation(); clicSeleccion(e, { id: `${p.id}|${c.texto}|${k(d)}`, fecha: k(d), filas, texto: c.texto, _pid: p.id, _c: c }, 'cont') }} title={`${c._info}${nSub ? `\nLleva ${nSub} subcontenido${nSub === 1 ? '' : 's'} anclado${nSub === 1 ? '' : 's'}` : ''}\n\nArrastra para ${modoDrag === 'copiar' ? 'copiar' : 'mover'} (Alt: copiar) · Ctrl/⌘+clic para seleccionar · × para quitar`}
+                          style={{ ...estiloPildora(c, altoFila - 7, micro ? 10.5 : 9.5), padding: '0 6px', position: 'relative', cursor: 'grab', boxShadow: estaSel('cont', `${p.id}|${c.texto}|${k(d)}`) ? '0 0 0 2px var(--accent), 0 0 0 4px #fff' : 'none' }}>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.texto}</span>
                           <span className="tl-x" onClick={e => { e.stopPropagation(); quitarConDeshacer(filas, `«${c.texto}» del ${format(d, "EEEE d", { locale: es })}`) }} title={`Quitar «${c.texto}» de este día${nSub ? ' (y sus subcontenidos)' : ''}`}
                             style={{ position: 'absolute', right: 1, top: '50%', transform: 'translateY(-50%)', width: 13, height: 13, borderRadius: 99, background: '#fff', color: '#b91c1c', fontSize: 10, lineHeight: '13px', textAlign: 'center', boxShadow: '0 0 0 1px rgba(0,0,0,.15)', cursor: 'pointer' }}>×</span>
@@ -1716,14 +1766,14 @@ export default function TimelinePlan({
                     {micro ? (
                       <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--text)' }}>
                         Programación{clienteNombre ? ` · ${clienteNombre}` : ''} <span style={{ color: 'var(--text3)', fontWeight: 500 }}>({format(l, 'd MMM', { locale: es })} – {format(addDays(l, 6), 'd MMM', { locale: es })})</span>
-                        {editableCal && <button onClick={e => seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(l, i)), e.metaKey || e.ctrlKey || e.shiftKey)} title="Seleccionar todas las sesiones de esta semana"
-                          style={{ marginLeft: 8, verticalAlign: 'middle', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 5, fontSize: 10.5, fontWeight: 600, color: 'var(--text3)', padding: '2px 6px', cursor: 'pointer' }}>☐ sesiones</button>}
+                        {editableCal && <button onClick={e => seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(l, i)), e.metaKey || e.ctrlKey || e.shiftKey)} title="Seleccionar todo lo de esta semana: sesiones, contenidos y notas"
+                          style={{ marginLeft: 8, verticalAlign: 'middle', border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 5, fontSize: 10.5, fontWeight: 600, color: 'var(--text3)', padding: '2px 6px', cursor: 'pointer' }}>☐ semana</button>}
                       </div>
                     ) : (
                       <div style={{ fontSize: 11.5, fontWeight: 700, letterSpacing: '.06em', color: 'var(--text2)', textTransform: 'uppercase', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
                         Semana {n || '—'}
-                        {editableCal && <button onClick={e => seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(l, i)), e.metaKey || e.ctrlKey || e.shiftKey)} title="Seleccionar todas las sesiones de esta semana (con Ctrl/⌘ o Mayús se suman a la selección)"
-                          style={{ border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 5, fontSize: 9.5, fontWeight: 600, color: 'var(--text3)', padding: '1px 5px', cursor: 'pointer', letterSpacing: 0, textTransform: 'none' }}>☐ sesiones</button>}
+                        {editableCal && <button onClick={e => seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(l, i)), e.metaKey || e.ctrlKey || e.shiftKey)} title="Seleccionar todo lo de esta semana: sesiones, contenidos y notas (con Ctrl/⌘ o Mayús se suman a la selección)"
+                          style={{ border: '1px solid var(--border)', background: 'var(--surface)', borderRadius: 5, fontSize: 9.5, fontWeight: 600, color: 'var(--text3)', padding: '1px 5px', cursor: 'pointer', letterSpacing: 0, textTransform: 'none' }}>☐ semana</button>}
                       </div>
                     )}
                     {t && <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t}</div>}
