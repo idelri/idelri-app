@@ -7,7 +7,7 @@
  * Arriba: grupos visibles, Hoy, selector de periodo con calendario y selector de visión.
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useSeleccionRecuadro } from '../lib/seleccionRecuadro'
+import { useSeleccionRecuadro, imagenDeBloque } from '../lib/seleccionRecuadro'
 import { format, parseISO, addDays, addWeeks, startOfWeek, differenceInCalendarDays, isSameDay, isSameMonth, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, startOfDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { textoPlano, tituloTexto } from './TextoEstructurado'
@@ -497,7 +497,9 @@ export default function TimelinePlan({
   async function moverContenidos(filas, delta, modo) {
     if (!filas.length || (!delta && modo === 'mover')) return
     const nueva = r => k(addDays(parseISO(String(r.fecha).slice(0, 10)), delta))
-    const yaEn = r => contenidos.some(x => x.id !== r.id && x.planificacion_id === r.planificacion_id && String(x.fecha).slice(0, 10) === nueva(r) && x.texto.trim().toLowerCase() === r.texto.trim().toLowerCase())
+    const mueven = new Set(modo === 'mover' ? filas.map(r => r.id) : [])
+    // ya hay ese mismo contenido en el día destino (sin contar los que también se están moviendo)
+    const yaEn = r => contenidos.some(x => x.id !== r.id && !mueven.has(x.id) && x.planificacion_id === r.planificacion_id && String(x.fecha).slice(0, 10) === nueva(r) && x.texto.trim().toLowerCase() === r.texto.trim().toLowerCase())
     if (modo === 'copiar') {
       const ins = filas.filter(r => !yaEn(r)).map(r => ({ planificacion_id: r.planificacion_id, fecha: nueva(r), texto: r.texto, color: r.color, etiqueta_id: r.etiqueta_id || null, orden: r.orden ?? 0 }))
       if (!ins.length) return
@@ -823,6 +825,7 @@ export default function TimelinePlan({
   const limpiarSel = () => setSel(new Map())
   // Selección por recuadro: cada elemento seleccionable se registra con su clave (data-selk)
   const selReg = useRef(new Map())
+  const elsSel = () => [...(contRef.current?.querySelectorAll('[data-selk]') || [])].filter(n => sel.has(n.dataset.selk))
   const regSel = (tipo, item) => { const kk = claveSel(tipo, item.id); selReg.current.set(kk, { ...item, _tipo: tipo }); return { 'data-selk': kk } }
   useSeleccionRecuadro(contRef, editableCal, (claves, sumar) => {
     if (!claves.length && sumar) return
@@ -879,20 +882,29 @@ export default function TimelinePlan({
       const varios = sel.size > 1 && sel.has(claveSel(tipo, item.id))
       arrRef.current = varios ? { clase: 'items', items: [...sel.values()], ancla: { ...item, _tipo: tipo } } : { clase: 'items', items: [{ ...item, _tipo: tipo }] }
       e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', item.id) } catch {}
+      if (varios) imagenDeBloque(e, elsSel())
     },
     onDragEnd: () => { arrRef.current = null; limpiarDrop() },
   }
   // Mueve o copia una selección mezclada (sesiones, eventos, notas, contenidos y días) desplazándola 'delta' días
   async function moverSeleccion(items, delta, modo) {
     if (!delta && modo === 'mover') return
-    const normales = items.filter(x => ['sesion', 'nota', 'competicion', 'control'].includes(x._tipo))
+    // Todo se junta en un único lote (los días de la cuadrícula se convierten en lo que contienen)
+    // para que nada choque con algo que también se está moviendo.
+    const vistos = new Set(), normales = [], filas = [], vistasF = new Set()
+    const addN = it => { const kk = it._tipo + ':' + it.id; if (!vistos.has(kk)) { vistos.add(kk); normales.push(it) } }
+    const addF = r => { if (!vistasF.has(r.id)) { vistasF.add(r.id); filas.push(r) } }
+    items.forEach(x => {
+      if (['sesion', 'nota', 'competicion', 'control'].includes(x._tipo)) addN(x)
+      else if (x._tipo === 'cont') (x.filas || []).forEach(addF)
+      else if (x._tipo === 'dia') {
+        const dd = dia(parseISO(x.fecha))
+        dd.ses.forEach(z => addN({ ...z, _tipo: 'sesion' })); dd.notas.forEach(z => addN({ ...z, _tipo: 'nota' }))
+        contenidos.filter(c => String(c.fecha).slice(0, 10) === x.fecha).forEach(addF)
+      }
+    })
     if (normales.length) moverConDesplazamiento(normales, delta, modo)
-    const filas = []; const vistos = new Set()
-    items.filter(x => x._tipo === 'cont').forEach(x => (x.filas || []).forEach(r => { if (!vistos.has(r.id)) { vistos.add(r.id); filas.push(r) } }))
     if (filas.length) await moverContenidos(filas, delta, modo)
-    const dias = items.filter(x => x._tipo === 'dia').map(x => x.fecha).sort()
-    if (delta > 0) dias.reverse()
-    for (const f of dias) await moverDia(f, k(addDays(parseISO(f), delta)), modo)
   }
   // Pegar / mover varios elementos conservando su separación en días respecto a una referencia
   function moverConDesplazamiento(items, delta, modo) {
@@ -970,6 +982,7 @@ export default function TimelinePlan({
       const varios = sel.size > 1 && sel.has(claveSel('dia', k(d)))
       arrRef.current = varios ? { clase: 'items', items: [...sel.values()], ancla: { id: k(d), fecha: k(d), _tipo: 'dia' } } : { clase: 'dia', fecha: k(d) }
       e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', k(d)) } catch {}
+      if (varios) imagenDeBloque(e, elsSel())
     },
     onDragEnd: () => { arrRef.current = null; limpiarDrop() },
     onDragOver: e => { const a = arrRef.current; if (a?.clase !== 'dia' && !(a?.clase === 'items' && a.ancla)) return; e.preventDefault(); e.dataTransfer.dropEffect = modoDe(e) === 'copiar' ? 'copy' : 'move'; e.currentTarget.classList.add('tl-drop-on') },
@@ -989,6 +1002,7 @@ export default function TimelinePlan({
       const varios = claveC && sel.size > 1 && sel.has(claveSel('cont', claveC))
       arrRef.current = varios ? { clase: 'items', items: [...sel.values()], ancla: { id: claveC, fecha: k(fechaOrigen), _tipo: 'cont' } } : { clase: 'cont', pid, filas, origen: fechaOrigen }
       e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', 'cont') } catch {}
+      if (varios) imagenDeBloque(e, elsSel())
     },
     onDragEnd: () => { arrRef.current = null; limpiarDrop() },
   })

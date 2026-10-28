@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { textoPlano } from './TextoEstructurado'
 import { supabase } from '../lib/supabase'
 import { format, parseISO, differenceInCalendarDays, addDays } from 'date-fns'
-import { useSeleccionRecuadro } from '../lib/seleccionRecuadro'
+import { useSeleccionRecuadro, imagenDeBloque } from '../lib/seleccionRecuadro'
 import { es } from 'date-fns/locale'
 import { DetalleSesion } from './CalendarioPortal'
 
@@ -506,9 +506,10 @@ export default function CalendarioSesiones({
                       els.push(
                         <div key={item.id} data-selk={item.id}
                           draggable={true}
-                          onDragStart={() => {
+                          onDragStart={e => {
+                            if (seleccionados.size > 1 && seleccionados.has(item.id)) imagenDeBloque(e, [...(raizRef.current?.querySelectorAll('[data-selk]') || [])].filter(n => seleccionados.has(n.dataset.selk)))
                             const sortable = item._tipo === 'sesion' || item._tipo === 'nota'
-                            const dw = sortable ? { itemId: item.id, fecha: key } : null
+                            const dw = sortable && !(seleccionados.size > 1 && seleccionados.has(item.id)) ? { itemId: item.id, fecha: key } : null
                             dragWithinRef.current = dw
                             setArrastrando(item); ocultarTooltip()
                           }}
