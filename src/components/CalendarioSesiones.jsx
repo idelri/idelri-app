@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { textoPlano } from './TextoEstructurado'
 import { supabase } from '../lib/supabase'
-import { format } from 'date-fns'
+import { format, parseISO, differenceInCalendarDays, addDays } from 'date-fns'
+import { useSeleccionRecuadro } from '../lib/seleccionRecuadro'
 import { es } from 'date-fns/locale'
 import { DetalleSesion } from './CalendarioPortal'
 
@@ -98,6 +99,26 @@ export default function CalendarioSesiones({
   const dragWithinRef = useRef(null) // { itemId, fecha } — síncrono, evita stale closure
   const fbTooltipTimer = useRef(null)
   const itemsMapRef = useRef({}) // id→item para recuperar objetos al soltar selección múltiple
+  const ultimoSelRef = useRef(null) // último elemento marcado (para Mayús+clic)
+  const raizRef = useRef(null)
+  // Arrastrar en un hueco vacío dibuja un recuadro y selecciona todo lo que toca (Mayús/Ctrl/⌘ suma)
+  useSeleccionRecuadro(raizRef, !!onMoverSesion, (ids, sumar) => {
+    if (!ids.length && sumar) return
+    setSeleccionados(prev => { const n = sumar ? new Set(prev) : new Set(); ids.forEach(id => n.add(id)); return n })
+  })
+  useEffect(() => { const f = e => { if (e.key === 'Escape') setSeleccionados(s => s.size ? new Set() : s) }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f) }, [])
+  // Mueve / copia varios elementos conservando los días que hay entre ellos
+  function moverVarios(items, ancla, destino, modo) {
+    const base = ancla?.fecha ? String(ancla.fecha).slice(0, 10) : null
+    const delta = base ? differenceInCalendarDays(parseISO(destino), parseISO(base)) : 0
+    const porFecha = new Map()
+    items.forEach(it => {
+      const f = it.fecha && base ? format(addDays(parseISO(String(it.fecha).slice(0, 10)), delta), 'yyyy-MM-dd') : destino
+      if (!porFecha.has(f)) porFecha.set(f, [])
+      porFecha.get(f).push(it)
+    })
+    porFecha.forEach((its, f) => onMoverSesion(its, f, modo))
+  }
 
   function mostrarFbTooltip(e, sesion, fb) {
     const rect = e.currentTarget.getBoundingClientRect()
@@ -303,7 +324,7 @@ export default function CalendarioSesiones({
   function cerrarMenu() { setMenu(null) }
 
   return (
-    <div onClick={e => { cerrarMenu(); if (!e.metaKey && !e.ctrlKey) setSeleccionados(new Set()) }}>
+    <div ref={raizRef} onClick={e => { cerrarMenu(); if (!e.metaKey && !e.ctrlKey && !e.shiftKey) setSeleccionados(new Set()) }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <button className="btn btn-ghost btn-sm" onClick={navPrev}>‹</button>
         <span style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize', minWidth: 160, textAlign: 'center' }}>{titulo}</span>
@@ -323,7 +344,7 @@ export default function CalendarioSesiones({
         <div className="flex gap-1" style={{ marginLeft: 'auto', alignItems: 'center' }}>
           {seleccionados.size > 0 && (
             <span style={{ fontSize: 11, fontWeight: 600, padding: '3px 9px', borderRadius: 6, background: 'var(--accent)', color: '#fff', whiteSpace: 'nowrap' }}>
-              {seleccionados.size} seleccionada{seleccionados.size > 1 ? 's' : ''}
+              {seleccionados.size} seleccionado{seleccionados.size > 1 ? 's' : ''} · arrastra uno para mover todos · Esc para quitar
             </span>
           )}
           {setModoDrag && (
@@ -443,7 +464,7 @@ export default function CalendarioSesiones({
                       if (!arrastrando) return
                       if (seleccionados.has(arrastrando.id) && seleccionados.size > 1) {
                         const items = [...seleccionados].map(id => itemsMapRef.current[id]).filter(Boolean)
-                        onMoverSesion(items, key, modoDrag)
+                        moverVarios(items, arrastrando, key, modoDrag)
                         setSeleccionados(new Set())
                       } else {
                         onMoverSesion(arrastrando, key, modoDrag)
@@ -483,7 +504,7 @@ export default function CalendarioSesiones({
                       itemsMapRef.current[item.id] = item
                       const estaSeleccionado = seleccionados.has(item.id)
                       els.push(
-                        <div key={item.id}
+                        <div key={item.id} data-selk={item.id}
                           draggable={true}
                           onDragStart={() => {
                             const sortable = item._tipo === 'sesion' || item._tipo === 'nota'
@@ -513,12 +534,25 @@ export default function CalendarioSesiones({
                             }
                           }}
                           onClick={e => {
-                            if ((e.metaKey || e.ctrlKey) && item._tipo === 'sesion') {
+                            if (e.metaKey || e.ctrlKey) {
                               e.stopPropagation()
                               setSeleccionados(prev => {
                                 const next = new Set(prev)
                                 if (next.has(item.id)) next.delete(item.id)
                                 else next.add(item.id)
+                                return next
+                              })
+                              ultimoSelRef.current = item
+                              return
+                            }
+                            if (e.shiftKey && ultimoSelRef.current?.fecha && item.fecha) {
+                              // Mayús+clic: todo lo que hay entre el último marcado y este
+                              e.stopPropagation()
+                              const a = String(ultimoSelRef.current.fecha).slice(0, 10), b = String(item.fecha).slice(0, 10)
+                              const [ini, fin] = a <= b ? [a, b] : [b, a]
+                              setSeleccionados(prev => {
+                                const next = new Set(prev)
+                                Object.values(sesionPorDia).flat().forEach(x => { const f = String(x.fecha || '').slice(0, 10); if (f && f >= ini && f <= fin) next.add(x.id) })
                                 return next
                               })
                               return

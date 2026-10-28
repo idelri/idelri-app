@@ -7,6 +7,7 @@
  * Arriba: grupos visibles, Hoy, selector de periodo con calendario y selector de visión.
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
+import { useSeleccionRecuadro } from '../lib/seleccionRecuadro'
 import { format, parseISO, addDays, addWeeks, startOfWeek, differenceInCalendarDays, isSameDay, isSameMonth, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, startOfDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { textoPlano, tituloTexto } from './TextoEstructurado'
@@ -820,6 +821,13 @@ export default function TimelinePlan({
   const fechaDeItem = it => String(it.fecha || '').slice(0, 10)
   const estaSel = (tipo, id) => sel.has(claveSel(tipo, id))
   const limpiarSel = () => setSel(new Map())
+  // Selección por recuadro: cada elemento seleccionable se registra con su clave (data-selk)
+  const selReg = useRef(new Map())
+  const regSel = (tipo, item) => { const kk = claveSel(tipo, item.id); selReg.current.set(kk, { ...item, _tipo: tipo }); return { 'data-selk': kk } }
+  useSeleccionRecuadro(contRef, editableCal, (claves, sumar) => {
+    if (!claves.length && sumar) return
+    setSel(m => { const n = sumar ? new Map(m) : new Map(); claves.forEach(c => { const it = selReg.current.get(c); if (it) n.set(c, it) }); return n })
+  })
   useEffect(() => { const f = e => { if (e.key === 'Escape') setSel(m => m.size ? new Map() : m) }; window.addEventListener('keydown', f); return () => window.removeEventListener('keydown', f) }, [])
   // Clic sobre un elemento: true si se ha usado para seleccionar (y no hay que abrirlo)
   function clicSeleccion(e, item, tipo) {
@@ -864,6 +872,7 @@ export default function TimelinePlan({
     })
   }
   const arrastrableItem = (item, tipo) => !editableCal ? {} : {
+    ...regSel(tipo, item),
     draggable: true,
     onDragStart: e => {
       e.stopPropagation()
@@ -1567,7 +1576,7 @@ export default function TimelinePlan({
                 <div style={{ display: 'flex', width: W, height: 22, background: '#fffdf4' }}>
                   {semanasCols.map(d => { const nd = semCont(d, c.texto); return (
                     <div key={k(d)} className="tl-cont" {...destinoCont(p.id, d)} onClick={ev => abrirEditorSemana(ev, d, p.id)} style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', cursor: 'pointer', borderRadius: 5 }}>
-                      {nd > 0 && <span {...arrastrableCont(p.id, filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), d, `${p.id}|${c.texto}|w${k(d)}`)}
+                      {nd > 0 && <span {...arrastrableCont(p.id, filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), d, `${p.id}|${c.texto}|w${k(d)}`)} {...(editableCal ? regSel('cont', { id: `${p.id}|${c.texto}|w${k(d)}`, fecha: k(d), filas: filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), texto: c.texto, _pid: p.id, _c: c }) : {})}
                         onClick={e => { e.stopPropagation(); clicSeleccion(e, { id: `${p.id}|${c.texto}|w${k(d)}`, fecha: k(d), filas: filasAncladas(p.id, c, Array.from({ length: 7 }, (_, i) => addDays(d, i))), texto: c.texto, _pid: p.id, _c: c }, 'cont') }}
                         title={`${c._info}\n${nd} día${nd === 1 ? '' : 's'} esta semana\n\nArrastra a otra semana para ${modoDrag === 'copiar' ? 'copiarla' : 'moverla'} (mismos días; Alt: copiar) · Ctrl/⌘+clic para seleccionar`} style={{ ...estiloPildora(c, 15, 9), cursor: 'grab', boxShadow: estaSel('cont', `${p.id}|${c.texto}|w${k(d)}`) ? '0 0 0 2px var(--accent)' : 'none' }}>{COL >= 56 ? c.texto : nd > 1 ? '×' + nd : ''}</span>}
                     </div>
@@ -1632,7 +1641,7 @@ export default function TimelinePlan({
                     <div className="tl-cont" {...destinoCont(p.id, d)} onClick={() => !esta && alternarContenido(p.id, c, d)} title={esta ? null : `Añadir «${c.texto}» a este día`}
                       style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', padding: '0 4px', cursor: esta ? 'default' : 'pointer' }}>
                       {esta ? (
-                        <span className="tl-pild" {...arrastrableCont(p.id, filas, d, `${p.id}|${c.texto}|${k(d)}`)}
+                        <span className="tl-pild" {...arrastrableCont(p.id, filas, d, `${p.id}|${c.texto}|${k(d)}`)} {...(editableCal ? regSel('cont', { id: `${p.id}|${c.texto}|${k(d)}`, fecha: k(d), filas, texto: c.texto, _pid: p.id, _c: c }) : {})}
                           onClick={e => { e.stopPropagation(); clicSeleccion(e, { id: `${p.id}|${c.texto}|${k(d)}`, fecha: k(d), filas, texto: c.texto, _pid: p.id, _c: c }, 'cont') }} title={`${c._info}${nSub ? `\nLleva ${nSub} subcontenido${nSub === 1 ? '' : 's'} anclado${nSub === 1 ? '' : 's'}` : ''}\n\nArrastra para ${modoDrag === 'copiar' ? 'copiar' : 'mover'} (Alt: copiar) · Ctrl/⌘+clic para seleccionar · × para quitar`}
                           style={{ ...estiloPildora(c, altoFila - 7, micro ? 10.5 : 9.5), padding: '0 6px', position: 'relative', cursor: 'grab', boxShadow: estaSel('cont', `${p.id}|${c.texto}|${k(d)}`) ? '0 0 0 2px var(--accent), 0 0 0 4px #fff' : 'none' }}>
                           <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.texto}</span>
@@ -1683,7 +1692,7 @@ export default function TimelinePlan({
             const activo = arrastre && arrastre.id === it.id
             const semanasTxt = Math.round((differenceInCalendarDays(it._fin, it._ini) + 1) / 7)
             return (
-              <div key={it.id} onClick={editable ? undefined : () => onClick?.(it)} onMouseDown={editable ? ev => iniciarMover(ev, tipo, it, escala * 7, onClick) : undefined}
+              <div key={it.id} data-no-recuadro="1" onClick={editable ? undefined : () => onClick?.(it)} onMouseDown={editable ? ev => iniciarMover(ev, tipo, it, escala * 7, onClick) : undefined}
                 title={`${it.nombre} · ${format(it._ini, 'd MMM', { locale: es })} – ${format(it._fin, 'd MMM', { locale: es })} (${semanasTxt} sem.)${(it.objetivo || it.notas) ? '\n\n' + (it.objetivo || it.notas) : ''}${editable ? '\nClic para editar · arrastra para mover · arrastra el borde derecho para cambiar la duración' : ''}`}
                 style={{ position: 'absolute', left: x + 1.5, width: Math.max(4, Math.min(w, W - x) - 3), top: 3, bottom: 3, borderRadius: 7, cursor: activo && arrastre.modo === 'mover' ? 'grabbing' : editable ? 'grab' : 'pointer', overflow: 'hidden', userSelect: 'none',
                   background: grande ? col + '26' : col + '14', border: `1px ${it._empujado ? 'dashed' : 'solid'} ${activo || it._empujado ? col : col + '66'}`, boxShadow: activo ? `0 0 0 2px ${col}33` : 'none', zIndex: activo ? 2 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 10px 0 6px' }}>
