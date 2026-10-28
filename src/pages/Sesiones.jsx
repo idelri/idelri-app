@@ -1782,11 +1782,13 @@ async function guardarSesion() {
                         {editandoDescripcion === b.id ? (
                           <textarea
                             autoFocus
-                            defaultValue={b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual']}
+                            defaultValue={b.descripcion_metodo ?? DESCRIPCIONES_METODO[b.metodo || 'individual']}
+                            placeholder="Sin descripción del método (el cliente no verá ninguna)"
                             onBlur={async ev => {
+                              // Vacío = sin descripción: se guarda '' (null volvería al texto estándar)
                               const texto = ev.target.value.trim()
-                              await supabase.from('sesion_bloques').update({ descripcion_metodo: texto || null }).eq('id', b.id)
-                              setBloques(bs => bs.map(x => x.id === b.id ? { ...x, descripcion_metodo: texto || null } : x))
+                              await supabase.from('sesion_bloques').update({ descripcion_metodo: texto }).eq('id', b.id)
+                              setBloques(bs => bs.map(x => x.id === b.id ? { ...x, descripcion_metodo: texto } : x))
                               setEditandoDescripcion(null)
                             }}
                             style={{ width: '100%', border: 'none', background: 'transparent', fontSize: 10, fontStyle: 'italic', color: 'var(--text3)', resize: 'none', outline: 'none', fontFamily: 'inherit', lineHeight: 1.4, padding: '4px 0 4px' }}
@@ -1794,10 +1796,23 @@ async function guardarSesion() {
                           />
                         ) : (
                           <span style={{ display: 'block', padding: '4px 0' }} onClick={() => setEditandoDescripcion(b.id)}>
-                            {b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual']}
+                            {(b.descripcion_metodo ?? DESCRIPCIONES_METODO[b.metodo || 'individual']) || <span style={{ opacity: .6 }}>+ Descripción del método (ahora el cliente no ve ninguna)</span>}
                           </span>
                         )}
                       </div>}
+                      {bibDeBloque(b.id) === 'fuerza' && (
+                        <div style={{ padding: '6px 10px 6px 18px', borderBottom: '0.5px solid var(--border)', display: 'flex', gap: 6, alignItems: 'flex-start' }}>
+                          <span title="Indicaciones del bloque (las ve el cliente)" style={{ fontSize: 11, lineHeight: '18px' }}>📝</span>
+                          <textarea
+                            key={b.id + '|' + (b.nota || '')}
+                            defaultValue={b.nota || ''}
+                            placeholder="Indicaciones del bloque (las ve el cliente)"
+                            rows={Math.max(1, Math.min(6, Math.ceil((b.nota || '').length / 90)))}
+                            onBlur={ev => { const v = ev.target.value.trim(); if (v !== (b.nota || '')) actualizarBloque(b.id, 'nota', v) }}
+                            style={{ flex: 1, border: 'none', background: 'transparent', fontSize: 11.5, color: 'var(--text2)', resize: 'vertical', outline: 'none', fontFamily: "'Inter', system-ui, sans-serif", lineHeight: 1.45, padding: '1px 0', minHeight: 18 }}
+                          />
+                        </div>
+                      )}
                     </>
                   )
                 })()}

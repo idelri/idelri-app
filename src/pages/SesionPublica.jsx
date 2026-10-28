@@ -552,7 +552,7 @@ export default function SesionPublica({ token }) {
           // Bloque sin ejercicios (resistencia: pasos y/o descripción): sin método ni series
           const esResistencia = ejsBloque.length === 0
           const esCampo = ejsBloque.length > 0 && ejsBloque.every(e => e.diagrama)
-          const descTexto = esResistencia || esCampo ? null : (b.descripcion_metodo || DESCRIPCIONES_METODO[b.metodo || 'individual'])
+          const descTexto = esResistencia || esCampo ? null : (b.descripcion_metodo ?? DESCRIPCIONES_METODO[b.metodo || 'individual'])
 
           function renderTareaCampo(e, eIdx) {
             const pr = e.diagrama.presc || {}
