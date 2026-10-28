@@ -9,6 +9,7 @@ import PortalClienteModal from '../components/PortalClienteModal'
 import PerfilEditor from '../components/PerfilEditor'
 import TabSeguimientoCliente from '../components/TabSeguimientoCliente'
 import TabPerfilZonas from '../components/TabPerfilZonas'
+import VisorEvaluacion, { subirArchivosEvaluacion, resumenCorto } from '../components/evaluaciones/VisorEvaluacion'
 import { calcularSeguimiento, CAT_LABEL } from '../lib/seguimientoMotor'
 import { cargarSeguimientoCliente } from '../lib/seguimientoService'
 
@@ -89,7 +90,7 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
         .eq('cliente_id', clienteId)
         .order('fecha_inicio', { ascending: false }),
       supabase.from('cuestionario_inicial').select('*').eq('cliente_id', clienteId).maybeSingle(),
-      supabase.from('controles').select('*, controles_resultados(*)').eq('cliente_id', clienteId).order('fecha', { ascending: false }).limit(10),
+      supabase.from('controles').select('*, controles_resultados(*), evaluacion_tests(id, tipo, nombre, resultados, visible_cliente, orden)').eq('cliente_id', clienteId).order('fecha', { ascending: false }).limit(100),
       supabase.from('competiciones').select('id, nombre, fecha, deporte, objetivo, resultado, notas, estado').eq('cliente_id', clienteId).order('fecha', { ascending: false }),
       supabase.from('molestia_episodios').select('id, zona, lateralidad, fecha_inicio').eq('cliente_id', clienteId).eq('estado', 'activo').order('fecha_inicio', { ascending: false }),
     ])
@@ -131,7 +132,7 @@ export default function ClienteFicha({ clienteId, onVolver, setPage, setClienteP
   async function recargarControles() {
     const { data } = await supabase
       .from('controles')
-      .select('*, controles_resultados(*)')
+      .select('*, controles_resultados(*), evaluacion_tests(id, tipo, nombre, resultados, visible_cliente, orden)')
       .eq('cliente_id', clienteId)
       .order('fecha', { ascending: false })
       .order('created_at', { ascending: false })
@@ -764,6 +765,19 @@ function TabEvaluaciones({ controles, clienteId, onRecargar }) {
   const [formNotas, setFormNotas] = useState('')
   const [formVisibilidad, setFormVisibilidad] = useState('entrenadora')
   const [formResultados, setFormResultados] = useState([filaVacia()])
+  const [visor, setVisor] = useState(null) // { controlId, testId }
+  const [subiendo, setSubiendo] = useState(false)
+  async function subirTests(files) {
+    if (!files.length) return
+    setSubiendo(true)
+    try {
+      const { creados, errores } = await subirArchivosEvaluacion({ clienteId, files })
+      if (errores.length) alert('No reconozco el formato de: ' + errores.join(', '))
+      await onRecargar()
+      if (creados[0]) setVisor({ controlId: creados[0].control_id, testId: creados[0].id })
+    } catch (e) { alert('No se pudo subir: ' + (e.message || e)) }
+    setSubiendo(false)
+  }
 
   function abrirNuevo() {
     setEditando(null)
@@ -809,7 +823,7 @@ function TabEvaluaciones({ controles, clienteId, onRecargar }) {
     const resultadosValidos = formResultados
       .filter(r => r.nombre.trim() && r.valor.trim())
       .map((r, i) => ({ nombre: r.nombre.trim(), valor: r.valor.trim(), unidad: r.unidad.trim() || null, orden: i }))
-    if (resultadosValidos.length === 0) { alert('Añade al menos un resultado.'); return }
+    if (resultadosValidos.length === 0 && !(editando?.evaluacion_tests?.length)) { alert('Añade al menos un resultado.'); return }
 
     setGuardando(true)
     try {
@@ -825,7 +839,7 @@ function TabEvaluaciones({ controles, clienteId, onRecargar }) {
           .select('id').single()
         controlId = nc.id
       }
-      await supabase.from('controles_resultados').insert(
+      if (resultadosValidos.length) await supabase.from('controles_resultados').insert(
         resultadosValidos.map(r => ({ ...r, control_id: controlId }))
       )
       cerrarModal()
@@ -845,12 +859,19 @@ function TabEvaluaciones({ controles, clienteId, onRecargar }) {
 
   return (
     <div>
+      {visor && <VisorEvaluacion clienteId={clienteId} controlId={visor.controlId} testId={visor.testId} onCerrar={() => { setVisor(null); onRecargar() }} onCambio={() => {}} />}
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <span style={{ fontSize: 14, fontWeight: 600 }}>Evaluaciones</span>
-        <button className="btn btn-ghost btn-sm" onClick={abrirNuevo} style={{ fontSize: 12.5 }}>
-          + Nueva evaluación
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <label className="btn btn-ghost btn-sm" style={{ fontSize: 12.5, cursor: subiendo ? 'wait' : 'pointer', border: '1.5px dashed var(--border)' }} title="Exportaciones de Vitruve (.xlsx) o Tindeq (.zip). Se guardan en la valoración de ese día.">
+            {subiendo ? 'Procesando…' : '⬆ Subir test (Vitruve / Tindeq)'}
+            <input type="file" accept=".xlsx,.xls,.zip,.csv" multiple style={{ display: 'none' }} disabled={subiendo} onChange={e => { subirTests([...e.target.files]); e.target.value = '' }} />
+          </label>
+          <button className="btn btn-ghost btn-sm" onClick={abrirNuevo} style={{ fontSize: 12.5 }}>
+            + Nueva evaluación
+          </button>
+        </div>
       </div>
 
       {/* Lista */}
@@ -871,6 +892,10 @@ function TabEvaluaciones({ controles, clienteId, onRecargar }) {
                     style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text3)', fontSize: 16, padding: '0 4px', lineHeight: 1 }}>···</button>
                   {menuAbierto === c.id && (
                     <div style={{ position: 'absolute', right: 0, top: 22, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,0.12)', zIndex: 50, minWidth: 120 }}>
+                      <button onClick={() => { setMenuAbierto(null); setVisor({ controlId: c.id }) }}
+                        style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '9px 14px', fontSize: 13, cursor: 'pointer', color: 'var(--text)' }}>
+                        Tests de fuerza…
+                      </button>
                       <button onClick={() => abrirEditar(c)}
                         style={{ display: 'block', width: '100%', textAlign: 'left', background: 'none', border: 'none', padding: '9px 14px', fontSize: 13, cursor: 'pointer', color: 'var(--text)' }}>
                         Editar
@@ -898,6 +923,22 @@ function TabEvaluaciones({ controles, clienteId, onRecargar }) {
                   </span>
                 </div>
 
+                {/* Tests de fuerza (Vitruve / Tindeq) */}
+                {(c.evaluacion_tests || []).length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginBottom: resultados.length || c.notas ? 8 : 0 }}>
+                    {[...c.evaluacion_tests].sort((a, b) => (a.orden || 0) - (b.orden || 0)).map(t => (
+                      <button key={t.id} onClick={() => setVisor({ controlId: c.id, testId: t.id })}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', textAlign: 'left', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
+                        <span>{t.tipo === 'vbt' ? '📈' : '⚖️'}</span>
+                        <span style={{ fontWeight: 600 }}>{t.nombre}</span>
+                        <span style={{ fontSize: 11, color: 'var(--text3)' }}>{t.tipo === 'vbt' ? 'Vitruve' : 'Tindeq'}</span>
+                        <span style={{ marginLeft: 'auto', fontSize: 12.5, color: 'var(--text2)', fontVariantNumeric: 'tabular-nums' }}>{resumenCorto(t)}</span>
+                        {t.visible_cliente && <span title="Visible en su portal" style={{ fontSize: 11 }}>👁</span>}
+                        <span style={{ color: 'var(--text3)' }}>›</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {/* Resultados */}
                 {resultados.length > 0 && (
                   <div style={{ marginBottom: c.notas ? 8 : 0 }}>

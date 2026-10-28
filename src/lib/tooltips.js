@@ -51,7 +51,7 @@ export function instalarTooltips() {
 
   document.addEventListener('mouseover', e => {
     const el = e.target.closest && e.target.closest('[title],[data-tip]')
-    if (!el || el.tagName === 'IFRAME' || el.ownerSVGElement) return
+    if (!el || el.tagName === 'IFRAME' || el.tagName === 'svg') return
     if (el.hasAttribute('title')) {
       const t = el.getAttribute('title')
       el.removeAttribute('title')

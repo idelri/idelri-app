@@ -10,6 +10,7 @@ import RecursosEntrenadora from '../components/RecursosEntrenadora'
 import EmojiPicker from '../components/EmojiPicker'
 import Seguimiento from './Seguimiento'
 import PortalClienteModal from '../components/PortalClienteModal'
+import VisorEvaluacion from '../components/evaluaciones/VisorEvaluacion'
 import { Chart, registerables } from 'chart.js'
 Chart.register(...registerables)
 
@@ -317,6 +318,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   const [feedbacks,           setFeedbacks]           = useState([])
   const [packs,               setPacks]               = useState([])
   const [clipboardSesion,     setClipboardSesion]     = useState(null)
+  const [visorEval, setVisorEval] = useState(null) // { controlId }
 
   // ── UI ──
   const [vista,      setVista]      = useState(() => localStorage.getItem('planVista') || 'timeline')
@@ -461,7 +463,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
       supabase.from('sesiones').select('*').eq('cliente_id', clienteId).order('fecha', { ascending: true, nullsFirst: false }).order('orden', { ascending: true }),
       supabase.from('sesion_feedback').select('sesion_id, submitted_at, data, sesiones!inner(cliente_id)').eq('sesiones.cliente_id', clienteId),
       supabase.from('competiciones').select('*').eq('cliente_id', clienteId).order('fecha'),
-      supabase.from('controles').select('*, controles_resultados(*)').eq('cliente_id', clienteId).order('fecha'),
+      supabase.from('controles').select('*, controles_resultados(*), evaluacion_tests(id)').eq('cliente_id', clienteId).order('fecha'),
       supabase.from('sesion_notas').select('*').eq('cliente_id', clienteId).order('fecha').order('orden', { ascending: true }),
       supabase.from('packs_flexibles').select('*').eq('cliente_id', clienteId).order('fecha_inicio'),
     ])
@@ -1383,6 +1385,12 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
       case 'control':
         return (
           <div style={{ padding: '0 20px 4px' }}>
+            {modalItem?.id && (
+              <button className="btn btn-ghost btn-sm" onClick={() => { const id = modalItem.id; closeModal(); setVisorEval({ controlId: id }) }}
+                style={{ marginBottom: 12, border: '1.5px dashed var(--border)', width: '100%' }}>
+                📈 Tests de fuerza (Vitruve / Tindeq){(modalItem.evaluacion_tests || []).length ? ` · ${modalItem.evaluacion_tests.length}` : ' · subir'}
+              </button>
+            )}
             <div className="form-group">
               <label className="form-label">Nombre de la evaluación *</label>
               <input className="form-input" value={formData.nombre || ''} onChange={e => fd('nombre', e.target.value)} placeholder="Ej: CMJ, Test 5 km..." autoFocus />
@@ -1985,6 +1993,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         )}
       </div>
 
+      {visorEval && <VisorEvaluacion clienteId={clienteSeleccionado} controlId={visorEval.controlId} onCerrar={() => { setVisorEval(null); cargarPlanificacion() }} />}
       {loading && <div className="empty"><p>Cargando...</p></div>}
 
       {!loading && clienteSeleccionado && !planificacion && (
@@ -2140,7 +2149,7 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               onEditarBloque={b => openModal('bloque', bloques.find(x => x.id === b.id) || b)}
               onEditarSubbloque={sub => { const { _bloque, _ini, _fin, ...resto } = sub; openModal('subbloque', { ...resto, bloque_id: _bloque?.id || sub.bloque_id }) }}
               onAbrirComp={c => openModal('comp', c)}
-              onAbrirControl={c => openModal('control', c)}
+              onAbrirControl={c => (c.evaluacion_tests || []).length ? setVisorEval({ controlId: c.id }) : openModal('control', c)}
               onAbrirNota={n => openModal('nota', n)}
               onNuevoBloque={pre => openModal('bloque', pre)}
               onNuevoSubbloque={pre => openModal('subbloque', pre)}
