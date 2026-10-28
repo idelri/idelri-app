@@ -63,3 +63,28 @@ export function useSeleccionRecuadro(ref, activo, onSeleccion) {
     }
   }, [ref, activo])
 }
+
+/**
+ * Al arrastrar un elemento que forma parte de una selección, la imagen que sigue
+ * al ratón es el bloque entero: todos los seleccionados, en su posición relativa.
+ */
+export function imagenDeBloque(e, elementos) {
+  try {
+    const anc = e.currentTarget.getBoundingClientRect()
+    const rects = elementos.map(n => [n, n.getBoundingClientRect()]).filter(([, r]) => r.width > 0 && r.height > 0)
+    if (rects.length < 2) return
+    const x0 = Math.min(...rects.map(([, r]) => r.left)), y0 = Math.min(...rects.map(([, r]) => r.top))
+    const x1 = Math.max(...rects.map(([, r]) => r.right)), y1 = Math.max(...rects.map(([, r]) => r.bottom))
+    const cont = document.createElement('div')
+    cont.style.cssText = `position:fixed;left:-${x1 - x0 + 200}px;top:0;width:${x1 - x0}px;height:${y1 - y0}px;pointer-events:none;z-index:-1`
+    rects.forEach(([n, r]) => {
+      const c = n.cloneNode(true)
+      c.removeAttribute('data-selk'); c.classList.remove('sel-recuadro')
+      Object.assign(c.style, { position: 'absolute', left: r.left - x0 + 'px', top: r.top - y0 + 'px', width: r.width + 'px', height: r.height + 'px', margin: '0', boxSizing: 'border-box', opacity: '0.92', outline: '2px solid var(--accent,#2d6a4f)', outlineOffset: '1px' })
+      cont.appendChild(c)
+    })
+    document.body.appendChild(cont)
+    e.dataTransfer.setDragImage(cont, e.clientX - anc.left + (anc.left - x0), e.clientY - anc.top + (anc.top - y0))
+    setTimeout(() => cont.remove(), 0)
+  } catch {}
+}
