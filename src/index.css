@@ -387,3 +387,6 @@ tr:hover td { background: var(--bg); }
 
 /* Tooltip pendiente */
 .tooltip-parent:hover .tooltip-content { display: block !important; }
+
+/* Selección por recuadro (timeline y calendario) */
+[data-selk].sel-recuadro { outline: 2px solid var(--accent) !important; outline-offset: 1px; }
