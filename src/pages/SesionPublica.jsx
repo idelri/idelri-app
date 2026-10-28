@@ -151,6 +151,34 @@ function RirChip({ valor, colorMap, bgMap, T }) {
   )
 }
 
+// Explicación del RIR para el cliente: una caja por cada valor de RIR que
+// aparece en el bloque (las fichas de ejercicio son demasiado estrechas).
+function RirExplicacion({ ejercicios }) {
+  const valores = []
+  ejercicios.forEach(e => {
+    if ((e.variables_activas || []).includes('RIR') && e.rpe && RIR_INFO[e.rpe] && !valores.includes(e.rpe)) valores.push(e.rpe)
+  })
+  if (!valores.length) return null
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '0 10px 12px' }}>
+      {valores.map(v => {
+        const color = RIR_COLOR[v] || '#888'
+        const bg = RIR_BG[v] || '#f5f5f5'
+        const info = RIR_INFO[v]
+        return (
+          <div key={v} style={{ background: bg, border: `1px solid ${color}33`, borderRadius: 10, padding: '9px 12px' }}>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 3, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, fontWeight: 800, color, fontFamily: "'JetBrains Mono', monospace" }}>RIR {v}</span>
+              <span style={{ fontSize: 12, fontWeight: 700, color }}>{info.titulo}</span>
+            </div>
+            <div style={{ fontSize: 12, color: T.ink2, lineHeight: 1.5 }}>{info.desc}</div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 const METODO_LABEL = {
   individual: 'Individual',
   superserie: 'Superserie',
@@ -812,6 +840,7 @@ export default function SesionPublica({ token }) {
                     {ejsBloque.map((e, eIdx) => renderEjCompacto(e, eIdx))}
                   </div>
                 )}
+                {!esCampo && <RirExplicacion ejercicios={ejsBloque} />}
 
                 {/* Block footer */}
                 {interactiva && !esResistencia && !esCampo && <div style={{ padding: '9px 14px', borderTop: `0.5px solid ${T.line}`, background: `${bc}06`, display: 'flex', justifyContent: 'flex-end' }}>
