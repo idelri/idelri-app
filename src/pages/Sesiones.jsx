@@ -250,6 +250,9 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   const [toastCopiado, setToastCopiado] = useState(null)
   const [tabBiblioteca, setTabBiblioteca] = useState('ejercicios')
   const [bloquesBiblioteca, setBloquesBiblioteca] = useState(null)
+  const [plantillasBib, setPlantillasBib] = useState(null) // sesiones guardadas, con sus bloques
+  const [busquedaBloquesBib, setBusquedaBloquesBib] = useState('')
+  const [copiandoBib, setCopiandoBib] = useState(null)
   const [libDragActive, setLibDragActive] = useState(false)
   const [dragOverBloqueId, setDragOverBloqueId] = useState(null)
   const [draggingBloqueId, setDraggingBloqueId] = useState(null)
@@ -279,6 +282,13 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     return p
   }
   // Copy
+  function payloadDeBloque(bloque) {
+    const ejs = (ejercicios[bloque.id] || []).map(e => cloneEjercicioPayload(e))
+    const carrito = (carritos[bloque.id] || []).map(it => it.type === 'fase'
+      ? { type: 'fase', fase: cloneFasePayload(it) }
+      : { type: 'grupo', repeticiones: it.repeticiones, orden: it.orden, fases: it.fases.map(f => cloneFasePayload(f)) })
+    return { bloque: { ...cloneBloquePayload(bloque), biblioteca: bibDeBloque(bloque.id) }, ejercicios: ejs, carrito }
+  }
   function copiarBloqueFuerza(bloque) {
     const ejs = (ejercicios[bloque.id] || []).map(e => cloneEjercicioPayload(e))
     // Bloque de resistencia: también sus fases y grupos
@@ -296,6 +306,12 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
       alert('Para pegar fases, usa el botón «Pegar» dentro de un bloque de resistencia.')
       return
     } else if (tipo === 'bloque_fuerza') {
+      await insertarPayloadBloque(payload)
+    }
+  }
+  // Inserta al final de la sesión un bloque completo (fuerza o resistencia) a partir de su copia
+  async function insertarPayloadBloque(payload) {
+    {
       const orden = bloques.length
       const { data: nb } = await supabase.from('sesion_bloques').insert({ ...payload.bloque, sesion_id: sesionAbierta.id, orden }).select().single()
       if (!nb) return
@@ -332,23 +348,24 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   // ── BIBLIOTECA DE BLOQUES ──────────────────────────────────────────────
   async function cargarBloquesBiblioteca() {
     if (bloquesBiblioteca !== null) return
+    return cargarBloquesBibliotecaForzado()
+  }
+  async function cargarBloquesBibliotecaForzado() {
     const { data } = await supabase.from('bloques_biblioteca').select('*, bloques_biblioteca_ejercicios(*)').order('nombre')
     setBloquesBiblioteca((data || []).map(b => ({ ...b, ejercicios: (b.bloques_biblioteca_ejercicios || []).sort((a, z) => a.orden - z.orden) })))
   }
 
   async function guardarBloqueEnBiblioteca(bloque) {
-    const ejs = ejercicios[bloque.id] || []
-    const { data: nb } = await supabase.from('bloques_biblioteca').insert({
+    const payload = payloadDeBloque(bloque)
+    const { data: nb, error } = await supabase.from('bloques_biblioteca').insert({
       nombre: bloque.nombre || 'Bloque sin nombre',
       descripcion: bloque.nota || null,
       color: bloque.color || '#2d6a4f',
+      biblioteca: payload.bloque.biblioteca || null,
+      payload,
     }).select().single()
-    if (!nb) { alert('Error al guardar en biblioteca'); return }
-    for (let i = 0; i < ejs.length; i++) {
-      const { id, bloque_id, valores_reales, ...p } = ejs[i]
-      await supabase.from('bloques_biblioteca_ejercicios').insert({ ...p, bloque_bib_id: nb.id, orden: i })
-    }
-    setBloquesBiblioteca(null) // forzar recarga la próxima vez
+    if (!nb) { alert('Error al guardar en biblioteca' + (error ? ': ' + error.message : '')); return }
+    setBloquesBiblioteca(null); cargarBloquesBibliotecaForzado() // recargar la lista
     setToastCopiado('guardado en biblioteca')
     setTimeout(() => setToastCopiado(null), 2200)
   }
@@ -369,6 +386,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   }
 
   async function insertarBloqueDesdePanel(bibBloque) {
+    if (bibBloque.payload) return insertarPayloadBloque(bibBloque.payload)
     const { data: nb } = await supabase.from('sesion_bloques').insert({
       sesion_id: sesionAbierta.id,
       nombre: bibBloque.nombre,
@@ -386,6 +404,41 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     }
     setBloques(bs => [...bs, nb])
     setEjercicios(ej => ({ ...ej, [nb.id]: nuevosEjs }))
+    setDirty(true)
+  }
+
+  // ── SESIONES GUARDADAS (plantillas) EN LA BIBLIOTECA ─────────────────────
+  async function cargarPlantillasBib(forzar) {
+    if (plantillasBib !== null && !forzar) return
+    const { data: ps } = await supabase.from('sesiones').select('id, titulo, objetivo, icono, duracion_min, etiquetas, tipo_editor, biblioteca').eq('es_plantilla', true).order('titulo')
+    const ids = (ps || []).map(p => p.id)
+    const { data: bls } = ids.length ? await supabase.from('sesion_bloques').select('id, sesion_id, nombre, color, nota, orden, biblioteca').in('sesion_id', ids).order('orden') : { data: [] }
+    const bids = (bls || []).map(b => b.id)
+    const [{ data: ejs }, { data: fs }] = bids.length ? await Promise.all([
+      supabase.from('sesion_ejercicios').select('bloque_id, nombre, orden').in('bloque_id', bids).order('orden'),
+      supabase.from('sesion_fases').select('bloque_id').in('bloque_id', bids),
+    ]) : [{ data: [] }, { data: [] }]
+    const ejPor = {}; (ejs || []).forEach(e => { (ejPor[e.bloque_id] = ejPor[e.bloque_id] || []).push(e.nombre) })
+    const fasePor = {}; (fs || []).forEach(f => { fasePor[f.bloque_id] = (fasePor[f.bloque_id] || 0) + 1 })
+    setPlantillasBib((ps || []).map(p => ({ ...p, bloques: (bls || []).filter(b => b.sesion_id === p.id).map(b => ({ ...b, ejercicios: ejPor[b.id] || [], nFases: fasePor[b.id] || 0 })) })))
+  }
+  // Copia bloques de una sesión guardada a la sesión abierta (al final). Con reemplazar, la sesión
+  // abierta pasa a ser como la guardada: se sustituyen sus bloques y sus datos de prescripción.
+  async function copiarDeSesionGuardada(plantilla, bloqueIds, reemplazar) {
+    if (!sesionAbierta || plantilla.id === sesionAbierta.id) return
+    if (reemplazar) {
+      const n = bloques.length
+      if (!window.confirm(`«${sesionAbierta.titulo || 'Esta sesión'}» pasará a ser «${plantilla.titulo}»:\n\n• Se sustituyen ${n ? `sus ${n} bloque${n === 1 ? '' : 's'}` : 'sus bloques'} por los de la sesión guardada.\n• Se copian título, objetivo, duración, material e indicaciones.\n• La fecha, el cliente y el estado no cambian.\n\n¿Continuar?`)) return
+    }
+    setCopiandoBib(plantilla.id)
+    const { error } = await supabase.rpc('copiar_bloques', { p_origen: plantilla.id, p_destino: sesionAbierta.id, p_bloques: bloqueIds || null, p_reemplazar: !!reemplazar })
+    setCopiandoBib(null)
+    if (error) { alert('No se pudo copiar: ' + error.message); return }
+    if (reemplazar) {
+      const { data: s2 } = await supabase.from('sesiones').select('*').eq('id', sesionAbierta.id).single()
+      if (s2) { setSesionAbierta(sa => sa && sa.id === s2.id ? { ...sa, ...s2 } : sa); setSesiones(ss => ss.map(x => x.id === s2.id ? { ...x, ...s2 } : x)) }
+    }
+    await cargarDetalle(sesionAbierta.id)
     setDirty(true)
   }
 
@@ -1848,6 +1901,8 @@ async function guardarSesion() {
                   try {
                     const d = JSON.parse(e.dataTransfer.getData('application/json'))
                     if (d.tipo === 'bloque_bib') insertarBloqueDesdePanel(d.item)
+                    if (d.tipo === 'bloque_ses') { const p = (plantillasBib || []).find(x => x.id === d.sesionId); if (p) copiarDeSesionGuardada(p, [d.bloqueId], false) }
+                    if (d.tipo === 'sesion_bib') { const p = (plantillasBib || []).find(x => x.id === d.sesionId); if (p) copiarDeSesionGuardada(p, null, false) }
                   } catch {}
                 }}
                 style={{ border: '2px dashed #6ee7b7', borderRadius: 10, padding: '14px', textAlign: 'center', fontSize: 12, color: '#065f46', background: '#ecfdf5', fontWeight: 600 }}>
@@ -2309,8 +2364,8 @@ async function guardarSesion() {
               <button className="btn btn-ghost btn-sm" style={{ padding: '2px 8px' }} onClick={() => setPanelBiblioteca(false)}>✕</button>
             </div>
             <div style={{ display: 'flex', gap: 0 }}>
-              {[['ejercicios', '🏋️ Ejercicios'], ['bloques', '🧱 Bloques']].map(([id, label]) => (
-                <button key={id} onClick={() => { setTabBiblioteca(id); if (id === 'bloques' && bloquesBiblioteca === null) cargarBloquesBiblioteca() }}
+              {[['ejercicios', '🏋️ Ejercicios'], ['bloques', '🧱 Bloques'], ['sesiones', '📋 Sesiones']].map(([id, label]) => (
+                <button key={id} onClick={() => { setTabBiblioteca(id); if (id === 'bloques' && bloquesBiblioteca === null) cargarBloquesBiblioteca(); if (id !== 'ejercicios') cargarPlantillasBib() }}
                   style={{ flex: 1, fontSize: 12, padding: '6px 4px', border: 'none', background: 'transparent', borderBottom: `2px solid ${tabBiblioteca === id ? 'var(--accent)' : 'transparent'}`, color: tabBiblioteca === id ? 'var(--accent)' : 'var(--text2)', fontWeight: tabBiblioteca === id ? 600 : 400, cursor: 'pointer', marginBottom: -1 }}>
                   {label}
                 </button>
@@ -2345,39 +2400,79 @@ async function guardarSesion() {
             </>
           )}
 
-          {/* Tab bloques */}
-          {tabBiblioteca === 'bloques' && (
-            <>
-              <div style={{ padding: '10px 14px 0' }}>
-                <p style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8 }}>Arrastra a la sesión para insertar</p>
+          {/* Tab bloques: guardados + bloques de las sesiones guardadas */}
+          {tabBiblioteca === 'bloques' && (() => {
+            const q = busquedaBloquesBib.trim().toLowerCase()
+            const coincide = (...txt) => !q || txt.some(t => String(t || '').toLowerCase().includes(q))
+            const guardados = (bloquesBiblioteca || []).filter(bb => coincide(bb.nombre, bb.descripcion, ...(bb.ejercicios || []).map(e => e.nombre), ...((bb.payload?.ejercicios) || []).map(e => e.nombre)))
+            const grupos = (plantillasBib || []).filter(p => p.id !== sesionAbierta.id).map(p => ({ p, bls: p.bloques.filter(b => coincide(b.nombre, p.titulo, ...b.ejercicios)) })).filter(g => g.bls.length)
+            const tarjeta = (key, nombre, color, detalle, drag, anadir, ocupado) => (
+              <div key={key} draggable onDragStart={e => { setLibDragActive(true); e.dataTransfer.setData('application/json', JSON.stringify(drag)); e.dataTransfer.effectAllowed = 'copy' }} onDragEnd={() => setLibDragActive(false)}
+                className="bib-tarj" style={{ position: 'relative', background: 'var(--bg2)', border: '1px solid var(--border)', borderLeft: `4px solid ${color || 'var(--accent)'}`, borderRadius: 8, padding: '7px 34px 7px 10px', cursor: 'grab', fontSize: 12 }}>
+                <div style={{ fontWeight: 600, color: 'var(--text)' }}>{nombre || 'Bloque'}</div>
+                {detalle && <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 2, lineHeight: 1.35 }}>{detalle}</div>}
+                <button onClick={anadir} disabled={ocupado} title="Añadir al final de la sesión" style={{ position: 'absolute', right: 6, top: 6, width: 22, height: 22, borderRadius: 6, border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'pointer', fontSize: 13, lineHeight: 1, color: 'var(--accent)' }}>{ocupado ? '…' : '+'}</button>
               </div>
-              {bloquesBiblioteca === null ? (
-                <p style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 0' }}>Cargando...</p>
-              ) : bloquesBiblioteca.length === 0 ? (
-                <p style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 14px' }}>No hay bloques guardados. Usa 🧱 en un bloque de sesión para guardar.</p>
-              ) : (
+            )
+            const resumen = (ejs, nFases) => [ejs.length ? ejs.slice(0, 3).join(' · ') + (ejs.length > 3 ? ` +${ejs.length - 3}` : '') : null, nFases ? `${nFases} fase${nFases === 1 ? '' : 's'} de resistencia` : null].filter(Boolean).join(' · ')
+            return (
+              <>
+                <div style={{ padding: '10px 14px 0' }}>
+                  <input className="form-input" placeholder="Buscar bloque o ejercicio..." value={busquedaBloquesBib} onChange={e => setBusquedaBloquesBib(e.target.value)} style={{ marginBottom: 6, fontSize: 12 }} />
+                  <p style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8 }}>Arrastra a la sesión o pulsa + para añadirlo al final</p>
+                </div>
                 <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                  {bloquesBiblioteca.map(bb => (
-                    <div key={bb.id} draggable
-                      onDragStart={e => { setLibDragActive(true); e.dataTransfer.setData('application/json', JSON.stringify({ tipo: 'bloque_bib', item: bb })); e.dataTransfer.effectAllowed = 'copy' }}
-                      onDragEnd={() => { setLibDragActive(false) }}
-                      style={{ background: 'var(--bg2)', border: `1.5px solid ${bb.color || 'var(--border)'}22`, borderLeft: `4px solid ${bb.color || 'var(--accent)'}`, borderRadius: 8, padding: '8px 10px', cursor: 'grab', fontSize: 12 }}
-                      onMouseEnter={e => e.currentTarget.style.background = 'var(--accent-light,#e8f5f0)'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'var(--bg2)'}>
-                      <div style={{ fontWeight: 600, color: 'var(--text)', marginBottom: 2 }}>{bb.nombre}</div>
-                      {bb.descripcion && <div style={{ fontSize: 10, color: 'var(--text3)' }}>{bb.descripcion}</div>}
-                      {bb.ejercicios?.length > 0 && (
-                        <div style={{ fontSize: 10, color: 'var(--text3)', marginTop: 4 }}>
-                          {bb.ejercicios.slice(0, 3).map(e => e.nombre).filter(Boolean).join(' · ')}
-                          {bb.ejercicios.length > 3 ? ` +${bb.ejercicios.length - 3}` : ''}
+                  {(bloquesBiblioteca === null || plantillasBib === null) && <p style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 0' }}>Cargando...</p>}
+                  {guardados.length > 0 && <div className="bib-sec">🧱 Bloques guardados</div>}
+                  {guardados.map(bb => tarjeta('g' + bb.id, bb.nombre, bb.color, bb.descripcion || resumen((bb.payload?.ejercicios || bb.ejercicios || []).map(e => e.nombre).filter(Boolean), (bb.payload?.carrito || []).length), { tipo: 'bloque_bib', item: bb }, () => insertarBloqueDesdePanel(bb)))}
+                  {grupos.map(({ p, bls }) => (
+                    <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                      <div className="bib-sec">{p.icono || '📋'} {p.titulo}</div>
+                      {bls.map(b => tarjeta(b.id, b.nombre, b.color, resumen(b.ejercicios, b.nFases), { tipo: 'bloque_ses', sesionId: p.id, bloqueId: b.id }, () => copiarDeSesionGuardada(p, [b.id], false), copiandoBib === p.id))}
+                    </div>
+                  ))}
+                  {bloquesBiblioteca !== null && plantillasBib !== null && !guardados.length && !grupos.length && (
+                    <p style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 6px' }}>{q ? 'Nada coincide con la búsqueda.' : 'Aún no hay bloques. Guarda uno con 🧱 en la cabecera de un bloque, o guarda sesiones en la biblioteca.'}</p>
+                  )}
+                </div>
+              </>
+            )
+          })()}
+
+          {/* Tab sesiones guardadas */}
+          {tabBiblioteca === 'sesiones' && (() => {
+            const q = busquedaBloquesBib.trim().toLowerCase()
+            const lista = (plantillasBib || []).filter(p => p.id !== sesionAbierta.id && (!q || [p.titulo, p.objetivo, ...(p.etiquetas || []), ...p.bloques.map(b => b.nombre)].some(t => String(t || '').toLowerCase().includes(q))))
+            return (
+              <>
+                <div style={{ padding: '10px 14px 0' }}>
+                  <input className="form-input" placeholder="Buscar sesión guardada..." value={busquedaBloquesBib} onChange={e => setBusquedaBloquesBib(e.target.value)} style={{ marginBottom: 6, fontSize: 12 }} />
+                  <p style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 8 }}>Usa una sesión guardada para convertir esta en ella, o añade solo sus bloques</p>
+                </div>
+                <div style={{ flex: 1, overflowY: 'auto', padding: '0 14px 14px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  {plantillasBib === null && <p style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 0' }}>Cargando...</p>}
+                  {plantillasBib !== null && !lista.length && <p style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', padding: '20px 6px' }}>{q ? 'Nada coincide con la búsqueda.' : 'No hay sesiones guardadas. Usa «Guardar en biblioteca» en una sesión.'}</p>}
+                  {lista.map(p => (
+                    <div key={p.id} draggable onDragStart={e => { setLibDragActive(true); e.dataTransfer.setData('application/json', JSON.stringify({ tipo: 'sesion_bib', sesionId: p.id })); e.dataTransfer.effectAllowed = 'copy' }} onDragEnd={() => setLibDragActive(false)}
+                      style={{ background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 9, padding: '8px 10px', cursor: 'grab' }}>
+                      <div style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--text)' }}>{p.icono || '📋'} {p.titulo}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text3)', margin: '2px 0 6px' }}>{[`${p.bloques.length} bloque${p.bloques.length === 1 ? '' : 's'}`, p.duracion_min ? p.duracion_min + ' min' : null, ...(p.etiquetas || []).slice(0, 3)].filter(Boolean).join(' · ')}</div>
+                      {p.bloques.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 3, marginBottom: 7 }}>
+                          {p.bloques.map(b => <span key={b.id} style={{ fontSize: 9.5, padding: '1px 6px', borderRadius: 5, background: (b.color || '#2d6a4f') + '1f', color: 'var(--text2)', borderLeft: `3px solid ${b.color || '#2d6a4f'}` }}>{b.nombre || 'Bloque'}</span>)}
                         </div>
                       )}
+                      <div style={{ display: 'flex', gap: 5 }}>
+                        <button className="btn btn-sm" disabled={copiandoBib === p.id} onClick={() => copiarDeSesionGuardada(p, null, true)} title="Esta sesión pasa a ser como la guardada (bloques, título, objetivo, duración…). Fecha y cliente no cambian." style={{ flex: 1, fontSize: 11, padding: '4px 6px' }}>{copiandoBib === p.id ? 'Copiando…' : '⇄ Usar esta sesión'}</button>
+                        <button className="btn btn-ghost btn-sm" disabled={copiandoBib === p.id || !p.bloques.length} onClick={() => copiarDeSesionGuardada(p, null, false)} title="Añade sus bloques al final, sin quitar los que ya hay" style={{ fontSize: 11, padding: '4px 6px' }}>+ Bloques</button>
+                      </div>
                     </div>
                   ))}
                 </div>
-              )}
-            </>
-          )}
+              </>
+            )
+          })()}
+          <style>{`.bib-sec{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin:8px 0 2px}.bib-tarj:hover{background:var(--accent-light,#e8f5f0)!important}`}</style>
         </div>
       )}
 
