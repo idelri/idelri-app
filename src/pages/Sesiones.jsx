@@ -253,6 +253,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   const [plantillasBib, setPlantillasBib] = useState(null) // sesiones guardadas, con sus bloques
   const [busquedaBloquesBib, setBusquedaBloquesBib] = useState('')
   const [copiandoBib, setCopiandoBib] = useState(null)
+  const [modalBibVista, setModalBibVista] = useState('ejercicios') // ejercicios | bloques | sesiones
   const [libDragActive, setLibDragActive] = useState(false)
   const [dragOverBloqueId, setDragOverBloqueId] = useState(null)
   const [draggingBloqueId, setDraggingBloqueId] = useState(null)
@@ -428,7 +429,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     if (!sesionAbierta || plantilla.id === sesionAbierta.id) return
     if (reemplazar) {
       const n = bloques.length
-      if (!window.confirm(`«${sesionAbierta.titulo || 'Esta sesión'}» pasará a ser «${plantilla.titulo}»:\n\n• Se sustituyen ${n ? `sus ${n} bloque${n === 1 ? '' : 's'}` : 'sus bloques'} por los de la sesión guardada.\n• Se copian título, objetivo, duración, material e indicaciones.\n• La fecha, el cliente y el estado no cambian.\n\n¿Continuar?`)) return
+      if (!window.confirm(`«${sesionAbierta.titulo || 'Esta sesión'}» pasará a ser «${plantilla.titulo}»:\n\n• Se sustituyen ${n ? `sus ${n} bloque${n === 1 ? '' : 's'}` : 'sus bloques'} por los de la sesión guardada.\n• Se copian título, objetivo, duración, material e indicaciones.\n• La fecha, el cliente y el estado no cambian.\n\n¿Continuar?`)) return false
     }
     setCopiandoBib(plantilla.id)
     const { error } = await supabase.rpc('copiar_bloques', { p_origen: plantilla.id, p_destino: sesionAbierta.id, p_bloques: bloqueIds || null, p_reemplazar: !!reemplazar })
@@ -440,6 +441,7 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     }
     await cargarDetalle(sesionAbierta.id)
     setDirty(true)
+    return true
   }
 
   async function reordenarBloques(fromId, toId) {
@@ -765,6 +767,7 @@ async function guardarSesion() {
   async function abrirBiblioteca(bloqueId, variablesDefault = [], reemplazar = null) {
     // reemplazar = { ejId, nombre }: solo se cambia el vídeo/foto del ejercicio, se mantiene todo lo demás
     setModalBiblioteca({ bloqueId, variablesDefault, reemplazar })
+    setModalBibVista('ejercicios')
     setCarpetaBib(bibDeBloque(bloqueId))
     setBusquedaBiblioteca('')
     if (!biblioteca) {
@@ -2304,6 +2307,65 @@ async function guardarSesion() {
                   Elige el ejercicio cuyo vídeo o foto quieres usar. Solo cambia el vídeo/foto: el nombre, las indicaciones y la prescripción se mantienen.
                 </div>
               )}
+              {!modalBiblioteca.reemplazar && (
+                <div style={{ display: 'flex', gap: 4, background: 'var(--bg2)', borderRadius: 9, padding: 3, marginBottom: 10 }}>
+                  {[['ejercicios', '🏋️ Ejercicios'], ['bloques', '🧱 Bloques'], ['sesiones', '📋 Sesiones guardadas']].map(([v, l]) => (
+                    <button key={v} onClick={() => { setModalBibVista(v); if (v !== 'ejercicios') { cargarPlantillasBib(); cargarBloquesBiblioteca() } }}
+                      style={{ flex: 1, border: 'none', borderRadius: 7, padding: '6px 8px', fontSize: 12.5, fontWeight: modalBibVista === v ? 700 : 500, cursor: 'pointer', fontFamily: 'inherit', background: modalBibVista === v ? 'var(--bg)' : 'transparent', color: modalBibVista === v ? 'var(--text)' : 'var(--text2)', boxShadow: modalBibVista === v ? '0 1px 3px rgba(0,0,0,.08)' : 'none' }}>{l}</button>
+                  ))}
+                </div>
+              )}
+              {!modalBiblioteca.reemplazar && modalBibVista !== 'ejercicios' ? (() => {
+                const q = busquedaBloquesBib.trim().toLowerCase()
+                const co = (...t) => !q || t.some(x => String(x || '').toLowerCase().includes(q))
+                const plantillas = (plantillasBib || []).filter(p => p.id !== sesionAbierta?.id)
+                const res = (ejs, nF) => [ejs.length ? ejs.slice(0, 4).join(' · ') + (ejs.length > 4 ? ` +${ejs.length - 4}` : '') : null, nF ? `${nF} fase${nF === 1 ? '' : 's'} de resistencia` : null].filter(Boolean).join(' · ')
+                const fila = (key, color, titulo, detalle, onClick, extra) => (
+                  <div key={key} onClick={onClick} className="bib-fila" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, cursor: onClick ? 'pointer' : 'default', border: '1px solid var(--border)', borderLeft: `4px solid ${color || 'var(--accent)'}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--text)' }}>{titulo}</div>
+                      {detalle && <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 1 }}>{detalle}</div>}
+                    </div>
+                    {extra}
+                  </div>
+                )
+                const cargando = plantillasBib === null || (modalBibVista === 'bloques' && bloquesBiblioteca === null)
+                const guardados = (bloquesBiblioteca || []).filter(bb => co(bb.nombre, bb.descripcion, ...((bb.payload?.ejercicios) || bb.ejercicios || []).map(e => e.nombre)))
+                const grupos = plantillas.map(p => ({ p, bls: p.bloques.filter(b => co(b.nombre, p.titulo, ...b.ejercicios)) })).filter(g => g.bls.length)
+                const sesionesF = plantillas.filter(p => co(p.titulo, p.objetivo, ...(p.etiquetas || []), ...p.bloques.map(b => b.nombre)))
+                const cerrarY = fn => async () => { setModalBiblioteca(null); await fn() }
+                return (
+                  <>
+                    <div style={{ padding: '0 0 10px' }}>
+                      <input className="form-input" autoFocus placeholder={modalBibVista === 'bloques' ? 'Buscar bloque o ejercicio...' : 'Buscar sesión guardada...'} value={busquedaBloquesBib} onChange={e => setBusquedaBloquesBib(e.target.value)} />
+                      <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 5 }}>{modalBibVista === 'bloques' ? 'Pulsa un bloque para añadirlo al final de la sesión.' : '«Usar esta sesión» convierte la sesión abierta en la guardada (la fecha y el cliente no cambian).'}</div>
+                    </div>
+                    <div style={{ overflowY: 'auto', flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', gap: 5 }}>
+                      {cargando && <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 20 }}>Cargando...</div>}
+                      {!cargando && modalBibVista === 'bloques' && <>
+                        {guardados.length > 0 && <div className="bib-sec">🧱 Bloques guardados</div>}
+                        {guardados.map(bb => fila('g' + bb.id, bb.color, bb.nombre, bb.descripcion || res(((bb.payload?.ejercicios) || bb.ejercicios || []).map(e => e.nombre).filter(Boolean), (bb.payload?.carrito || []).length), cerrarY(() => insertarBloqueDesdePanel(bb))))}
+                        {grupos.map(({ p, bls }) => (
+                          <div key={p.id} style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+                            <div className="bib-sec">{p.icono || '📋'} {p.titulo}</div>
+                            {bls.map(b => fila(b.id, b.color, b.nombre || 'Bloque', res(b.ejercicios, b.nFases), cerrarY(() => copiarDeSesionGuardada(p, [b.id], false))))}
+                          </div>
+                        ))}
+                        {!guardados.length && !grupos.length && <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 20 }}>{q ? 'Sin resultados' : 'Aún no hay bloques: guarda uno con 🧱 o guarda sesiones en la biblioteca.'}</div>}
+                      </>}
+                      {!cargando && modalBibVista === 'sesiones' && <>
+                        {sesionesF.map(p => fila(p.id, '#2d6a4f', `${p.icono || '📋'} ${p.titulo}`, [p.bloques.map(b => b.nombre || 'Bloque').join(' · ') || 'Sin bloques', p.duracion_min ? p.duracion_min + ' min' : null].filter(Boolean).join(' · '), null,
+                          <div style={{ display: 'flex', gap: 5, flexShrink: 0 }}>
+                            <button className="btn btn-sm" disabled={copiandoBib === p.id} onClick={async () => { if (await copiarDeSesionGuardada(p, null, true)) setModalBiblioteca(null) }} style={{ fontSize: 11.5 }}>⇄ Usar esta sesión</button>
+                            <button className="btn btn-ghost btn-sm" disabled={copiandoBib === p.id || !p.bloques.length} onClick={cerrarY(() => copiarDeSesionGuardada(p, null, false))} style={{ fontSize: 11.5 }}>+ Bloques</button>
+                          </div>))}
+                        {!sesionesF.length && <div style={{ textAlign: 'center', color: 'var(--text3)', padding: 20 }}>{q ? 'Sin resultados' : 'No hay sesiones guardadas.'}</div>}
+                      </>}
+                    </div>
+                    <style>{`.bib-sec{font-size:10px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text3);margin:8px 0 2px}.bib-fila:hover{background:var(--bg2)}`}</style>
+                  </>
+                )
+              })() : <>
               {/* Carpeta */}
               <ChipsBiblioteca valor={carpetaBib} onChange={setCarpetaBib} biblioteca={biblioteca} />
               {/* Búsqueda */}
@@ -2340,7 +2402,8 @@ async function guardarSesion() {
                   )
                 })}
               </div>
-              {!modalBiblioteca.reemplazar && <div className="modal-footer" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
+              </>}
+              {!modalBiblioteca.reemplazar && modalBibVista === 'ejercicios' && <div className="modal-footer" style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => {
                   const { bloqueId, variablesDefault } = modalBiblioteca
                   setModalBiblioteca(null)
