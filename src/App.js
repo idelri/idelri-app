@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import logoIDR from './assets/logo-idr.png'
 import { supabase } from './lib/supabase'
 import { exportarTodo } from './lib/export'
@@ -33,6 +33,21 @@ export default function App() {
   const [clientePlanificacion, setClientePlanificacion] = useState(null)
   const [clienteFichaId, setClienteFichaId] = useState(null)
   const [sesionesContext, setSesionesContext] = useState({ clienteId: null, sesionId: null })
+  // Pantalla dividida: planificación a la izquierda, editor de sesión a la derecha
+  const [lateral, setLateral] = useState(null) // { clienteId, sesionId, fechaNueva? }
+  const [anchoLateral, setAnchoLateral] = useState(() => { try { return Number(localStorage.getItem('anchoLateral')) || 50 } catch { return 50 } })
+  const ctxRef = useRef(sesionesContext)
+  const setCtxPlan = c => { ctxRef.current = c; setSesionesContext(c) }
+  const setPagePlan = p => { if (p === 'sesiones' && window.innerWidth >= 1100) { setLateral({ ...ctxRef.current }); return } setLateral(null); setPage(p) }
+  const irAPagina = p => { setLateral(null); setPage(p) }
+  function arrastrarDivisor(e) {
+    e.preventDefault()
+    const cont = e.currentTarget.parentElement.getBoundingClientRect()
+    const mover = ev => { const pct = Math.min(75, Math.max(25, 100 - ((ev.clientX - cont.left) / cont.width) * 100)); setAnchoLateral(pct) }
+    const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); document.body.style.userSelect = ''; setAnchoLateral(a => { try { localStorage.setItem('anchoLateral', String(Math.round(a))) } catch {} return a }) }
+    document.body.style.userSelect = 'none'
+    window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar)
+  }
   const [recargarPlan, setRecargarPlan] = useState(0)
   const [planificacionFechaInicial, setPlanificacionFechaInicial] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
@@ -137,7 +152,7 @@ export default function App() {
         </div>
         <nav className="sidebar-nav">
           {NAV.map(({ id, label, icon: Icon }) => (
-            <button key={id} className={`nav-item ${page === id ? 'active' : ''}`} onClick={() => setPage(id)}>
+            <button key={id} className={`nav-item ${page === id ? 'active' : ''}`} onClick={() => irAPagina(id)}>
               <Icon />
               {label}
             </button>
@@ -157,8 +172,28 @@ export default function App() {
         {page === 'dashboard'      && <Dashboard setPage={setPage} setClientePlanificacion={setClientePlanificacion} clientePlanificacion={clientePlanificacion} />}
         {page === 'clientes' && !clienteFichaId && <Clientes setPage={setPage} setClientePlanificacion={setClientePlanificacion} clientePlanificacion={clientePlanificacion} onAbrirFicha={setClienteFichaId} />}
         {page === 'clientes' && clienteFichaId && <ClienteFicha clienteId={clienteFichaId} onVolver={() => setClienteFichaId(null)} setPage={setPage} setClientePlanificacion={setClientePlanificacion} />}
-        {page === 'planificacion'  && <Planificacion setPage={setPage} setClientePlanificacion={setClientePlanificacion} clientePlanificacion={clientePlanificacion} setSesionesContext={setSesionesContext} recargarPlan={recargarPlan} planificacionFechaInicial={planificacionFechaInicial} setPlanificacionFechaInicial={setPlanificacionFechaInicial} />}
-        {page === 'sesiones'       && <Sesiones clienteInicial={sesionesContext.clienteId} sesionInicialId={sesionesContext.sesionId} fechaNuevaSesion={sesionesContext.fechaNueva} esPlantilla={sesionesContext.esPlantilla} setPage={setPage} setClientePlanificacion={setClientePlanificacion} setRecargarPlan={setRecargarPlan} />}
+        {page === 'planificacion' && (
+          // Misma estructura con o sin editor al lado: la planificación no se vuelve a montar al abrir/cerrar
+          <div style={lateral ? { display: 'flex', height: '100vh', margin: -32, position: 'relative' } : undefined}>
+            <div style={lateral ? { width: `${100 - anchoLateral}%`, minWidth: 0, overflow: 'auto', padding: '24px 18px 24px 28px', boxSizing: 'border-box' } : undefined}>
+              <Planificacion setPage={setPagePlan} setClientePlanificacion={setClientePlanificacion} clientePlanificacion={clientePlanificacion} setSesionesContext={setCtxPlan} recargarPlan={recargarPlan} planificacionFechaInicial={planificacionFechaInicial} setPlanificacionFechaInicial={setPlanificacionFechaInicial} />
+            </div>
+            {lateral && (<>
+              <div onMouseDown={arrastrarDivisor} onDoubleClick={() => { setAnchoLateral(50); try { localStorage.setItem('anchoLateral', '50') } catch {} }} title="Arrastra para cambiar el reparto · doble clic: mitad y mitad"
+                style={{ width: 8, flexShrink: 0, cursor: 'col-resize', background: 'var(--bg2)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <span style={{ width: 3, height: 40, borderRadius: 3, background: 'var(--border2, #cbd5e1)' }} />
+              </div>
+              <div style={{ width: `${anchoLateral}%`, minWidth: 0, overflow: 'auto', padding: '24px 22px', boxSizing: 'border-box', background: 'var(--bg)' }}>
+                <Sesiones key={lateral.sesionId + '|' + (lateral.fechaNueva || '')} lateral clienteInicial={lateral.clienteId} sesionInicialId={lateral.sesionId} fechaNuevaSesion={lateral.fechaNueva} esPlantilla={lateral.esPlantilla}
+                  setPage={irAPagina} setClientePlanificacion={setClientePlanificacion} setRecargarPlan={setRecargarPlan}
+                  onCerrarLateral={() => setLateral(null)}
+                  onSoloSesion={id => { setSesionesContext({ ...lateral, sesionId: id || lateral.sesionId }); setLateral(null); setPage('sesiones') }} />
+              </div>
+            </>)}
+          </div>
+        )}
+        {page === 'sesiones'       && <Sesiones clienteInicial={sesionesContext.clienteId} sesionInicialId={sesionesContext.sesionId} fechaNuevaSesion={sesionesContext.fechaNueva} esPlantilla={sesionesContext.esPlantilla} setPage={setPage} setClientePlanificacion={setClientePlanificacion} setRecargarPlan={setRecargarPlan}
+          onDividir={c => { setClientePlanificacion(c.clienteId); setLateral(c); setPage('planificacion') }} />}
         {page === 'biblioteca'     && <Biblioteca setPage={setPage} setSesionesContext={setSesionesContext} />}
         {page === 'agenda'         && <Agenda setPage={setPage} setSesionesContext={setSesionesContext} setClientePlanificacion={setClientePlanificacion} setPlanificacionFechaInicial={setPlanificacionFechaInicial} />}
       </main>

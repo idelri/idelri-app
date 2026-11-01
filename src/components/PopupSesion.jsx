@@ -15,7 +15,7 @@ import { DetalleSesion } from './CalendarioPortal'
 import { TIPOS_COM, comentariosDeFeedback } from '../lib/comentariosFeedback'
 
 const T = { ink: 'var(--text)', ink2: 'var(--text2)', ink3: 'var(--text3)', green: 'var(--accent)', mono: 'var(--mono)' }
-const ANCHO = 340
+const ANCHO = 320
 
 // ── pequeño almacén: quien pasa el ratón llama a mostrar/ocultar, el host escucha ──
 let actual = null
@@ -65,9 +65,9 @@ const ESTADO = {
 function Metrica({ label, valor, max, color }) {
   if (valor == null || valor === '') return null
   return (
-    <div style={{ flex: 1, minWidth: 0, background: 'var(--bg2)', borderRadius: 7, padding: '4px 6px' }}>
+    <div style={{ flex: 1, minWidth: 0, background: 'var(--bg2)', borderRadius: 7, padding: '3px 6px' }}>
       <div style={{ fontSize: 9, color: T.ink3, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
-      <div style={{ fontSize: 13, fontWeight: 700, color: color || T.ink, lineHeight: 1.2 }}>{valor}{max ? <span style={{ fontSize: 9.5, fontWeight: 500, color: T.ink3 }}>/{max}</span> : null}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: color || T.ink, lineHeight: 1.2 }}>{valor}{max ? <span style={{ fontSize: 9.5, fontWeight: 500, color: T.ink3 }}>/{max}</span> : null}</div>
     </div>
   )
 }
@@ -99,7 +99,7 @@ function BloqueFeedback({ sesion, fb }) {
         return (
           <div key={i} style={{ borderLeft: `3px solid ${x.color}`, background: c.tipo === 'molestia' && c.intensidad >= 5 ? '#fef2f2' : 'transparent', padding: '1px 0 1px 7px' }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: x.color }}>{x.icono} {x.label}{c.intensidad != null ? ` · ${c.intensidad}/10` : ''}</div>
-            <div style={{ fontSize: 11.5, color: T.ink2, lineHeight: 1.4 }}>{c.texto}</div>
+            <div style={{ fontSize: 10.5, color: T.ink2, lineHeight: 1.35 }}>{c.texto}</div>
           </div>
         )
       })}
@@ -120,7 +120,8 @@ export function PopupSesionHost() {
     cargarDetalle(p.sesion.id).then(d => { if (vivo) setDetalle(d) }).catch(() => { if (vivo) setDetalle({ error: true }) })
     return () => { vivo = false }
   }, [p])
-  useEffect(() => { const f = () => ocultarPopupSesion(true); window.addEventListener('scroll', f, true); return () => window.removeEventListener('scroll', f, true) }, [])
+  // Se cierra si se desplaza la página, pero no al hacer scroll dentro del propio pop-up
+  useEffect(() => { const f = e => { if (ref.current && ref.current.contains(e.target)) return; ocultarPopupSesion(true) }; window.addEventListener('scroll', f, true); return () => window.removeEventListener('scroll', f, true) }, [])
   if (!p) return null
   const { sesion, fb, onAbrir, r } = p
   const izq = r.right + 8 + ANCHO > window.innerWidth - 8 ? Math.max(8, r.left - ANCHO - 8) : r.right + 8
@@ -130,8 +131,8 @@ export function PopupSesionHost() {
   const titulo = (
     <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13.5, fontWeight: 700, lineHeight: 1.3, color: T.ink }}>{sesion.titulo || 'Sesión'}</div>
-        <div style={{ fontSize: 10.5, color: T.ink3, marginTop: 2 }}>
+        <div style={{ fontSize: 12.5, fontWeight: 700, lineHeight: 1.3, color: T.ink }}>{sesion.titulo || 'Sesión'}</div>
+        <div style={{ fontSize: 10, color: T.ink3, marginTop: 1 }}>
           <span style={{ textTransform: 'capitalize' }}>{fecha ? format(fecha, "EEEE d MMM", { locale: es }) : 'Sin fecha'}</span>
           {sesion.duracion_min ? ` · ${sesion.duracion_min} min` : ''}
           {sesion.tipo_sesion === 'opcional' ? ' · Opcional' : ''}
@@ -144,18 +145,18 @@ export function PopupSesionHost() {
   return (
     <div ref={ref} onMouseEnter={mantener} onMouseLeave={() => ocultarPopupSesion()}
       style={{ position: 'fixed', left: izq, top, width: ANCHO, maxHeight: maxH, zIndex: 900, display: 'flex', flexDirection: 'column', background: 'var(--bg, #fff)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 34px rgba(0,0,0,.16)', overflow: 'hidden', fontFamily: 'var(--font)' }}>
-      <div style={{ padding: '11px 13px 9px', borderBottom: '1px solid var(--border)' }}>{titulo}</div>
-      <div style={{ overflowY: 'auto', padding: '9px 13px 10px', display: 'flex', flexDirection: 'column', gap: 7 }}>
-        {seccion('Sesión')}
-        {sesion.objetivo && <div style={{ fontSize: 11.5, color: T.ink2, lineHeight: 1.4, fontStyle: 'italic' }}>{sesion.objetivo}</div>}
-        <DetalleSesion T={T} detalle={detalle} />
+      <div style={{ padding: '9px 12px 7px', borderBottom: '1px solid var(--border)' }}>{titulo}</div>
+      <div className="popup-ses-cuerpo" style={{ overflowY: 'auto', overscrollBehavior: 'contain', padding: '8px 12px 9px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {seccion('Sesión', fb ? <button onClick={() => ref.current?.querySelector('#popup-ses-fb')?.scrollIntoView({ block: 'start', behavior: 'smooth' })} style={{ marginLeft: 'auto', border: 'none', background: 'transparent', color: 'var(--accent)', fontSize: 10, fontWeight: 600, cursor: 'pointer', padding: 0, textTransform: 'none', letterSpacing: 0 }}>Ir al feedback ↓</button> : null)}
+        {sesion.objetivo && <div style={{ fontSize: 10.5, color: T.ink2, lineHeight: 1.35, fontStyle: 'italic' }}>{sesion.objetivo}</div>}
+        <div style={{ zoom: 0.84 }}><DetalleSesion T={T} detalle={detalle} /></div>
         <div style={{ height: 1, background: 'var(--border)', margin: '3px 0' }} />
-        {seccion('Feedback del cliente')}
+        <div id="popup-ses-fb">{seccion('Feedback del cliente')}</div>
         <BloqueFeedback sesion={sesion} fb={fb} />
       </div>
       {onAbrir && (
         <button onClick={() => { ocultarPopupSesion(true); onAbrir(sesion) }}
-          style={{ border: 'none', borderTop: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--accent)', fontSize: 12, fontWeight: 600, padding: '8px', cursor: 'pointer', fontFamily: 'inherit' }}>
+          style={{ border: 'none', borderTop: '1px solid var(--border)', background: 'var(--bg2)', color: 'var(--accent)', fontSize: 11.5, fontWeight: 600, padding: '7px', cursor: 'pointer', fontFamily: 'inherit' }}>
           Abrir en el editor →
         </button>
       )}

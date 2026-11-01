@@ -137,7 +137,7 @@ function ChipsBiblioteca({ valor, onChange, biblioteca, compacto }) {
   )
 }
 
-export default function Sesiones({ clienteInicial, sesionInicialId, fechaNuevaSesion, esPlantilla, setPage, setClientePlanificacion, setRecargarPlan }) {
+export default function Sesiones({ clienteInicial, sesionInicialId, fechaNuevaSesion, esPlantilla, setPage, setClientePlanificacion, setRecargarPlan, lateral, onCerrarLateral, onSoloSesion, onDividir }) {
   const [clientes, setClientes] = useState([])
   const [clienteSeleccionado, setClienteSeleccionado] = useState(clienteInicial || null)
   const [sesiones, setSesiones] = useState([])
@@ -642,6 +642,8 @@ async function guardarSesion() {
   }
 
   function volverAlCalendario() {
+    // En pantalla dividida: se cierra el editor y la planificación se queda como estaba
+    if (lateral && onCerrarLateral) { if (setRecargarPlan) setRecargarPlan(r => r + 1); onCerrarLateral(); return }
     localStorage.setItem('planVista', 'calendario')
     if (setRecargarPlan) setRecargarPlan(r => r + 1)
     if (setClientePlanificacion && clienteSeleccionado) setClientePlanificacion(clienteSeleccionado)
@@ -998,14 +1000,24 @@ async function guardarSesion() {
                 onClick={() => { if (sesionAbierta.token_publico) { navigator.clipboard.writeText(`${window.location.origin}/sesion/${sesionAbierta.token_publico}`).catch(() => {}) } }}>
                 🔗
               </button>
-              <button title="Volver" style={btnIcon}
+              {lateral && onSoloSesion && <button title="Ver solo la sesión (pantalla completa)" style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => onSoloSesion(sesionAbierta.id)}>
+                ⤢
+              </button>}
+              {!lateral && onDividir && sesionAbierta?.cliente_id && <button title="Dividir pantalla: editar al lado de la planificación" style={btnIcon}
+                onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+                onClick={() => onDividir({ clienteId: sesionAbierta.cliente_id, sesionId: sesionAbierta.id })}>
+                ⇆
+              </button>}
+              <button title={lateral ? 'Cerrar el editor' : 'Volver'} style={btnIcon}
                 onMouseEnter={e => e.currentTarget.style.background = 'var(--bg2)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
                 onClick={() => { if (dirty) { setAvisoSinGuardar(true) } else { volverAlCalendario() } }}>
-                ←
+                {lateral ? '✕' : '←'}
               </button>
               <button title="Guardar"
                 style={{ padding: '5px 14px', borderRadius: 6, border: 'none', background: guardadoOk ? '#16a34a' : 'var(--accent, #2d6a4f)', color: '#fff', fontSize: 12, fontWeight: 500, cursor: 'pointer' }}
-                onClick={() => { setDirty(false); setAvisoSinGuardar(false); setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500) }}>
+                onClick={() => { setDirty(false); setAvisoSinGuardar(false); setGuardadoOk(true); setTimeout(() => setGuardadoOk(false), 2500); if (lateral && setRecargarPlan) setRecargarPlan(r => r + 1) }}>
                 {guardadoOk ? '✓ Guardado' : 'Guardar'}
               </button>
             </div>
