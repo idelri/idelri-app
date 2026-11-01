@@ -2,7 +2,7 @@ import { colorTipoPaso, labelTipoPaso, duracionPaso, distanciaPaso, fmtDuracionP
 import React, { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 import { format, parseISO } from 'date-fns'
-import FeedbackForm from '../components/FeedbackForm'
+import FeedbackForm, { RPE_INFO } from '../components/FeedbackForm'
 import PasosCompactos, { GraficaPasos } from '../components/PasosCompactos'
 import { DiagramaCampo, metricasDiagrama } from '../components/TareaCampo'
 import { es } from 'date-fns/locale'
@@ -13,7 +13,7 @@ const T = {
   accent: '#E0481F', accentD: '#C13A14', hero: '#181B21',
 }
 
-const RPE_LABELS = ['Nada de esfuerzo','Muy, muy suave','Muy suave','Suave','Moderada','Algo exigente','Exigente','Muy exigente','Muy dura','Extremadamente dura','Máximo esfuerzo']
+const RPE_LABELS = RPE_INFO.map(x => x.titulo)
 const BORG_RPE = {
   1:  { label: 'Muy, muy leve',     desc: 'Esfuerzo casi inapreciable. Conversación completamente fluida.' },
   2:  { label: 'Leve',              desc: 'Esfuerzo ligero y cómodo. Puedes hablar sin ningún problema.' },
