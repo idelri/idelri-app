@@ -98,6 +98,7 @@ function FeedbackResumen({ data, submittedAt, onEditar }) {
         {d.technical?.additionalTechnicalDifficulty === true && <Row label="Ejercicio difícil" value={d.technical.additionalTechnicalDetails || 'Sí'} />}
         {d.equipment?.details && <Row label="Material no disponible" value={d.equipment.details} />}
         {d.understanding?.details && <Row label="Ejercicio no entendido" value={d.understanding.details} />}
+        {d.futbol?.resultado && <Row label="Resultado del partido" value={d.futbol.resultado} />}
         {d.futbol?.tareas && <Row label="Tareas del entreno" value={d.futbol.tareas} />}
         {d.generalComments && <Row label="Observaciones generales" value={d.generalComments} />}
       </div>
