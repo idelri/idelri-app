@@ -1288,16 +1288,20 @@ export default function TimelinePlan({
 
           {grupos.pro && (
             <div style={{ display: 'flex', marginTop: 6 }}>
-              <Etiqueta g="pro" texto="Sesiones" icono="◉" alto={40} />
+              <Etiqueta g="pro" texto="Eventos" icono="◉" alto={40} />
               <div style={{ display: 'flex', width: W, background: GRUPOS.pro.soft, borderRadius: 8, alignItems: 'center' }}>
                 {datosSemana.map(s => {
                   const lista = s.dias.flatMap(x => x.ses)
-                  const caben = Math.max(1, Math.floor((COL - 6) / 15) * 2)
+                  const compsSem = s.comps || []
+                  const caben = Math.max(1, Math.floor((COL - 6) / 15) * 2 - compsSem.length)
                   return (
                     <div key={k(s.d)} {...destinoItems(it => { const off = differenceInCalendarDays(parseISO(String(it.fecha).slice(0, 10)), lunes(parseISO(String(it.fecha).slice(0, 10)))); return k(addDays(s.d, off)) })}
                       onClick={e => { if (editableCal && (e.metaKey || e.ctrlKey || e.shiftKey)) seleccionarSesionesDe(Array.from({ length: 7 }, (_, i) => addDays(s.d, i)), true) }}
                       title={editableCal ? 'Arrastra una sesión a otra semana: cae el mismo día de la semana\nCtrl/⌘+clic en un icono: seleccionar varias · Ctrl/⌘+clic en el hueco: toda la semana' : ''}
                       style={{ width: COL - 3, margin: '0 1.5px', minHeight: 36, padding: '3px 0', display: 'flex', flexWrap: 'wrap', alignContent: 'center', justifyContent: 'center', gap: 2, borderRadius: 6 }}>
+                      {compsSem.map(c => <span key={'c' + c.id} {...arrastrableItem(c, 'competicion')} onClick={e => { e.stopPropagation(); if (!clicSeleccion(e, c, 'competicion')) onAbrirComp?.(c) }}
+                          title={`${format(parseISO(String(c.fecha).slice(0, 10)), 'EEE d', { locale: es })} · 🏆 ${c.nombre}${c.resultado ? ' · ' + c.resultado : ''}${c.notas ? '\n' + c.notas : ''}`}
+                          style={{ boxShadow: estaSel('competicion', c.id) ? '0 0 0 2px var(--accent)' : 'none', width: 13, height: 15, borderRadius: 4, background: '#fef3c7', border: '1px solid #d9770699', fontSize: 8.5, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: editableCal ? 'grab' : 'pointer' }}>🏆</span>)}
                       {lista.length <= caben
                         ? lista.map(z => <span key={z.id} {...arrastrableItem(z, 'sesion')} onClick={e => { e.stopPropagation(); if (!clicSeleccion(e, z, 'sesion')) onAbrirSesion?.(z) }} title={`${format(parseISO(String(z.fecha).slice(0, 10)), 'EEE d', { locale: es })} · ${z.titulo || 'Sesión'}`}
                             style={{ boxShadow: estaSel('sesion', z.id) ? '0 0 0 2px var(--accent)' : 'none', width: 13, height: 15, borderRadius: 4, background: z.tipo_sesion === 'opcional' ? 'transparent' : GRUPOS.pro.color + '22', border: `1px ${z.tipo_sesion === 'opcional' ? 'dashed' : 'solid'} ${GRUPOS.pro.color}66`, fontSize: 8.5, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: editableCal ? 'grab' : 'pointer' }}>{iconoSesion(z)}</span>)
