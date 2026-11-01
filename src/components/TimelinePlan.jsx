@@ -22,6 +22,36 @@ const GRUPOS = {
   not: { label: 'Notas',           color: '#64748b', bg: '#eef1f5', soft: '#f7f8fa', icono: '✎' },
 }
 
+// Comentarios del cliente: de dónde sale cada uno (feedback o añadido a mano)
+const TIPOS_COM = {
+  no_completada: { label: 'No completada', icono: '⛔', color: '#b91c1c' },
+  parcial:       { label: 'Parcial',       icono: '◐', color: '#d97706' },
+  molestia:      { label: 'Molestia',      icono: '🔴', color: '#dc2626' },
+  tecnica:       { label: 'Técnica',       icono: '🟣', color: '#7c3aed' },
+  material:      { label: 'Material',      icono: '🧰', color: '#92400e' },
+  comprension:   { label: 'No entendió',   icono: '❓', color: '#0e7490' },
+  general:       { label: 'General',       icono: '💭', color: '#64748b' },
+}
+// Saca del feedback de una sesión los comentarios escritos (los números van a la fila de carga)
+function comentariosDeFeedback(fb, s) {
+  const d = fb?.data || {}; const out = []
+  const t = x => (typeof x === 'string' ? x.trim() : '')
+  const base = { sesion: s, fecha: String(s.fecha).slice(0, 10), origen: 'feedback' }
+  const c = d.completion || {}
+  if (c.status === 'partial' || c.status === 'missed') {
+    const motivos = (c.reasons || []).filter(Boolean)
+    const texto = [motivos.join(' · '), t(c.partialDetails)].filter(Boolean).join(' — ')
+    out.push({ ...base, tipo: c.status === 'missed' ? 'no_completada' : 'parcial', texto: texto || (c.status === 'missed' ? 'No la hizo' : 'La hizo en parte') })
+  }
+  ;((d.pain && d.pain.entries) || []).forEach(e => { if (t(e.details) || e.intensity != null) out.push({ ...base, tipo: 'molestia', texto: t(e.details) || 'Molestia', intensidad: e.intensity }) })
+  const tec = d.technical || {}
+  ;[tec.mainTechnicalDetails, tec.additionalTechnicalDetails].map(t).filter(Boolean).forEach(x => out.push({ ...base, tipo: 'tecnica', texto: x }))
+  if (t(d.equipment?.details)) out.push({ ...base, tipo: 'material', texto: t(d.equipment.details) })
+  if (t(d.understanding?.details)) out.push({ ...base, tipo: 'comprension', texto: t(d.understanding.details) })
+  if (t(d.generalComments)) out.push({ ...base, tipo: 'general', texto: t(d.generalComments) })
+  return out
+}
+
 const VARS = [
   { key: 'carga_interna', label: 'RPE × min', corto: 'RPE×min', agr: 'suma' },
   { key: 'duracion_real', label: 'Duración realizada', corto: 'min', agr: 'suma' },
@@ -318,7 +348,7 @@ function EditorTexto({ cfg, onCerrar }) {
   const [vals, setVals] = useState({})
   const [vis, setVis] = useState('entrenadora')
   const ref = useRef(null)
-  useEffect(() => { if (cfg) { setVals(Object.fromEntries(cfg.campos.map(c => [c.key, c.valor || '']))); setVis(cfg.vis || 'entrenadora') } }, [cfg])
+  useEffect(() => { if (cfg) { setVals(Object.fromEntries(cfg.campos.map(c => [c.key, c.valor || '']))); setVis(cfg.opciones ? cfg.opciones.valor : (cfg.vis || 'entrenadora')) } }, [cfg])
   useEffect(() => {
     if (!cfg) return
     const fn = e => { if (ref.current && !ref.current.contains(e.target)) onCerrar() }
@@ -337,7 +367,17 @@ function EditorTexto({ cfg, onCerrar }) {
         </div>
         <button onClick={onCerrar} style={{ border: 'none', background: 'transparent', fontSize: 16, cursor: 'pointer', color: 'var(--text3)', lineHeight: 1 }}>×</button>
       </div>
-      {cfg.vis && (
+      {cfg.opciones && (
+        <div style={{ marginBottom: 8 }}>
+          {cfg.opciones.label && <div style={{ fontSize: 10.5, fontWeight: 600, color: 'var(--text2)', marginBottom: 4 }}>{cfg.opciones.label}</div>}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {cfg.opciones.lista.map(([v, l, c]) => (
+              <button key={v} onClick={() => setVis(v)} style={{ height: 24, padding: '0 9px', borderRadius: 99, cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: vis === v ? 700 : 500, border: `1px solid ${vis === v ? (c || 'var(--accent)') : 'var(--border)'}`, background: vis === v ? (c || '#2d6a4f') + '1a' : 'var(--bg)', color: vis === v ? 'var(--text)' : 'var(--text2)' }}>{l}</button>
+            ))}
+          </div>
+        </div>
+      )}
+      {cfg.vis && !cfg.opciones && (
         <div style={{ display: 'flex', padding: 2, gap: 2, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', marginBottom: 8 }}>
           {[['cliente', '👁 La ve el cliente'], ['entrenadora', '🔒 Interna']].map(([v, l]) => (
             <button key={v} onClick={() => setVis(v)} style={{ flex: 1, height: 26, borderRadius: 6, border: 'none', cursor: 'pointer', fontFamily: 'inherit', fontSize: 11.5, fontWeight: vis === v ? 600 : 500, background: vis === v ? 'var(--surface)' : 'transparent', boxShadow: vis === v ? '0 1px 2px rgba(0,0,0,.1)' : 'none', color: vis === v ? 'var(--text)' : 'var(--text3)' }}>{l}</button>
@@ -408,6 +448,39 @@ export default function TimelinePlan({
   }, [sesiones, competiciones, controles, notasLoc])
   const vacio = { ses: [], comps: [], ctrls: [], notas: [] }
   const dia = d => porDia.get(k(d)) || vacio
+
+  // ── Comentarios del cliente: los del feedback + los añadidos a mano (WhatsApp…) ──
+  const [comManuales, setComManuales] = useState([])
+  useEffect(() => {
+    let vivo = true
+    if (!planificacion.cliente_id) return
+    supabase.from('comentarios_cliente').select('*').eq('cliente_id', planificacion.cliente_id).order('created_at')
+      .then(({ data }) => { if (vivo) setComManuales(data || []) })
+    return () => { vivo = false }
+  }, [planificacion.cliente_id])
+  const [filtroCom, setFiltroCom] = useState(null) // null = todos; si no, el tipo
+  const comPorDia = useMemo(() => {
+    const m = new Map()
+    const add = c => { if (!c.fecha) return; if (!m.has(c.fecha)) m.set(c.fecha, []); m.get(c.fecha).push(c) }
+    ;(sesiones || []).filter(s => s.fecha && !s.recurso && fbMap.has(s.id)).forEach(s => comentariosDeFeedback(fbMap.get(s.id), s).forEach(add))
+    comManuales.forEach(c => add({ id: c.id, fecha: String(c.fecha).slice(0, 10), tipo: c.etiqueta || 'general', texto: c.texto, origen: 'manual', fila: c }))
+    return m
+  }, [sesiones, fbMap, comManuales])
+  const comDia = d => (comPorDia.get(k(d)) || []).filter(c => !filtroCom || c.tipo === filtroCom)
+  const listaTiposCom = Object.entries(TIPOS_COM).map(([v, x]) => [v, `${x.icono} ${x.label}`, x.color])
+  async function guardarComManual(fecha, texto, etiqueta, fila) {
+    texto = (texto || '').trim()
+    if (fila) {
+      if (!texto) { setComManuales(cs => cs.filter(x => x.id !== fila.id)); await supabase.from('comentarios_cliente').delete().eq('id', fila.id); return }
+      setComManuales(cs => cs.map(x => x.id === fila.id ? { ...x, texto, etiqueta } : x))
+      const { error } = await supabase.from('comentarios_cliente').update({ texto, etiqueta }).eq('id', fila.id); if (error) alert('No se pudo guardar: ' + error.message)
+      return
+    }
+    if (!texto) return
+    const { data, error } = await supabase.from('comentarios_cliente').insert({ cliente_id: planificacion.cliente_id, fecha, texto, etiqueta }).select().single()
+    if (error) { alert('No se pudo guardar: ' + error.message); return }
+    setComManuales(cs => [...cs, data])
+  }
 
   // ── Planes del deportista (todas sus planificaciones) y sus contenidos ──
   const [planes, setPlanes] = useState([planificacion])
@@ -1049,6 +1122,19 @@ export default function TimelinePlan({
     campos: [{ key: 'texto', valor: '', ph: 'Escribe la nota…', filas: 5 }], vis,
     onGuardar: (v, vis2) => crearNota(k(d), v.texto, vis2),
   })
+  const nuevoComentario = (ev, d) => abrirEdTexto(ev, {
+    titulo: format(d, "EEEE d 'de' MMMM", { locale: es }), sub: '💬 Lo que te ha contado el cliente (WhatsApp, en persona…)',
+    campos: [{ key: 'texto', valor: '', ph: 'Escribe lo que te ha dicho…', filas: 4 }], opciones: { label: 'Tipo de comentario', lista: listaTiposCom, valor: 'general' },
+    onGuardar: (v, et) => guardarComManual(k(d), v.texto, et),
+  })
+  const abrirComentario = (ev, c) => {
+    if (c.origen === 'feedback') { onAbrirSesion?.(c.sesion); return }
+    abrirEdTexto(ev, {
+      titulo: format(parseISO(c.fecha), "EEEE d 'de' MMMM", { locale: es }), sub: '💬 Comentario del cliente añadido a mano',
+      campos: [{ key: 'texto', valor: c.texto, ph: 'Escribe lo que te ha dicho…', filas: 4 }], opciones: { label: 'Tipo de comentario', lista: listaTiposCom, valor: c.tipo },
+      onGuardar: (v, et) => guardarComManual(c.fecha, v.texto, et, c.fila), onBorrar: () => guardarComManual(c.fecha, '', c.tipo, c.fila),
+    })
+  }
   const editarSemanaCliente = (ev, l, sem) => abrirEdTexto(ev, {
     titulo: `Semana ${numSemana(l) || ''} · ${format(l, 'd MMM', { locale: es })} – ${format(addDays(l, 6), 'd MMM', { locale: es })}`, sub: '👁 Lo ve el cliente en su semana',
     campos: [
@@ -1312,6 +1398,7 @@ export default function TimelinePlan({
               </div>
             </div>
           )}
+          {grupos.not && <FilaComentariosMacro semanasCols={semanasCols} COL={COL} W={W} />}
           {grupos.not && ['cliente', 'entrenadora'].map(vis => <FilaNotasMacro key={vis} vis={vis} semanasCols={semanasCols} COL={COL} W={W} />)}
         </div>
       </div>
@@ -1488,6 +1575,79 @@ export default function TimelinePlan({
       </div>
       <BarraEstirar clave={clave} W={W} />
     </>)
+  }
+  function FiltroComentarios() {
+    const presentes = new Set([...comPorDia.values()].flat().map(c => c.tipo))
+    if (!presentes.size) return null
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 2, marginTop: 1 }}>
+        {Object.entries(TIPOS_COM).filter(([v]) => presentes.has(v)).map(([v, x]) => (
+          <button key={v} onClick={e => { e.stopPropagation(); setFiltroCom(f => f === v ? null : v) }} title={filtroCom === v ? 'Ver todos' : `Ver solo: ${x.label}`}
+            style={{ border: `1px solid ${filtroCom === v ? x.color : 'transparent'}`, background: filtroCom === v ? x.color + '22' : 'transparent', borderRadius: 5, padding: '0 2px', fontSize: 10, lineHeight: '15px', cursor: 'pointer', opacity: filtroCom && filtroCom !== v ? .4 : 1 }}>{x.icono}</button>
+        ))}
+      </div>
+    )
+  }
+  function TarjetaComentario({ c, micro, lineas }) {
+    const x = TIPOS_COM[c.tipo] || TIPOS_COM.general
+    const fuerte = c.tipo === 'molestia' && c.intensidad >= 5
+    const de = c.origen === 'feedback' ? `Feedback · ${c.sesion?.titulo || 'sesión'}` : '💬 Añadido a mano'
+    return (
+      <div onClick={ev => { ev.stopPropagation(); abrirComentario(ev, c) }} title={`${x.icono} ${x.label}${c.intensidad != null ? ` · ${c.intensidad}/10` : ''}\n${de}\n\n${c.texto}\n\n${c.origen === 'feedback' ? 'Clic para abrir la sesión' : 'Clic para editar'}`}
+        style={{ fontSize: micro ? 11 : 9.5, lineHeight: 1.3, color: 'var(--text2)', background: fuerte ? '#fee2e2' : '#fff', border: `1px solid ${x.color}${fuerte ? '88' : '40'}`, borderLeft: `3px solid ${x.color}`, borderRadius: 5, padding: '2px 5px 3px', cursor: 'pointer', overflow: 'hidden' }}>
+        <div style={{ fontSize: micro ? 9.5 : 8.5, fontWeight: 700, color: x.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.icono} {x.label}{c.intensidad != null ? ` ${c.intensidad}/10` : ''}{c.origen === 'manual' ? ' · 💬' : ''}</div>
+        <div style={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: lineas, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{c.texto}</div>
+      </div>
+    )
+  }
+  function FilaComentarios({ lunesList, dias, WS, GAP, COL, W, micro }) {
+    const color = '#0f766e'
+    const maxN = Math.max(0, ...dias.map(d => comDia(d).length))
+    const altoDias = Math.max(micro ? 40 : 34, maxN * (micro ? 50 : 42) + 22) + ex('com')
+    return (<>
+      <div style={{ display: 'flex', marginTop: 6 }}>
+        <Etiqueta g="not" texto="Comentarios del cliente" icono="🗨" alto={altoDias} sub="Feedback y lo que te cuenta" extra={<FiltroComentarios />} />
+        <div style={{ display: 'flex', gap: GAP, width: W }}>
+          {lunesList.map(l => (
+            <div key={k(l)} style={{ width: WS, background: '#f0faf8', borderRadius: 8, overflow: 'hidden', display: 'flex', height: altoDias }}>
+              {Array.from({ length: 7 }, (_, i) => addDays(l, i)).map((d, i) => {
+                const cs = comDia(d)
+                const lineas = Math.max(2, Math.floor(((micro ? 50 : 42) + ex('com') / Math.max(1, cs.length) - 20) / (micro ? 14 : 12.5)))
+                return (
+                  <div key={k(d)} className="tl-celda-ses" style={{ width: COL, borderLeft: i ? '1px solid rgba(0,0,0,.05)' : 'none', padding: 3, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 3, background: isSameDay(d, hoy) ? 'rgba(45,106,79,.06)' : 'transparent' }}>
+                    {cs.map((c, j) => <TarjetaComentario key={(c.id || c.sesion?.id) + c.tipo + j} c={c} micro={micro} lineas={lineas} />)}
+                    {planificacion.cliente_id && <button className="tl-mas" onClick={ev => nuevoComentario(ev, d)} title="Añadir un comentario del cliente (WhatsApp, en persona…)"
+                      style={{ marginTop: 'auto', alignSelf: 'center', border: `1px dashed ${color}88`, background: 'transparent', color, borderRadius: 6, fontSize: 12, width: 24, height: 18, cursor: 'pointer', lineHeight: 1 }}>+</button>}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+      <BarraEstirar clave="com" W={W} />
+    </>)
+  }
+  function FilaComentariosMacro({ semanasCols, COL, W }) {
+    return (
+      <div style={{ display: 'flex', marginTop: 6 }}>
+        <Etiqueta g="not" texto="Comentarios del cliente" icono="🗨" alto={34} extra={<FiltroComentarios />} />
+        <div style={{ display: 'flex', width: W, background: '#f0faf8', borderRadius: 8 }}>
+          {semanasCols.map(l => {
+            const cs = Array.from({ length: 7 }, (_, i) => addDays(l, i)).flatMap(d => comDia(d))
+            const tipos = [...new Set(cs.map(c => c.tipo))]
+            const lineas = cs.map(c => `${format(parseISO(c.fecha), 'EEE d', { locale: es })} · ${(TIPOS_COM[c.tipo] || TIPOS_COM.general).icono} ${c.texto}`)
+            return (
+              <div key={k(l)} onClick={() => { setCursor(l); cambiarVision('meso') }} title={lineas.length ? `🗨 Comentarios del cliente\n\n${lineas.join('\n')}\n\nClic para abrir la semana` : ''}
+                style={{ width: COL - 3, margin: '0 1.5px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexWrap: 'wrap', gap: 1, cursor: cs.length ? 'pointer' : 'default', fontSize: 10 }}>
+                {tipos.slice(0, 3).map(t => <span key={t}>{(TIPOS_COM[t] || TIPOS_COM.general).icono}</span>)}
+                {cs.length > 1 && <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--text3)' }}>{cs.length}</span>}
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )
   }
   function FilaNotasMacro({ vis, semanasCols, COL, W }) {
     const cli = vis === 'cliente'
@@ -1922,6 +2082,8 @@ export default function TimelinePlan({
             </>)
           })()}
 
+          {/* Comentarios del cliente (feedback + a mano) */}
+          {grupos.not && <FilaComentarios lunesList={lunesList} dias={dias} WS={WS} GAP={GAP} COL={COL} W={W} micro={micro} />}
           {/* Notas: para el cliente e internas (semana + días) */}
           {grupos.not && ['cliente', 'entrenadora'].map(vis => <FilaNotas key={vis} vis={vis} lunesList={lunesList} dias={dias} WS={WS} GAP={GAP} COL={COL} W={W} micro={micro} />)}
           
