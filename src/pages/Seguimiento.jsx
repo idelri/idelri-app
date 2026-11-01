@@ -141,7 +141,7 @@ function FilaSesion({ sesion }) {
                 <FilaDetalle label="¿Ejercicio poco claro?" valor={fb.understanding?.unclearExercise} />
                 <FilaDetalle label="Detalle comprensión" valor={fb.understanding?.details} />
                 <FilaDetalle label="Sensación post-sesión" valor={fb.postSessionFeeling} />
-                {fb.futbol?.contenidos?.length > 0 && <FilaDetalle label="Tipo de entreno (fútbol)" valor={fb.futbol.contenidos.join(', ')} />}
+                <FilaDetalle label="Tareas del entreno (fútbol)" valor={fb.futbol?.tareas} />
                 {fb.generalComments && (
                   <div className="card" style={{ borderLeft: `3px solid ${VERDE}`, padding: '10px 14px', marginTop: 8, background: 'var(--surface)' }}>
                     <div style={{ fontSize: 10, fontFamily: 'var(--mono)', color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.4px', marginBottom: 4 }}>Comentarios generales</div>
