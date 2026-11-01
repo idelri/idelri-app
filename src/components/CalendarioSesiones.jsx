@@ -282,7 +282,9 @@ export default function CalendarioSesiones({
     if (!sesionPorDia[key]) sesionPorDia[key] = []
     sesionPorDia[key].push({ ...s, _tipo: 'sesion' })
   })
-  competiciones.filter(c => c.fecha).forEach(c => {
+  // Un partido con sesión vinculada se muestra solo como esa sesión
+  const compsConSesion = new Set(sesiones.map(s => s.competicion_id).filter(Boolean))
+  competiciones.filter(c => c.fecha && !compsConSesion.has(c.id)).forEach(c => {
     if (!sesionPorDia[c.fecha]) sesionPorDia[c.fecha] = []
     sesionPorDia[c.fecha].push({ ...c, _tipo: 'competicion' })
   })
