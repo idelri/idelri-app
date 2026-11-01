@@ -493,7 +493,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {status && (
         <Section>
           <Q>Algo más que quieras contarme <span style={{ fontWeight: 400, color: T.ink3 }}>(opcional)</span></Q>
-          <TextArea value={fb.generalComments} onChange={v => set('generalComments', v)} placeholder={esFutbol ? 'Cómo te encontraste, qué tal las piernas, si jugaste el partidillo…' : 'Lo que te ha gustado, lo que no, dudas…'} />
+          <TextArea value={fb.generalComments} onChange={v => set('generalComments', v)} placeholder={esFutbol ? 'Cómo te encontraste en general: si te viste rápido y fresco o más pesado, si sentiste que jugaste bien, si estás contento con tu rendimiento…' : 'Lo que te ha gustado, lo que no, dudas…'} />
         </Section>
       )}
 
