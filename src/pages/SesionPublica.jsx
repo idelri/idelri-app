@@ -98,6 +98,7 @@ function FeedbackResumen({ data, submittedAt, onEditar }) {
         {d.technical?.additionalTechnicalDifficulty === true && <Row label="Ejercicio difícil" value={d.technical.additionalTechnicalDetails || 'Sí'} />}
         {d.equipment?.details && <Row label="Material no disponible" value={d.equipment.details} />}
         {d.understanding?.details && <Row label="Ejercicio no entendido" value={d.understanding.details} />}
+        {d.futbol?.contenidos?.length > 0 && <Row label="Tipo de entreno" value={d.futbol.contenidos.join(', ')} />}
         {d.generalComments && <Row label="Observaciones generales" value={d.generalComments} />}
       </div>
       {onEditar && (
@@ -913,6 +914,7 @@ export default function SesionPublica({ token }) {
               </p>
               <FeedbackForm
                 tipoEditor={sesion.tipo_editor}
+                tipoActividad={sesion.tipo_actividad}
                 initial={editandoFeedback ? feedbackEnviado.data : null}
                 submitting={enviandoFeedback}
                 submitLabel={editandoFeedback ? 'Guardar cambios' : '↑ Guardar y enviar sesión'}
