@@ -200,7 +200,7 @@ function Escala({ value, onChange, min = 0, max = 10, etiquetas, descripciones, 
       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, marginTop: 4, fontSize: 11, color: T.ink3, minHeight: 15 }}>
         {etiqueta != null
           ? <span style={{ flex: 1, textAlign: 'center', fontWeight: 650, color: colorEscala(value - min, max - min, invertir) }}>{value}{etiqueta ? ` · ${etiqueta}` : ''}</span>
-          : extremos ? <><span>{extremos[0]}</span><span>{extremos[1]}</span></> : null}
+          : extremos ? extremos.map((t, i) => <span key={i} style={{ flex: 1, textAlign: i === 0 ? 'left' : i === extremos.length - 1 ? 'right' : 'center' }}>{t}</span>) : null}
       </div>
       {value != null && descripciones?.[value] && (
         <p style={{ margin: '3px 0 0', fontSize: 11.5, color: T.ink2, textAlign: 'center', lineHeight: 1.4 }}>{descripciones[value]}</p>
@@ -395,7 +395,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
         <>
           <Section>
             <Q hint="Piensa en la sesión entera, no solo en el final">{esFutbol ? '¿Cómo de duro ha sido el entreno?' : '¿Cómo de dura te ha parecido en global?'}</Q>
-            <Escala value={fb.rpe.value} onChange={v => set('rpe.value', v)} etiquetas={RPE_ETIQUETAS} descripciones={RPE_INFO.map(x => x.desc)} extremos={['0 · Reposo', 'Máximo · 10']} />
+            <Escala value={fb.rpe.value} onChange={v => set('rpe.value', v)} etiquetas={RPE_ETIQUETAS} descripciones={RPE_INFO.map(x => x.desc)} extremos={['0 · Reposo', '5 · Duro', 'Máximo · 10']} />
           </Section>
           <Section>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
