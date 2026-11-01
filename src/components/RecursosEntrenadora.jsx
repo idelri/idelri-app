@@ -76,6 +76,8 @@ export default function RecursosEntrenadora({ clienteId, sesiones, setSesiones, 
   }, [clienteId])
 
   const recursos = sesiones.filter(s => s.recurso)
+  const [arrastrando, setArrastrando] = useState(null) // id del recurso que se arrastra
+  const [sobreGrupo, setSobreGrupo] = useState(null)
   const sinGrupo = recursos.filter(s => !s.recurso_grupo_id || !(grupos || []).some(g => g.id === s.recurso_grupo_id))
 
   async function crearGrupo(campos) {
@@ -143,18 +145,23 @@ export default function RecursosEntrenadora({ clienteId, sesiones, setSesiones, 
   function filaRecurso(s, g) {
     const oculta = s.publicada === false
     return (
-      <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border)', opacity: oculta ? 0.6 : 1 }}>
+      <div key={s.id} draggable
+        onDragStart={e => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', s.id); setArrastrando(s.id) }}
+        onDragEnd={() => { setArrastrando(null); setSobreGrupo(null) }}
+        title="Arrastra a otro grupo para moverla"
+        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', borderBottom: '1px solid var(--border)', opacity: arrastrando === s.id ? 0.4 : oculta ? 0.6 : 1, cursor: 'grab' }}>
+        <span style={{ fontSize: 11, color: 'var(--text3)', flexShrink: 0, cursor: 'grab' }}>⠿</span>
         <span style={{ fontSize: 16, flexShrink: 0 }}>{s.icono || g?.icono || '📋'}</span>
         <div style={{ flex: 1, minWidth: 0, cursor: 'pointer' }} onClick={() => onAbrir(s)} title="Abrir en el editor">
           <div style={{ fontSize: 13, fontWeight: 600, lineHeight: 1.3 }}>{s.titulo}</div>
           {s.objetivo && <div style={{ fontSize: 11.5, color: 'var(--text3)', marginTop: 2, lineHeight: 1.35 }}>{s.objetivo}</div>}
           {oculta && <div style={{ fontSize: 10.5, color: 'var(--text3)', marginTop: 2 }}>🔒 Oculta al cliente</div>}
         </div>
-        {grupos.length > 1 && (
-          <select value={s.recurso_grupo_id || ''} onChange={e => cambiarGrupo(s, e.target.value)} title="Mover a otro grupo"
-            style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text2)', padding: '2px 4px', maxWidth: 92 }}>
-            {!s.recurso_grupo_id && <option value="">Sin grupo</option>}
-            {grupos.map(x => <option key={x.id} value={x.id}>{x.icono} {x.nombre}</option>)}
+        {grupos.length > 0 && (
+          <select value="" onChange={e => { if (e.target.value) cambiarGrupo(s, e.target.value) }} title="Mover a otro grupo"
+            style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 6, background: 'var(--bg)', color: 'var(--text2)', padding: '2px 4px', maxWidth: 100, cursor: 'pointer' }}>
+            <option value="">Mover a…</option>
+            {grupos.filter(x => x.id !== s.recurso_grupo_id).map(x => <option key={x.id} value={x.id}>{x.icono} {x.nombre}</option>)}
           </select>
         )}
         <button className="btn btn-ghost btn-sm" title={oculta ? 'Mostrar al cliente' : 'Ocultar al cliente'} onClick={() => cambiarVisible(s)} style={{ padding: '2px 6px' }}>
@@ -178,7 +185,17 @@ export default function RecursosEntrenadora({ clienteId, sesiones, setSesiones, 
           const lista = recursos.filter(s => s.recurso_grupo_id === g.id)
           const color = g.color || '#4C82E8'
           return (
-            <div key={g.id} className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div key={g.id} className="card"
+              onDragOver={e => { if (arrastrando) { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; if (sobreGrupo !== g.id) setSobreGrupo(g.id) } }}
+              onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget)) setSobreGrupo(null) }}
+              onDrop={e => {
+                e.preventDefault()
+                const id = e.dataTransfer.getData('text/plain') || arrastrando
+                const rec = recursos.find(x => x.id === id)
+                setArrastrando(null); setSobreGrupo(null)
+                if (rec && rec.recurso_grupo_id !== g.id) cambiarGrupo(rec, g.id)
+              }}
+              style={{ padding: 0, overflow: 'hidden', boxShadow: sobreGrupo === g.id ? `0 0 0 2px ${color}` : undefined }}>
               {editando === g.id ? (
                 <div style={{ borderTop: `3px solid ${color}` }}>
                   <FormGrupo inicial={g} onGuardar={c => guardarGrupo(g.id, c)} onCancelar={() => setEditando(null)} />
