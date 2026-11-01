@@ -73,7 +73,7 @@ function DiaMenu({ fecha, onNuevaSesion, onNuevaCompeticion, onNuevaValoracion, 
 
 export default function CalendarioSesiones({
   sesiones, competiciones = [], controles = [], notas = [],
-  bloquesPlan, subbloquesPlan, packs = [],
+  bloquesPlan, subbloquesPlan,
   onAbrirSesion, onNuevaSesion, onNuevaCompeticion, onNuevaValoracion, onNuevaNota, onAbrirNota,
   onEliminar, onMoverSesion,
   clipboard, onCopiar, onPegar, onPegarOtroCliente,
@@ -443,7 +443,6 @@ export default function CalendarioSesiones({
                       ...rawSesDia.filter(s => !orderOverride.includes(s.id)),
                     ]
                   : rawSesDia
-                const packDia = packs.find(p => key >= p.fecha_inicio && key <= p.fecha_fin)
                 return (
                   <div key={i}
                     onDragOver={e => e.preventDefault()}
@@ -465,14 +464,13 @@ export default function CalendarioSesiones({
                       setArrastrando(null)
                     }}
                     onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, fecha: key }) }}
-                    style={{ background: packDia ? '#f0f9ff' : esMesActual ? 'var(--bg)' : 'var(--bg2)', borderLeft: '1px solid var(--border)', minHeight: vista === 'mes' ? 104 : 170, padding: '5px 5px 7px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, opacity: esMesActual ? 1 : 0.55 }}>
+                    style={{ background: esMesActual ? 'var(--bg)' : 'var(--bg2)', borderLeft: '1px solid var(--border)', minHeight: vista === 'mes' ? 104 : 170, padding: '5px 5px 7px', boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, opacity: esMesActual ? 1 : 0.55 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                       <span style={{ fontSize: 11, fontWeight: esHoy ? 700 : 500, color: esHoy ? '#fff' : 'var(--text2)', background: esHoy ? (colorFase || 'var(--accent)') : 'transparent', borderRadius: 10, minWidth: 20, height: 20, padding: esHoy ? '0 6px' : 0, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
                         {dia.getDate()}
                       </span>
                       <DiaMenu fecha={key} onNuevaSesion={onNuevaSesion} onNuevaCompeticion={onNuevaCompeticion} onNuevaValoracion={onNuevaValoracion} onNuevaNota={onNuevaNota} />
                     </div>
-                    {packDia && <span style={{ fontSize: 8.5, color: '#0369a1', fontWeight: 600, letterSpacing: '0.03em', lineHeight: 1, paddingBottom: 1 }}>📦 {packDia.nombre}</span>}
                     {sesDia.map(item => {
                       const estadoColor = item._tipo === 'sesion' ? (item._estadoColor || null) : null
                       const tipoEstilo = {

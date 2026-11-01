@@ -15,16 +15,15 @@
  * @param {string} opts.clienteDestino  — UUID del cliente destino
  * @param {string} opts.fecha           — fecha de destino (yyyy-MM-dd) o null
  * @param {string} [opts.titulo]        — si se pasa, sobreescribe el título
- * @param {string} [opts.packId]        — si se pasa, la copia queda dentro de ese pack
  * @returns {{ data: nuevaSesion, error }}
  */
-export async function clonarSesion(supabase, sesionId, { clienteDestino, fecha, titulo, packId } = {}) {
+export async function clonarSesion(supabase, sesionId, { clienteDestino, fecha, titulo } = {}) {
   const { data, error } = await supabase.rpc('copiar_sesion', {
     p_sesion_id: sesionId,
     p_cliente_destino: clienteDestino,
     p_fecha: fecha ?? null,
     p_titulo: titulo ?? null,
-    p_pack_id: packId ?? null,
+    p_pack_id: null,
   })
   if (error || !data) {
     return { data: null, error: error || new Error('Error copiando la sesión') }

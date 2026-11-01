@@ -11,7 +11,6 @@ import Biblioteca from './pages/Biblioteca'
 import Agenda from './pages/Agenda'
 import SesionPublica from './pages/SesionPublica'
 import Login from './pages/Login'
-import PackPublico from './pages/PackPublico'
 import ClientePortal from './pages/ClientePortal'
 import CuestionarioInicial from './pages/CuestionarioInicial'
 import RestablecerContrasena from './pages/RestablecerContrasena'
@@ -52,7 +51,7 @@ export default function App() {
   const [planificacionFechaInicial, setPlanificacionFechaInicial] = useState(null)
   const [authLoading, setAuthLoading] = useState(true)
   const [publicSesionToken, setPublicSesionToken] = useState(null)
-  const [publicPackToken, setPublicPackToken] = useState(null)
+  const [packAntiguo, setPackAntiguo] = useState(false)
   const [publicClienteToken, setPublicClienteToken] = useState(null)
   const [publicCuestionarioToken, setPublicCuestionarioToken] = useState(null)
   const [stravaCallbackParams, setStravaCallbackParams] = useState(null)
@@ -74,9 +73,9 @@ export default function App() {
       window.location.replace(`/cliente/${matchCheckinPortal[1]}`)
       return
     }
-    const matchPack = path.match(/^\/pack\/([a-f0-9-]+)$/)
-    if (matchPack) {
-      setPublicPackToken(matchPack[1])
+    // Los packs flexibles ya no existen (ahora son grupos de Recursos en el portal)
+    if (/^\/pack\//.test(path)) {
+      setPackAntiguo(true)
       setAuthLoading(false)
       return
     }
@@ -121,7 +120,13 @@ export default function App() {
   if (window.location.pathname.startsWith('/restablecer-contrasena')) return <RestablecerContrasena />
   if (stravaCallbackParams) return <StravaCallback params={stravaCallbackParams} />
  if (publicSesionToken) return <SesionPublica token={publicSesionToken} />
-  if (publicPackToken) return <PackPublico token={publicPackToken} />
+  if (packAntiguo) return (
+    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24, fontFamily: 'var(--font)', textAlign: 'center' }}>
+      <div style={{ maxWidth: 360, fontSize: 14, color: 'var(--text2)', lineHeight: 1.5 }}>
+        Este enlace ya no está activo. Tus sesiones están en la pestaña <strong>Recursos</strong> de tu portal: pide a tu entrenadora el enlace si no lo tienes a mano.
+      </div>
+    </div>
+  )
   if (publicClienteToken) return <ClientePortal token={publicClienteToken} />
   if (publicCuestionarioToken) return <CuestionarioInicial token={publicCuestionarioToken} />
   if (!session) return <Login />

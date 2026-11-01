@@ -36,7 +36,7 @@ function calcOffsetSemanaGlobal(bloques, bloqueId, numSemanaLocal) {
   return offset + numSemanaLocal
 }
 // Estado visual de una sesión (pura: no depende del componente)
-function calcEstadoSesion(s, feedbackPorSesion, packPorId) {
+function calcEstadoSesion(s, feedbackPorSesion) {
   const estadoPersistido = s.estado
 
   const hoy = new Date(new Date().toDateString())
@@ -61,11 +61,7 @@ function calcEstadoSesion(s, feedbackPorSesion, packPorId) {
   if (s.completada_el && !esFutura) return 'realizada'
 
   // 4. Fecha expirada sin acción — estado visual solo, no se persiste
-  const fechaExpira = s.fecha
-    ? new Date(s.fecha)
-    : s.pack_id
-      ? (() => { const p = packPorId.get(s.pack_id); return p ? new Date(p.fecha_fin) : null })()
-      : null
+  const fechaExpira = s.fecha ? new Date(s.fecha) : null
 
   if (fechaExpira && fechaExpira < hoy) return 'vencida'
 
@@ -316,7 +312,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   const [controles,           setControles]           = useState([])
   const [notas,               setNotas]               = useState([])
   const [feedbacks,           setFeedbacks]           = useState([])
-  const [packs,               setPacks]               = useState([])
   const [clipboardSesion,     setClipboardSesion]     = useState(null)
   const [visorEval, setVisorEval] = useState(null) // { controlId }
 
@@ -330,15 +325,8 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   const [tooltip,    setTooltip]    = useState({ visible: false, tipo: null, item: null, x: 0, y: 0 })
   const [menuAnadir, setMenuAnadir] = useState(false)
   const [portalModal, setPortalModal] = useState(false)
-  const [modalPack, setModalPack] = useState(null)
-  const [formPack, setFormPack] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', descripcion: '' })
-  const [modalCopiarPack, setModalCopiarPack] = useState(null)
-  const [copiarPackForm, setCopiarPackForm] = useState({ cliente_id: '', fecha_inicio: '', fecha_fin: '' })
-  const [savingPack, setSavingPack] = useState(false)
-  const [packsAbiertos, setPacksAbiertos] = useState(new Set())
   const [arrastrando, setArrastrando] = useState(null)
   const [modoDrag, setModoDrag] = useState('mover') // 'mover' | 'copiar'
-  const [dropPackId, setDropPackId] = useState(null)
   const [semanaSeleccionada, setSemanaSeleccionada] = useState(null)
   const [notasSemanaText, setNotasSemanaText] = useState('')
   const [savingNotaSemana, setSavingNotaSemana] = useState(false)
@@ -370,22 +358,21 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   const [formCopiar,  setFormCopiar]  = useState({ cliente_id: '', fecha_inicio: '', nombre: '' })
 
   // ── Estado visual de sesión ──
-  // Mapas memoizados: buscar feedback/pack por id es instantáneo en lugar de
+  // Mapas memoizados: buscar feedback por id es instantáneo en lugar de
   // recorrer los arrays enteros para cada sesión en cada render.
   const feedbackPorSesion = useMemo(() => new Map(feedbacks.map(f => [f.sesion_id, f])), [feedbacks])
-  const packPorId = useMemo(() => new Map(packs.map(p => [p.id, p])), [packs])
 
   // Datos ya preparados para el calendario (solo se recalculan si cambian)
   const sesionesCalendario = useMemo(() => sesiones.map(s => {
     const esRealizada = s.estado === 'completada' || s.estado === 'parcial' || s.estado === 'realizada'
     const _fechaVisual = (esRealizada && s.completada_el) ? s.completada_el : s.fecha
     const _prevista = (esRealizada && s.completada_el && s.fecha && s.completada_el !== s.fecha) ? s.fecha : null
-    return { ...s, _estadoColor: colorDeEstado(calcEstadoSesion(s, feedbackPorSesion, packPorId)), _fechaVisual, _prevista }
-  }), [sesiones, feedbackPorSesion, packPorId])
+    return { ...s, _estadoColor: colorDeEstado(calcEstadoSesion(s, feedbackPorSesion)), _fechaVisual, _prevista }
+  }), [sesiones, feedbackPorSesion])
   const feedbacksObj = useMemo(() => Object.fromEntries(feedbacks.map(f => [f.sesion_id, f])), [feedbacks])
   const semanasPorFecha = useMemo(() => Object.fromEntries(semanasAll.map(s => [s.fecha_inicio_semana, s])), [semanasAll])
   function estadoSesion(s) {
-    return calcEstadoSesion(s, feedbackPorSesion, packPorId)
+    return calcEstadoSesion(s, feedbackPorSesion)
   }
   function iconoEstado(s) {
     const e = estadoSesion(s)
@@ -465,11 +452,10 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
       supabase.from('competiciones').select('*').eq('cliente_id', clienteId).order('fecha'),
       supabase.from('controles').select('*, controles_resultados(*), evaluacion_tests(id)').eq('cliente_id', clienteId).order('fecha'),
       supabase.from('sesion_notas').select('*').eq('cliente_id', clienteId).order('fecha').order('orden', { ascending: true }),
-      supabase.from('packs_flexibles').select('*').eq('cliente_id', clienteId).order('fecha_inicio'),
     ])
     const [
       { data: planes }, { data: sess }, { data: fbs }, { data: comps },
-      { data: ctrls }, { data: nts }, { data: pks },
+      { data: ctrls }, { data: nts },
     ] = resultados1
     if (cargaId !== cargaIdRef.current) return
     resultados1.forEach((r, i) => { if (r.error) console.error('cargarPlanificacion — consulta', i, r.error) })
@@ -503,7 +489,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     setCompeticiones(comps || [])
     setControles(ctrls || [])
     setNotas(nts || [])
-    setPacks(pks || [])
     clienteCargadoRef.current = clienteId
     cargaEnCursoRef.current = false
     setLoading(false)
@@ -617,14 +602,13 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
       case 'nota':
         return { texto: item?.texto || '', fecha: item?.fecha || format(new Date(), 'yyyy-MM-dd'), visibilidad: item?.visibilidad || 'entrenadora' }
       case 'sesion':
-        return { titulo: '', fecha: item?.fecha || '', sinFecha: false, tipo_sesion: 'programada', tipo_editor: 'fuerza', estado: 'pendiente', modalidad: 'autonoma', lugar: '', objetivo: '', notas_entrenador: '', duracion_min: '', con_feedback: true, icono: '', lista: false, publicada: true }
+        return { titulo: '', fecha: item?.fecha || '', tipo_sesion: 'programada', tipo_editor: 'fuerza', estado: 'pendiente', modalidad: 'autonoma', lugar: '', objetivo: '', notas_entrenador: '', duracion_min: '', con_feedback: true, icono: '', lista: false, publicada: true }
       default:
         return {}
     }
   }
 
   function openModal(tipo, item = null) {
-    if (tipo === 'pack') { setFormPack({ nombre: '', fecha_inicio: '', fecha_fin: '', descripcion: '' }); setModalPack('nuevo'); return }
     if (tipo === 'control') {
       const res = (item?.controles_resultados || [])
         .slice().sort((a, b) => (a.orden || 0) - (b.orden || 0))
@@ -646,58 +630,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
   // Atajo para actualizar un campo de formData
   function fd(key, val) {
     setFormData(f => ({ ...f, [key]: val }))
-  }
-
-  async function guardarPack() {
-    setSavingPack(true)
-    if (modalPack?.id) {
-      await supabase.from('packs_flexibles').update({ nombre: formPack.nombre, fecha_inicio: formPack.fecha_inicio, fecha_fin: formPack.fecha_fin, descripcion: formPack.descripcion || null }).eq('id', modalPack.id)
-    } else {
-      await supabase.from('packs_flexibles').insert({ cliente_id: clienteSeleccionado, nombre: formPack.nombre, fecha_inicio: formPack.fecha_inicio, fecha_fin: formPack.fecha_fin, descripcion: formPack.descripcion || null })
-    }
-    setSavingPack(false); setModalPack(null); cargarPlanificacion()
-  }
-
-  function copiarEnlacePack(pack) {
-    const url = `${window.location.origin}/pack/${pack.token_publico}`
-    navigator.clipboard.writeText(url).catch(() => {})
-    alert(`Enlace del pack copiado:\n${url}`)
-  }
-
-  async function eliminarPack(pack) {
-    if (!window.confirm(`¿Eliminar el pack "${pack.nombre}" y todas sus sesiones?`)) return
-    await supabase.from('sesiones').delete().eq('pack_id', pack.id)
-    await supabase.from('packs_flexibles').delete().eq('id', pack.id)
-    cargarPlanificacion()
-  }
-
-  async function moverAPack(sesion, packId) {
-    const descartada = descartarRecargasEnCurso()
-    setSesiones(ss => ss.map(x => x.id === sesion.id ? { ...x, pack_id: packId, fecha: null } : x))
-    const { error } = await supabase.from('sesiones').update({ pack_id: packId, fecha: null }).eq('id', sesion.id)
-    if (error) { alert('No se pudo mover la sesión al pack: ' + error.message); cargarPlanificacion() }
-    else recargarSiHacia(descartada)
-  }
-
-  async function copiarPackAOtroCliente() {
-    const { cliente_id, fecha_inicio, fecha_fin } = copiarPackForm
-    if (!cliente_id || !fecha_inicio || !fecha_fin) return
-    const pack = modalCopiarPack
-    const { data: nuevoPack } = await supabase.from('packs_flexibles').insert({
-      cliente_id, nombre: pack.nombre, fecha_inicio, fecha_fin, descripcion: pack.descripcion || null,
-    }).select().single()
-    if (!nuevoPack) { alert('No se pudo crear el pack en el cliente destino'); return }
-    // Copia completa de cada sesión (en paralelo) y la asigna al pack nuevo
-    const packSesiones = sesiones.filter(s => s.pack_id === pack.id)
-    const resultados = await Promise.all(packSesiones.map(async s => {
-      const { error } = await clonarSesion(supabase, s.id, { clienteDestino: cliente_id, fecha: null, packId: nuevoPack.id })
-      return error
-    }))
-    const fallo = resultados.find(Boolean)
-    if (fallo) alert('Algunas sesiones no se pudieron copiar: ' + fallo.message)
-    setModalCopiarPack(null)
-    const nombreDestino = clientes.find(c => c.id === cliente_id)?.nombre || 'el cliente'
-    alert(`Pack "${pack.nombre}" copiado a ${nombreDestino}`)
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -774,17 +706,13 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
     // Mover: primero en pantalla…
     items.forEach(item => {
       const tipo = tipoItem(item)
-      const cambios = tipo === 'sesion' && item.pack_id
-        ? { pack_id: null, fecha: fechaDestino }
-        : payloadMover(item, fechaDestino)
+      const cambios = payloadMover(item, fechaDestino)
       SETTER_POR_TIPO[tipo](xs => xs.map(x => x.id === item.id ? { ...x, ...cambios } : x))
     })
     // …y después en la base de datos
     const resultados = await Promise.all(items.map(item => {
       const tipo = tipoItem(item)
-      const cambios = tipo === 'sesion' && item.pack_id
-        ? { pack_id: null, fecha: fechaDestino }
-        : payloadMover(item, fechaDestino)
+      const cambios = payloadMover(item, fechaDestino)
       return supabase.from(TABLA_POR_TIPO[tipo]).update(cambios).eq('id', item.id)
     }))
     const fallo = resultados.find(r => r.error)
@@ -1019,10 +947,11 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
 
         case 'sesion': {
           if (!formData.titulo) break
+          if (!formData.fecha) { alert('Pon una fecha a la sesión. Las sesiones sin fecha van en Recursos.'); break }
           const datosSesion = {
             cliente_id: clienteSeleccionado,
             titulo: formData.titulo,
-            fecha: formData.sinFecha ? null : (formData.fecha || null),
+            fecha: formData.fecha || null,
             tipo_sesion: formData.tipo_sesion || 'programada',
             tipo_editor: formData.tipo_editor || 'fuerza',
             estado: formData.estado || 'pendiente',
@@ -1474,25 +1403,15 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               <input className="form-input" value={formData.titulo || ''} onChange={e => fd('titulo', e.target.value)} placeholder="Ej: Sesión 5 - Fuerza general" autoFocus />
             </div>
             <div className="form-group">
-              <label className="form-label">Fecha</label>
+              <label className="form-label">Fecha *</label>
               <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input className="form-input" type="date" value={formData.fecha || ''} disabled={!!formData.sinFecha} style={{ flex: 1, opacity: formData.sinFecha ? 0.4 : 1 }} onChange={e => fd('fecha', e.target.value)} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text2)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  <input type="checkbox" checked={!!formData.sinFecha} onChange={e => {
-                    const checked = e.target.checked
-                    setFormData(f => ({ ...f, sinFecha: checked, fecha: checked ? '' : f.fecha, tipo_sesion: checked ? (f.tipo_sesion === 'programada' ? 'flexible' : f.tipo_sesion) : (f.tipo_sesion === 'flexible' ? 'programada' : f.tipo_sesion) }))
-                  }} />
-                  Sin fecha asignada
-                </label>
+                <input className="form-input" type="date" value={formData.fecha || ''} style={{ flex: 1 }} onChange={e => fd('fecha', e.target.value)} />
               </div>
             </div>
             <div className="form-group">
               <label className="form-label">Tipo</label>
               <div style={{ display: 'flex', gap: 8 }}>
-                {(formData.sinFecha
-                  ? [['flexible', '🔄 Flexible'], ['opcional', '⭐ Opcional']]
-                  : [['programada', '📅 Programada'], ['opcional', '⭐ Opcional']]
-                ).map(([val, label]) => {
+                {[['programada', '📅 Programada'], ['opcional', '⭐ Opcional']].map(([val, label]) => {
                   const active = (formData.tipo_sesion || 'programada') === val
                   return (
                     <button key={val} type="button" onClick={() => fd('tipo_sesion', val)}
@@ -1940,7 +1859,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                   {[
                     ['bloque',   '+ Bloque'],
                     ['sesion',   '+ Sesión'],
-                    ['pack',     '📦 Pack flexible'],
                     ['comp',     '🏆 Competición'],
                     ['control',  '🔬 Evaluación'],
                     ['nota',     '📝 Nota'],
@@ -2013,77 +1931,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
         <>
           {vista === 'calendario' && (
             <div>
-              {sesiones.filter(s => !s.fecha && !s.pack_id && !s.recurso).length > 0 && (
-                <div style={{ marginBottom: 20, padding: 16, background: 'var(--bg2)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text2)', marginBottom: 10 }}>Sesiones sin fecha asignada</div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                    {sesiones.filter(s => !s.fecha && !s.pack_id && !s.recurso).map(s => (
-                      <div key={s.id}
-                        draggable
-                        onDragStart={() => setArrastrando({ ...s, _tipo: 'sesion' })}
-                        onDragEnd={() => setArrastrando(null)}
-                        style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: clipboardSesion?.id === s.id ? 'var(--accent)' : 'var(--accent-light)', color: clipboardSesion?.id === s.id ? '#fff' : 'var(--accent)', fontWeight: 500, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 5 }}>
-                        <span onClick={() => { if (setSesionesContext) setSesionesContext({ clienteId: clienteSeleccionado, sesionId: s.id }); if (setPage) setPage('sesiones') }}>{iconoSesion(s)} {s.titulo}</span>
-                        <span title="Copiar" onClick={e => { e.stopPropagation(); setClipboardSesion({ ...s, _tipo: 'sesion' }) }} style={{ opacity: 0.6, cursor: 'pointer', fontSize: 10 }}>📋</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {packs.length > 0 && (
-                <div style={{ marginBottom: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                  {packs.map(pack => {
-                    const packSesiones = sesiones.filter(s => s.pack_id === pack.id)
-                    const abierto = packsAbiertos.has(pack.id)
-                    const esDrop = dropPackId === pack.id
-                    return (
-                      <div key={pack.id}
-                        onDragOver={e => { e.preventDefault(); if (arrastrando?._tipo === 'sesion') setDropPackId(pack.id) }}
-                        onDragLeave={() => setDropPackId(null)}
-                        onDrop={e => { e.preventDefault(); setDropPackId(null); if (arrastrando?._tipo === 'sesion') { moverAPack(arrastrando, pack.id); setArrastrando(null) } }}
-                        style={{ borderRadius: 10, border: esDrop ? '2px dashed #0369a1' : '1px solid #bae6fd', background: esDrop ? '#e0f2fe' : '#f0f9ff', transition: 'border 0.15s, background 0.15s' }}>
-                        <div
-                          onClick={() => setPacksAbiertos(prev => { const s = new Set(prev); s.has(pack.id) ? s.delete(pack.id) : s.add(pack.id); return s })}
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', cursor: 'pointer', userSelect: 'none' }}>
-                          <span style={{ fontSize: 13, transition: 'transform 0.15s', display: 'inline-block', transform: abierto ? 'rotate(90deg)' : 'rotate(0deg)', color: '#0369a1' }}>▶</span>
-                          <span style={{ fontSize: 14 }}>📦</span>
-                          <span style={{ fontWeight: 600, fontSize: 13, color: '#0369a1' }}>{pack.nombre}</span>
-                          <span style={{ fontSize: 11, color: '#0369a1', opacity: 0.7 }}>{pack.fecha_inicio} – {pack.fecha_fin}</span>
-                          <span style={{ marginLeft: 'auto', fontSize: 11, color: '#0369a1', opacity: 0.6 }}>{packSesiones.length} sesión{packSesiones.length !== 1 ? 'es' : ''}</span>
-                          <button onClick={e => { e.stopPropagation(); copiarEnlacePack(pack) }} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #0369a1', background: '#0369a1', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>🔗 Compartir</button>
-                          <button onClick={e => { e.stopPropagation(); setModalCopiarPack(pack); setCopiarPackForm({ cliente_id: '', fecha_inicio: pack.fecha_inicio, fecha_fin: pack.fecha_fin }) }} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #94a3b8', background: 'transparent', color: '#475569', cursor: 'pointer' }}>📋 Copiar</button>
-                          <button onClick={e => { e.stopPropagation(); setFormPack({ nombre: pack.nombre, fecha_inicio: pack.fecha_inicio, fecha_fin: pack.fecha_fin, descripcion: pack.descripcion || '' }); setModalPack(pack) }} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #94a3b8', background: 'transparent', color: '#475569', cursor: 'pointer' }}>✏️ Editar</button>
-                          <button onClick={e => { e.stopPropagation(); eliminarPack(pack) }} style={{ fontSize: 11, padding: '3px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: 'transparent', color: '#dc2626', cursor: 'pointer' }}>🗑️ Eliminar</button>
-                          {esDrop && <span style={{ fontSize: 11, color: '#0369a1', fontWeight: 600 }}>Suelta aquí</span>}
-                        </div>
-                        {abierto && (
-                          <div style={{ padding: '0 14px 12px', borderTop: '1px solid #bae6fd' }}>
-                            {packSesiones.length === 0 ? (
-                              <div style={{ fontSize: 12, color: '#0369a1', opacity: 0.6, paddingTop: 10, textAlign: 'center' }}>
-                                Arrastra sesiones del calendario aquí
-                              </div>
-                            ) : (
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, paddingTop: 10 }}>
-                                {packSesiones.map(s => (
-                                  <div key={s.id}
-                                    draggable
-                                    onDragStart={() => setArrastrando({ ...s, _tipo: 'sesion' })}
-                                    onDragEnd={() => setArrastrando(null)}
-                                    style={{ fontSize: 11, padding: '4px 10px', borderRadius: 6, background: clipboardSesion?.id === s.id ? '#0369a1' : '#e0f2fe', color: clipboardSesion?.id === s.id ? '#fff' : '#0369a1', fontWeight: 500, cursor: 'grab', display: 'flex', alignItems: 'center', gap: 5 }}>
-                                    <span onClick={() => { if (setSesionesContext) setSesionesContext({ clienteId: clienteSeleccionado, sesionId: s.id }); if (setPage) setPage('sesiones') }}>{iconoSesion(s)} {s.titulo}</span>
-                                    <span title="Copiar" onClick={e => { e.stopPropagation(); setClipboardSesion({ ...s, _tipo: 'sesion' }) }} style={{ opacity: 0.7, cursor: 'pointer', fontSize: 10 }}>📋</span>
-                                    <span onClick={e => { e.stopPropagation(); eliminarItem('sesion', s.id) }} style={{ opacity: 0.5, cursor: 'pointer' }}>×</span>
-                                  </div>
-                                ))}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
               <CalendarioSesiones
                 semanasAll={semanasAll}
                 semanasMap={semanasPorFecha}
@@ -2094,7 +1941,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                 competiciones={competiciones}
                 controles={controles}
                 notas={notas}
-                packs={packs}
                 bloquesPlan={bloques}
                 subbloquesPlan={subbloques}
                 onAbrirSesion={s => { if (setSesionesContext) setSesionesContext({ clienteId: clienteSeleccionado, sesionId: s.id }); if (setPage) setPage('sesiones') }}
@@ -2223,7 +2069,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
               return isSameMonth(col.fecha, hoy)
             }
 
-            const sesionesSinFecha = sesiones.filter(s => !s.fecha && !s.recurso)
             const COLOR_TIPO = { programada: 'var(--accent)', flexible: '#8b5cf6', opcional: '#94a3b8' }
 
             return (
@@ -2253,20 +2098,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                   ))}
                 </div>
               </div>
-
-              {/* ── Sesiones sin fecha ── */}
-              {sesionesSinFecha.length > 0 && (
-                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginBottom: 10, padding: '6px 10px', background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 8 }}>
-                  <span style={{ fontSize: 10, color: 'var(--text3)', whiteSpace: 'nowrap', flexShrink: 0, fontWeight: 600 }}>Sin fecha:</span>
-                  {sesionesSinFecha.map(s => (
-                    <div key={s.id} title={s.titulo}
-                      onClick={() => { if (setSesionesContext) setSesionesContext({ clienteId: clienteSeleccionado, sesionId: s.id }); if (setPage) setPage('sesiones') }}
-                      style={{ flexShrink: 0, background: 'var(--bg)', border: `1.5px dashed ${COLOR_TIPO[s.tipo_sesion] || 'var(--accent)'}`, borderRadius: 6, padding: '3px 8px', fontSize: 10, color: 'var(--text2)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                      {iconoSesion(s)} {s.titulo}
-                    </div>
-                  ))}
-                </div>
-              )}
 
               {/* ── Grid de timeline ── */}
               <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -2904,76 +2735,6 @@ export default function Planificacion({ clientePlanificacion, setPage, setSesion
                 }}>
                 {saving ? 'Copiando...' : 'Copiar'}
               </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modalCopiarPack && (
-        <div className="modal-backdrop" onClick={() => setModalCopiarPack(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">Copiar pack a otro cliente</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => setModalCopiarPack(null)}>✕</button>
-            </div>
-            <div style={{ fontSize: 12.5, color: 'var(--text2)', marginBottom: 14 }}>
-              📦 <strong>{modalCopiarPack.nombre}</strong> · {sesiones.filter(s => s.pack_id === modalCopiarPack.id).length} sesiones
-            </div>
-            <div className="form-group">
-              <label className="form-label">Cliente destino *</label>
-              <select className="form-select" value={copiarPackForm.cliente_id} onChange={e => setCopiarPackForm(f => ({ ...f, cliente_id: e.target.value }))} autoFocus>
-                <option value="">Selecciona un cliente...</option>
-                {clientes.filter(c => c.id !== clienteSeleccionado).map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-              </select>
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Fecha inicio</label>
-                <input className="form-input" type="date" value={copiarPackForm.fecha_inicio} onChange={e => setCopiarPackForm(f => ({ ...f, fecha_inicio: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Fecha fin</label>
-                <input className="form-input" type="date" value={copiarPackForm.fecha_fin} onChange={e => setCopiarPackForm(f => ({ ...f, fecha_fin: e.target.value }))} />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setModalCopiarPack(null)}>Cancelar</button>
-              <button className="btn btn-primary" disabled={!copiarPackForm.cliente_id || !copiarPackForm.fecha_inicio || !copiarPackForm.fecha_fin} onClick={copiarPackAOtroCliente}>
-                Copiar pack
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modalPack && (
-        <div className="modal-backdrop" onClick={() => setModalPack(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">{modalPack === 'nuevo' ? 'Nuevo pack flexible' : 'Editar pack'}</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => setModalPack(null)}>✕</button>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Nombre del pack *</label>
-              <input className="form-input" value={formPack.nombre} onChange={e => setFormPack(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Plan de vacaciones" autoFocus />
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Fecha inicio *</label>
-                <input className="form-input" type="date" value={formPack.fecha_inicio} onChange={e => setFormPack(f => ({ ...f, fecha_inicio: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Fecha fin *</label>
-                <input className="form-input" type="date" value={formPack.fecha_fin} onChange={e => setFormPack(f => ({ ...f, fecha_fin: e.target.value }))} />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Descripción para el cliente</label>
-              <textarea className="form-input" value={formPack.descripcion} onChange={e => setFormPack(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Durante estos días puedes realizar estas sesiones de forma flexible según disponibilidad..." rows={3} style={{ resize: 'vertical' }} />
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setModalPack(null)}>Cancelar</button>
-              <button className="btn btn-primary" disabled={savingPack || !formPack.nombre || !formPack.fecha_inicio || !formPack.fecha_fin} onClick={guardarPack}>{savingPack ? 'Guardando...' : 'Guardar'}</button>
             </div>
           </div>
         </div>
