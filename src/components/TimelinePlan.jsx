@@ -404,11 +404,18 @@ function EditorTexto({ cfg, onCerrar }) {
 
 // ── Componente principal ────────────────────────────────────────────────────
 export default function TimelinePlan({
-  planificacion, bloques, subbloques, semanasAll, sesiones, competiciones, controles, notas, feedbacks,
+  planificacion, bloques, subbloques, semanasAll, sesiones: sesionesProp, competiciones, controles, notas, feedbacks,
   clienteNombre, onAbrirSesion, onNuevaSesion, onEditarBloque, onEditarSubbloque, onAbrirComp, onAbrirControl, onAbrirNota,
   onNuevoBloque, onNuevoSubbloque, onRecargar,
   modoDrag = 'mover', setModoDrag, onMoverItems, clipboard, onCopiar, onPegar, onEliminar, onNuevaCompeticion, onNuevaValoracion, onNuevaNota,
 }) {
+  // Como en el calendario: una sesión ya hecha se pinta el día en que la hizo (completada_el),
+  // no el día en que estaba prevista; la fecha prevista queda en _prevista.
+  const sesiones = useMemo(() => (sesionesProp || []).map(s => {
+    const hecha = ['completada', 'parcial', 'realizada'].includes(s.estado) && s.completada_el && s.fecha
+    const fReal = hecha ? String(s.completada_el).slice(0, 10) : null
+    return hecha && fReal !== String(s.fecha).slice(0, 10) ? { ...s, fecha: fReal, _prevista: String(s.fecha).slice(0, 10) } : s
+  }), [sesionesProp])
   const planIni = useMemo(() => parseISO(planificacion.fecha_inicio), [planificacion.fecha_inicio])
   const planFin = useMemo(() => parseISO(planificacion.fecha_fin), [planificacion.fecha_fin])
   const hoy = startOfDay(new Date())
@@ -1603,10 +1610,11 @@ export default function TimelinePlan({
   function FilaComentarios({ lunesList, dias, WS, GAP, COL, W, micro }) {
     const color = '#0f766e'
     const maxN = Math.max(0, ...dias.map(d => comDia(d).length))
-    const altoDias = Math.max(micro ? 40 : 34, maxN * (micro ? 50 : 42) + 22) + ex('com')
+    const hayFiltro = [...comPorDia.values()].some(l => l.length)
+    const altoDias = Math.max(hayFiltro ? 96 : 74, maxN * (micro ? 50 : 42) + 22) + ex('com')
     return (<>
       <div style={{ display: 'flex', marginTop: 6 }}>
-        <Etiqueta g="not" texto="Comentarios del cliente" icono="🗨" alto={altoDias} sub="Feedback y lo que te cuenta" extra={<FiltroComentarios />} />
+        <Etiqueta g="not" texto="Comentarios del cliente" icono="🗨" alto={altoDias} sub="Feedback y a mano" extra={<FiltroComentarios />} />
         <div style={{ display: 'flex', gap: GAP, width: W }}>
           {lunesList.map(l => (
             <div key={k(l)} style={{ width: WS, background: '#f0faf8', borderRadius: 8, overflow: 'hidden', display: 'flex', height: altoDias }}>
@@ -1631,7 +1639,7 @@ export default function TimelinePlan({
   function FilaComentariosMacro({ semanasCols, COL, W }) {
     return (
       <div style={{ display: 'flex', marginTop: 6 }}>
-        <Etiqueta g="not" texto="Comentarios del cliente" icono="🗨" alto={34} extra={<FiltroComentarios />} />
+        <Etiqueta g="not" texto="Comentarios del cliente" icono="🗨" alto={[...comPorDia.values()].some(l => l.length) ? 62 : 46} extra={<FiltroComentarios />} />
         <div style={{ display: 'flex', width: W, background: '#f0faf8', borderRadius: 8 }}>
           {semanasCols.map(l => {
             const cs = Array.from({ length: 7 }, (_, i) => addDays(l, i)).flatMap(d => comDia(d))
@@ -2125,9 +2133,10 @@ export default function TimelinePlan({
     const est = estadoColor(s, fb)
     const opc = s.tipo_sesion === 'opcional'
     return (
-      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={e => { if (!clicSeleccion(e, s, 'sesion')) onAbrirSesion?.(s) }} title={[[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null].filter(Boolean).join(' · '), s.indicaciones ? '\n👁 ' + textoPlano(s.indicaciones).slice(0, 220) : null, s.notas_entrenador ? '\n🔒 ' + textoPlano(s.notas_entrenador).slice(0, 220) : null, editableCal ? '\nArrastra para mover (Alt: copiar) · Ctrl/⌘+clic para seleccionar varias' : null].filter(Boolean).join('\n')}
+      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={e => { if (!clicSeleccion(e, s, 'sesion')) onAbrirSesion?.(s) }} title={[[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null].filter(Boolean).join(' · '), s._prevista ? `↩ Hecha este día · estaba prevista el ${format(parseISO(s._prevista), "EEEE d 'de' MMMM", { locale: es })}` : null, s.indicaciones ? '\n👁 ' + textoPlano(s.indicaciones).slice(0, 220) : null, s.notas_entrenador ? '\n🔒 ' + textoPlano(s.notas_entrenador).slice(0, 220) : null, editableCal ? '\nArrastra para mover (Alt: copiar) · Ctrl/⌘+clic para seleccionar varias' : null].filter(Boolean).join('\n')}
         style={{ position: 'relative', height: alto, flexShrink: 0, borderRadius: 8, background: estaSel('sesion', s.id) ? 'var(--accent-light, #e7f5ed)' : '#fff', border: `1px ${opc ? 'dashed' : 'solid'} ${GRUPOS.pro.color}${opc ? '88' : '55'}`, boxShadow: estaSel('sesion', s.id) ? '0 0 0 2px var(--accent)' : '0 1px 2px rgba(0,0,0,.05)', padding: micro ? '7px 9px' : '5px 6px', cursor: 'pointer', overflow: 'hidden', boxSizing: 'border-box', opacity: opc ? .85 : 1 }}>
         {est && <span style={{ position: 'absolute', top: 5, right: 5, width: 7, height: 7, borderRadius: 4, background: est }} />}
+        {s._prevista && <span style={{ position: 'absolute', top: 1, right: est ? 13 : 4, fontSize: 9, color: 'var(--text3)', lineHeight: 1 }}>↩</span>}
         {editableCal && (onCopiar || onEliminar) && (
           <div className="tl-acc" style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', gap: 2, background: '#fff', borderRadius: 5, boxShadow: '0 0 0 1px var(--border)' }}>
             {onCopiar && <button onClick={e => { e.stopPropagation(); onCopiar({ ...s, _tipo: 'sesion' }) }} title="Copiar (luego 📋 en otro día para pegar)" style={btnMini}>⧉</button>}
