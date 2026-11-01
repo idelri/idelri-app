@@ -6,7 +6,23 @@ const T = {
   accent: '#E0481F',
 }
 
-const RPE_LABELS = ['Nada de esfuerzo', 'Muy, muy suave', 'Muy suave', 'Suave', 'Moderada', 'Algo exigente', 'Exigente', 'Muy exigente', 'Muy dura', 'Extremadamente dura', 'Máximo esfuerzo']
+// RPE de la sesión: escala CR-10 modificada de Foster (Foster 1998; Foster et al. 2001),
+// adaptada de Borg. Anclas originales: 0, 1, 2, 3, 4, 5, 7 y 10. Los valores 6, 8 y 9
+// no tienen ancla en el original: se les da un texto intermedio para orientar.
+export const RPE_INFO = [
+  { titulo: 'Reposo',                 desc: 'Ningún esfuerzo, como estar sentado.' },
+  { titulo: 'Muy, muy fácil',          desc: 'Apenas notas esfuerzo.' },
+  { titulo: 'Fácil',                   desc: 'Respiras con normalidad; podrías seguir así muchísimo tiempo.' },
+  { titulo: 'Moderado',                desc: 'Respiras algo más rápido, pero puedes hablar sin problema.' },
+  { titulo: 'Algo duro',               desc: 'Empieza a costar. Aún puedes hablar con frases, pero ya lo notas.' },
+  { titulo: 'Duro',                    desc: 'Cuesta mantenerlo. Hablar se hace incómodo.' },
+  { titulo: 'Entre duro y muy duro',   desc: 'Tienes que concentrarte para mantener el esfuerzo.' },
+  { titulo: 'Muy duro',                desc: 'Solo puedes decir palabras sueltas. Te cuesta mucho seguir.' },
+  { titulo: 'Muy, muy duro',           desc: 'Muy cerca de tu límite: casi no podrías hacer más.' },
+  { titulo: 'Casi máximo',             desc: 'Prácticamente al límite; solo aguantarías un poco más.' },
+  { titulo: 'Máximo',                  desc: 'El esfuerzo más duro que hayas hecho nunca. No podrías seguir.' },
+]
+const RPE_LABELS = RPE_INFO.map(x => x.titulo)
 const TQR_ANCHORS = { 0: 'Nada recuperado/a', 3: 'Poco recuperado/a', 5: 'Moderadamente recuperado/a', 7: 'Bastante recuperado/a', 10: 'Totalmente recuperado/a' }
 const SUENO_LABELS = ['Muy mal', 'Mal', 'Regular', 'Bien', 'Muy bien']
 
@@ -165,7 +181,7 @@ function colorEscala(n, max = 10, invertir = false) {
   return `hsl(${hue} 65% 42%)`
 }
 // Escala numérica en una fila; debajo, el texto del valor elegido
-function Escala({ value, onChange, min = 0, max = 10, etiquetas, invertir = false, extremos }) {
+function Escala({ value, onChange, min = 0, max = 10, etiquetas, descripciones, invertir = false, extremos }) {
   const nums = Array.from({ length: max - min + 1 }, (_, i) => min + i)
   const etiqueta = value != null ? (etiquetas?.[value] ?? '') : null
   return (
@@ -186,6 +202,9 @@ function Escala({ value, onChange, min = 0, max = 10, etiquetas, invertir = fals
           ? <span style={{ flex: 1, textAlign: 'center', fontWeight: 650, color: colorEscala(value - min, max - min, invertir) }}>{value}{etiqueta ? ` · ${etiqueta}` : ''}</span>
           : extremos ? <><span>{extremos[0]}</span><span>{extremos[1]}</span></> : null}
       </div>
+      {value != null && descripciones?.[value] && (
+        <p style={{ margin: '3px 0 0', fontSize: 11.5, color: T.ink2, textAlign: 'center', lineHeight: 1.4 }}>{descripciones[value]}</p>
+      )}
     </div>
   )
 }
@@ -375,8 +394,8 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {(status === 'completed' || status === 'partial') && (
         <>
           <Section>
-            <Q>{esFutbol ? '¿Cómo de duro ha sido el entreno?' : '¿Cómo de dura te ha parecido en global?'}</Q>
-            <Escala value={fb.rpe.value} onChange={v => set('rpe.value', v)} etiquetas={RPE_ETIQUETAS} extremos={['0 · Nada', 'Máximo · 10']} />
+            <Q hint="Piensa en la sesión entera, no solo en el final">{esFutbol ? '¿Cómo de duro ha sido el entreno?' : '¿Cómo de dura te ha parecido en global?'}</Q>
+            <Escala value={fb.rpe.value} onChange={v => set('rpe.value', v)} etiquetas={RPE_ETIQUETAS} descripciones={RPE_INFO.map(x => x.desc)} extremos={['0 · Reposo', 'Máximo · 10']} />
           </Section>
           <Section>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
