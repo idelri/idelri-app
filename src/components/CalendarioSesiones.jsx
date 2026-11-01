@@ -5,6 +5,7 @@ import { format, parseISO, differenceInCalendarDays, addDays } from 'date-fns'
 import { useSeleccionRecuadro, imagenDeBloque } from '../lib/seleccionRecuadro'
 import { es } from 'date-fns/locale'
 import { DetalleSesion } from './CalendarioPortal'
+import { mostrarPopupSesion, ocultarPopupSesion, PopupSesionHost } from './PopupSesion'
 
 // Colores del panel de previsualización (mismo diseño que el portal del cliente)
 const T_TOOLTIP = { ink: 'var(--text)', ink2: 'var(--text2)', ink3: 'var(--text3)', green: 'var(--accent)', mono: 'var(--mono)' }
@@ -93,11 +94,9 @@ export default function CalendarioSesiones({
   const [seleccionados, setSeleccionados] = useState(new Set()) // ids seleccionados con Cmd/Ctrl
   const [menu, setMenu] = useState(null)
   const [tooltip, setTooltip] = useState(null) // { x, y, sesionId, data }
-  const [fbTooltip, setFbTooltip] = useState(null) // { x, y, sesion, fb }
   const [dragOver, setDragOver] = useState(null) // { itemId, pos: 'before'|'after' }
   const [localOrder, setLocalOrder] = useState({}) // { fecha: id[] } orden optimista
   const dragWithinRef = useRef(null) // { itemId, fecha } — síncrono, evita stale closure
-  const fbTooltipTimer = useRef(null)
   const itemsMapRef = useRef({}) // id→item para recuperar objetos al soltar selección múltiple
   const ultimoSelRef = useRef(null) // último elemento marcado (para Mayús+clic)
   const raizRef = useRef(null)
@@ -118,18 +117,6 @@ export default function CalendarioSesiones({
       porFecha.get(f).push(it)
     })
     porFecha.forEach((its, f) => onMoverSesion(its, f, modo))
-  }
-
-  function mostrarFbTooltip(e, sesion, fb) {
-    const rect = e.currentTarget.getBoundingClientRect()
-    clearTimeout(fbTooltipTimer.current)
-    fbTooltipTimer.current = setTimeout(() => {
-      setFbTooltip({ x: rect.right + 8, y: rect.top, sesion, fb })
-    }, 200)
-  }
-  function ocultarFbTooltip() {
-    clearTimeout(fbTooltipTimer.current)
-    setFbTooltip(null)
   }
 
   async function reordenarEnDia(fecha, fromId, toId, pos) {
@@ -325,6 +312,7 @@ export default function CalendarioSesiones({
 
   return (
     <div ref={raizRef} onClick={e => { cerrarMenu(); if (!e.metaKey && !e.ctrlKey && !e.shiftKey) setSeleccionados(new Set()) }}>
+      <PopupSesionHost />
       <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16 }}>
         <button className="btn btn-ghost btn-sm" onClick={navPrev}>‹</button>
         <span style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize', minWidth: 160, textAlign: 'center' }}>{titulo}</span>
@@ -507,6 +495,7 @@ export default function CalendarioSesiones({
                         <div key={item.id} data-selk={item.id}
                           draggable={true}
                           onDragStart={e => {
+                            ocultarPopupSesion(true)
                             if (seleccionados.size > 1 && seleccionados.has(item.id)) imagenDeBloque(e, [...(raizRef.current?.querySelectorAll('[data-selk]') || [])].filter(n => seleccionados.has(n.dataset.selk)))
                             const sortable = item._tipo === 'sesion' || item._tipo === 'nota'
                             const dw = sortable && !(seleccionados.size > 1 && seleccionados.has(item.id)) ? { itemId: item.id, fecha: key } : null
@@ -564,11 +553,10 @@ export default function CalendarioSesiones({
                           }}
                           onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setMenu({ x: e.clientX, y: e.clientY, fecha: key, item }) }}
                           onMouseEnter={e => {
-                            const fb = item._tipo === 'sesion' ? feedbacksMap[item.id] : null
-                            if (fb) { ocultarTooltip(); mostrarFbTooltip(e, item, fb) }
-                            else if (item._tipo === 'sesion' || item._tipo === 'nota') mostrarTooltip(e, item)
+                            if (item._tipo === 'sesion') mostrarPopupSesion(e, { ...item, fecha: item._fechaVisual || item.fecha }, { fb: feedbacksMap[item.id] || null, onAbrir: () => onAbrirSesion(item) })
+                            else if (item._tipo === 'nota') mostrarTooltip(e, item)
                           }}
-                          onMouseLeave={() => { ocultarTooltip(); ocultarFbTooltip() }}
+                          onMouseLeave={() => { ocultarTooltip(); ocultarPopupSesion() }}
                           style={{ fontSize: 10.5, fontWeight: 600, lineHeight: 1.3, padding: '4px 5px', borderRadius: 6, ...tipoEstilo, cursor: 'grab', display: 'flex', alignItems: 'flex-start', gap: 4, width: '100%', maxWidth: '100%', minWidth: 0, boxSizing: 'border-box', position: 'relative', opacity: dragWithinRef.current?.itemId === item.id ? 0.4 : 1, userSelect: 'none', outline: estaSeleccionado ? '2px solid var(--accent)' : 'none', outlineOffset: '1px' }}>
                           {icono && <span style={{ flexShrink: 0 }}>{icono}</span>}
                           <span style={{ flex: 1, minWidth: 0, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', wordBreak: 'break-word' }} title={item._prevista ? `Prevista: ${item._prevista}` : (item._tipo === 'sesion' || item._tipo === 'nota') ? undefined : texto}>
@@ -663,51 +651,6 @@ export default function CalendarioSesiones({
         </div>
       )}
 
-      {fbTooltip && (() => {
-        const { sesion, fb } = fbTooltip
-        const d = fb.data || {}
-        const status = d.completion?.status
-        const rpe = d.rpe?.value
-        const comentario = d.comentario_libre || d.comentario || d.notas_cliente || ''
-        const statusLabel = { completed: '✅ Completada', partial: '⚠️ Parcial', missed: '❌ No realizada' }[status] || null
-        const statusBg = { completed: '#dcfce7', partial: '#fef9c3', missed: '#fee2e2' }[status] || 'var(--bg2)'
-        const statusFg = { completed: '#16a34a', partial: '#ca8a04', missed: '#dc2626' }[status] || 'var(--text2)'
-        return (
-          <div
-            onMouseEnter={() => clearTimeout(fbTooltipTimer.current)}
-            onMouseLeave={ocultarFbTooltip}
-            style={{ position: 'fixed', top: Math.min(fbTooltip.y, window.innerHeight - 220), left: Math.min(fbTooltip.x, window.innerWidth - 240), zIndex: 300, background: 'var(--bg)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 6px 20px rgba(0,0,0,0.15)', minWidth: 200, maxWidth: 240, padding: '10px 12px', pointerEvents: 'none' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', marginBottom: 8 }}>
-              💬 Feedback del cliente
-            </div>
-            {statusLabel && (
-              <div style={{ display: 'inline-block', fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 20, background: statusBg, color: statusFg, marginBottom: 6 }}>
-                {statusLabel}
-              </div>
-            )}
-            {rpe != null && (
-              <div style={{ marginBottom: 6 }}>
-                <div style={{ fontSize: 10, color: 'var(--text3)', marginBottom: 3 }}>Esfuerzo percibido (RPE)</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <div style={{ flex: 1, height: 5, borderRadius: 3, background: 'var(--border)', overflow: 'hidden' }}>
-                    <div style={{ width: `${rpe * 10}%`, height: '100%', background: rpe >= 8 ? '#ef4444' : rpe >= 6 ? '#eab308' : '#22c55e', borderRadius: 3 }} />
-                  </div>
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text)', minWidth: 22, textAlign: 'right' }}>{rpe}/10</span>
-                </div>
-              </div>
-            )}
-            {comentario ? (
-              <div style={{ fontSize: 10.5, color: 'var(--text2)', lineHeight: 1.5, borderTop: '1px solid var(--border)', paddingTop: 6, marginTop: 4, fontStyle: 'italic' }}>
-                "{comentario.length > 80 ? comentario.slice(0, 80) + '…' : comentario}"
-              </div>
-            ) : null}
-            {!statusLabel && !rpe && !comentario && (
-              <div style={{ fontSize: 10, color: 'var(--text3)' }}>Sin detalles</div>
-            )}
-            <div style={{ fontSize: 9, color: 'var(--text3)', marginTop: 6 }}>Clic en la sesión para ver completo</div>
-          </div>
-        )
-      })()}
     </div>
   )
 }
