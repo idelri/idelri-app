@@ -359,7 +359,7 @@ export default function ClientePortal({ token }) {
     const enSem = arr => (arr || []).filter(x => { const f = parseISO(x.fecha); return f >= lun && f <= dom })
     return [
       ...enSem(notas).map(x => ({ ...x, _tipo: 'nota' })),
-      ...enSem(competiciones).map(x => ({ ...x, _tipo: 'competicion' })),
+      ...enSem(competiciones.filter(x => !x.tiene_sesion)).map(x => ({ ...x, _tipo: 'competicion' })),
       ...enSem(controles).map(x => ({ ...x, _tipo: 'control' })),
     ].sort((a, b) => a.fecha.localeCompare(b.fecha))
   }
@@ -462,7 +462,7 @@ export default function ClientePortal({ token }) {
 
     // Extras (competiciones, controles) de la semana navegada — sin notas, van integradas en cada día
     const extrasNav = [
-      ...competiciones.map(x => ({ ...x, _tipo: 'comp' })),
+      ...competiciones.filter(x => !x.tiene_sesion).map(x => ({ ...x, _tipo: 'comp' })),
       ...controles.map(x => ({ ...x, _tipo: 'control' })),
     ].filter(x => x.fecha && parseISO(x.fecha) >= lunNav && parseISO(x.fecha) <= domNav)
 
@@ -685,7 +685,7 @@ export default function ClientePortal({ token }) {
         isDesktop={isDesktop}
         sesiones={sesiones}
         notas={notas}
-        competiciones={competiciones}
+        competiciones={competiciones.filter(x => !x.tiene_sesion)}
         controles={controles}
         bloques={bloques}
         semanas={semanas}

@@ -1359,7 +1359,8 @@ export default function TimelinePlan({
               <div style={{ display: 'flex', width: W, background: GRUPOS.pro.soft, borderRadius: 8, alignItems: 'center' }}>
                 {datosSemana.map(s => {
                   const lista = s.dias.flatMap(x => x.ses)
-                  const compsSem = s.comps || []
+                  const compsVinculadas = new Set(lista.map(z => z.competicion_id).filter(Boolean))
+                  const compsSem = (s.comps || []).filter(c => !compsVinculadas.has(c.id))
                   const caben = Math.max(1, Math.floor((COL - 6) / 15) * 2 - compsSem.length)
                   return (
                     <div key={k(s.d)} {...destinoItems(it => { const off = differenceInCalendarDays(parseISO(String(it.fecha).slice(0, 10)), lunes(parseISO(String(it.fecha).slice(0, 10)))); return k(addDays(s.d, off)) })}
@@ -1989,19 +1990,15 @@ export default function TimelinePlan({
                 )
               }} />
             </div>
-            {(() => { const nMax = Math.max(0, ...dias.map(d => { const x = dia(d); return x.comps.length + x.ctrls.length + (x.ses.length ? 1 : 0) + (x.ses.some(z => z.tipo_sesion === 'opcional') ? 1 : 0) })); const multi = ex('ev') > 0; const altoEv = Math.max(micro ? 64 : 58, nMax * 21 + 10) + ex('ev'); return (<>
+            {(() => { const nMax = Math.max(0, ...dias.map(d => { const x = dia(d); return x.comps.length + x.ctrls.length })); const multi = ex('ev') > 0; const altoEv = Math.max(micro ? 64 : 58, nMax * 21 + 10) + ex('ev'); return (<>
             <div style={{ display: 'flex', marginTop: 4 }}>
-              <Etiqueta g="cal" texto="Eventos" icono="⚑" alto={altoEv} />
+              <Etiqueta g="cal" texto="Competiciones" icono="⚑" alto={altoEv} />
               <Celdas alto={altoEv} fondo={GRUPOS.cal.soft} render={d => {
                 const x = dia(d)
-                const entreno = x.ses.filter(s => s.tipo_sesion !== 'opcional').length
-                const opc = x.ses.length - entreno
                 return (
                   <div className="tl-ev" {...destinoItems(() => k(d))} style={{ position: 'relative', padding: 4, display: 'flex', flexDirection: 'column', gap: 3, alignItems: 'stretch', overflow: 'hidden', height: '100%', boxSizing: 'border-box' }}>
                     {x.comps.map(c => <Chip key={c.id} onClick={e => { if (!clicSeleccion(e, c, 'competicion')) onAbrirComp?.(c) }} style={estaSel('competicion', c.id) ? { boxShadow: '0 0 0 2px var(--accent)' } : undefined} bg="#fef3c7" color="#92400e" titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'competicion')}>🏆 {c.nombre}</Chip>)}
                     {x.ctrls.map(c => <Chip key={c.id} onClick={e => { if (!clicSeleccion(e, c, 'control')) onAbrirControl?.(c) }} style={estaSel('control', c.id) ? { boxShadow: '0 0 0 2px var(--accent)' } : undefined} bg={GRUPOS.cal.bg} color={GRUPOS.cal.color} titulo={c.nombre} multi={multi} {...arrastrableItem(c, 'control')}>🔬 {c.nombre}</Chip>)}
-                    {entreno > 0 && <Chip bg="var(--accent)" color="#fff" titulo={`${entreno} sesión(es)`}>Entreno{entreno > 1 ? ` ×${entreno}` : ''}</Chip>}
-                    {opc > 0 && <Chip bg="transparent" color="var(--accent)" borde={`1px dashed var(--accent)`} titulo="Sesión opcional">☆{COL >= 90 ? ' Opcional' : ''}{opc > 1 ? ` ×${opc}` : ''}</Chip>}
                     {(onNuevaCompeticion || onNuevaValoracion || onNuevaNota) && (
                       <div className="tl-mas" style={{ marginTop: 'auto', display: 'flex', justifyContent: 'center', gap: 2 }}>
                         {[[onNuevaCompeticion, '🏆', 'Nueva competición'], [onNuevaValoracion, '🔬', 'Nueva valoración']].filter(([f]) => f).map(([f, ic, t]) => (
@@ -2066,7 +2063,7 @@ export default function TimelinePlan({
             const alto = Math.max(micro ? 200 : 84, maxSes * (altoCard + 5) + 30)
             return (<>
               <div style={{ display: 'flex', marginTop: 6 }}>
-                <Etiqueta g="pro" texto="Sesiones" icono="◉" alto={alto} />
+                <Etiqueta g="pro" texto="Eventos" icono="◉" alto={alto} />
                 <Celdas alto={alto} fondo={GRUPOS.pro.soft} render={d => (
                   <div className="tl-celda-ses" {...destinoItems(() => k(d))} style={{ padding: 4, display: 'flex', flexDirection: 'column', gap: 5, height: '100%', boxSizing: 'border-box' }}>
                     {dia(d).ses.map(s => <TarjetaSesion key={s.id} s={s} micro={micro} alto={altoCard} />)}
@@ -2132,6 +2129,7 @@ export default function TimelinePlan({
         style={{ position: 'relative', height: alto, flexShrink: 0, borderRadius: 8, background: estaSel('sesion', s.id) ? 'var(--accent-light, #e7f5ed)' : '#fff', border: `1px ${opc ? 'dashed' : 'solid'} ${GRUPOS.pro.color}${opc ? '88' : '55'}`, boxShadow: estaSel('sesion', s.id) ? '0 0 0 2px var(--accent)' : '0 1px 2px rgba(0,0,0,.05)', padding: micro ? '7px 9px' : '5px 6px', cursor: 'pointer', overflow: 'hidden', boxSizing: 'border-box', opacity: opc ? .85 : 1 }}>
         {est && <span style={{ position: 'absolute', top: 5, right: 5, width: 7, height: 7, borderRadius: 4, background: est }} />}
         {s._prevista && <span style={{ position: 'absolute', top: 1, right: est ? 13 : 4, fontSize: 9, color: 'var(--text3)', lineHeight: 1 }}>↩</span>}
+        {(s.competicion_id || s.tipo_actividad === 'futbol_partido') && <span style={{ position: 'absolute', top: 3, right: est ? 15 : 5, fontSize: 8, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: '#92400e', background: '#fef3c7', borderRadius: 4, padding: '1px 4px' }}>Partido</span>}
         {editableCal && (onCopiar || onEliminar) && (
           <div className="tl-acc" style={{ position: 'absolute', right: 3, bottom: 3, display: 'flex', gap: 2, background: '#fff', borderRadius: 5, boxShadow: '0 0 0 1px var(--border)' }}>
             {onCopiar && <button onClick={e => { e.stopPropagation(); onCopiar({ ...s, _tipo: 'sesion' }) }} title="Copiar (luego 📋 en otro día para pegar)" style={btnMini}>⧉</button>}
