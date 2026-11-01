@@ -289,7 +289,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
 
   function puedeEnviar() {
     if (!status) return false
-    if (esFutbol && (status === 'partial' || status === 'missed') && reasons.length === 0) return false
+    if (esFutbol && !esPartido && (status === 'partial' || status === 'missed') && reasons.length === 0) return false
     if (status === 'completed' || status === 'partial') {
       if (fb.rpe.value == null) return false
       if (!fb.duration.minutes) return false
@@ -308,7 +308,8 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
 
   // Qué falta por responder (texto bajo el botón)
   function faltaParaEnviar() {
-    if (esFutbol && (status === 'partial' || status === 'missed') && reasons.length === 0) return 'Falta: el motivo'
+    if (!status && esPartido) return 'Falta: los minutos jugados'
+    if (esFutbol && !esPartido && (status === 'partial' || status === 'missed') && reasons.length === 0) return 'Falta: el motivo'
     if ((status === 'completed' || status === 'partial') && fb.rpe.value == null) return 'Falta: cómo de dura te ha parecido'
     if ((status === 'completed' || status === 'partial') && !fb.duration.minutes) return 'Falta: cuánto tiempo te llevó'
     if (hayIncoherencia) return 'Revisa la pregunta de molestias'
@@ -349,9 +350,27 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
         <Escala value={fb.tqr.value} onChange={v => set('tqr.value', v)} etiquetas={TQR_ETIQUETAS} descripciones={TQR_INFO.map(x => x.desc)} invertir extremos={['0 · Nada', '5 · Razonable', 'Totalmente · 10']} />
       </div>
 
-      {/* ── 1. ¿Completada? ── */}
+      {/* ── 1. ¿Completada? (partido: minutos jugados) ── */}
+      {esPartido ? (
+        <Section>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+            <p style={{ flex: '1 1 180px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0 }}>Minutos jugados</p>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <input type="number" inputMode="numeric" min="0" max="150" value={fb.duration.minutes ?? ''}
+                onChange={e => {
+                  const v = e.target.value === '' ? null : Math.max(0, parseInt(e.target.value))
+                  setFb(f => ({ ...f, duration: { minutes: v }, completion: { ...f.completion, status: v == null ? null : v > 0 ? 'completed' : 'missed', reasons: [] } }))
+                }}
+                placeholder="90"
+                style={{ width: 72, padding: '7px 10px', borderRadius: 9, border: `1.5px solid ${T.line}`, fontSize: 14, textAlign: 'center' }} />
+              <span style={{ fontSize: 13, color: T.ink2 }}>min</span>
+            </div>
+          </div>
+          <p style={{ fontSize: 11.5, color: T.ink3, margin: '6px 0 0' }}>Si no jugaste, pon 0.</p>
+        </Section>
+      ) : (
       <Section>
-        <Q>{esPartido ? '¿Jugaste el partido?' : esFutbol ? '¿Completaste el entreno?' : '¿Has completado la sesión?'}</Q>
+        <Q>{esFutbol ? '¿Completaste el entreno?' : '¿Has completado la sesión?'}</Q>
         <div style={{ display: 'flex', gap: 6 }}>
           {[['completed', esPartido ? 'Sí, entero' : esFutbol ? 'Sí, al 100%' : 'Completa', '#16a34a'], ['partial', esPartido ? 'Una parte' : esFutbol ? 'Solo una parte' : 'Parcialmente', '#d97706'], ['missed', esPartido ? 'No jugué' : esFutbol ? 'Nada' : 'No la hice', T.accent]].map(([k, l, c]) => (
             <button key={k} type="button" onClick={() => set('completion.status', k)}
@@ -362,8 +381,10 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
         </div>
       </Section>
 
+      )}
+
       {/* ── 2. Motivo (partial / missed) ── */}
-      {(status === 'partial' || status === 'missed') && (
+      {!esPartido && (status === 'partial' || status === 'missed') && (
         <Section>
           <Q hint="Puedes marcar varios">{esPartido ? (status === 'partial' ? '¿Por qué no jugaste el partido entero?' : '¿Por qué no jugaste?') : esFutbol ? (status === 'partial' ? '¿Por qué no hiciste el entreno completo?' : '¿Por qué no entrenaste?') : status === 'partial' ? '¿Por qué no la completaste?' : '¿Por qué no la hiciste?'}</Q>
           <Chips>{motivosBC.map(m => <Chip key={m} active={has(m)} onClick={() => toggleReason(m)}>{m}</Chip>)}</Chips>
@@ -416,12 +437,12 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {(status === 'completed' || status === 'partial') && (
         <>
           <Section>
-            <Q hint="Piensa en la sesión entera, no solo en el final">{esPartido ? '¿Cómo de duro ha sido el partido?' : esFutbol ? '¿Cómo de duro ha sido el entreno?' : '¿Cómo de dura te ha parecido en global?'}</Q>
+            <Q hint={esPartido ? undefined : 'Piensa en la sesión entera, no solo en el final'}>{esPartido ? '¿Cómo de duro ha sido el partido?' : esFutbol ? '¿Cómo de duro ha sido el entreno?' : '¿Cómo de dura te ha parecido en global?'}</Q>
             <Escala value={fb.rpe.value} onChange={v => set('rpe.value', v)} etiquetas={RPE_ETIQUETAS} descripciones={RPE_INFO.map(x => x.desc)} extremos={['0 · Reposo', '5 · Duro', 'Máximo · 10']} />
           </Section>
-          <Section>
+          {!esPartido && <Section>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <p style={{ flex: '1 1 180px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0 }}>{esPartido ? '¿Cuántos minutos jugaste?' : esFutbol ? '¿Cuántos minutos entrenaste?' : '¿Cuánto tiempo te llevó?'}</p>
+              <p style={{ flex: '1 1 180px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0 }}>{esFutbol ? '¿Cuántos minutos entrenaste?' : '¿Cuánto tiempo te llevó?'}</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input type="number" inputMode="numeric" min="1" max="240" value={fb.duration.minutes || ''} onChange={e => set('duration.minutes', e.target.value ? parseInt(e.target.value) : null)}
                   placeholder={esFutbol ? '90' : '45'}
@@ -430,14 +451,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
               </div>
             </div>
             {fb.duration.minutes > 150 && <p style={{ fontSize: 11.5, color: T.accent, margin: '6px 0 0' }}>Es un tiempo bastante alto, ¿confirmas que es correcto?</p>}
-          </Section>
-          {esPartido && (
-            <Section>
-              <Q>Resultado del partido</Q>
-              <input type="text" value={fb.futbol.resultado || ''} onChange={e => set('futbol.resultado', e.target.value)} placeholder="Ej: Europa 2 - 1 Hospitalet"
-                style={{ width: '100%', padding: '8px 11px', borderRadius: 9, border: `1.5px solid ${T.line}`, fontSize: 13, boxSizing: 'border-box' }} />
-            </Section>
-          )}
+          </Section>}
           {esFutbol && !esPartido && (
             <Section>
               <Q>¿Qué tareas hicisteis?</Q>
@@ -446,6 +460,14 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
             </Section>
           )}
         </>
+      )}
+
+      {esPartido && status && (
+        <Section>
+          <Q>Resultado del partido</Q>
+          <input type="text" value={fb.futbol.resultado || ''} onChange={e => set('futbol.resultado', e.target.value)} placeholder="Ej: Europa 2 - 1 Hospitalet"
+            style={{ width: '100%', padding: '8px 11px', borderRadius: 9, border: `1.5px solid ${T.line}`, fontSize: 13, boxSizing: 'border-box' }} />
+        </Section>
       )}
 
       {/* ── 4. Molestias ── */}
