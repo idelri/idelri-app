@@ -390,3 +390,9 @@ tr:hover td { background: var(--bg); }
 
 /* Selección por recuadro (timeline y calendario) */
 [data-selk].sel-recuadro { outline: 2px solid var(--accent) !important; outline-offset: 1px; }
+
+/* Editor de sesión: nada de textos o enlaces largos que ensanchen la página */
+.ses-editor { overflow-wrap: anywhere; }
+.ses-editor img, .ses-editor video, .ses-editor iframe { max-width: 100%; }
+.ses-lateral .page-header { flex-wrap: wrap; row-gap: 8px; }
+.ses-lateral .btn-sm { padding-left: 6px; padding-right: 6px; }
