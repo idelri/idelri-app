@@ -34,6 +34,7 @@ function emptyFeedback() {
     equipment:  { missingEquipment: false, details: '' },
     understanding: { unclearExercise: false, details: '' },
     postSessionFeeling: null,
+    futbol:     { contenidos: [] },   // solo entrenos de fútbol
     generalComments: '',
     submittedAt: null,
   }
@@ -199,10 +200,14 @@ const TQR_ETIQUETAS = TQR_ANCHORS
 const RPE_ETIQUETAS = Object.fromEntries(RPE_LABELS.map((l, n) => [n, l]))
 
 // ── Componente principal ──────────────────────────────────────────────────────
-export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor, submitLabel }) {
+const CONTENIDOS_FUTBOL = ['Técnico / rondos', 'Táctico', 'Físico / intensidad alta', 'Partidillo o juego real', 'Suave / recuperación']
+
+export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor, tipoActividad, submitLabel }) {
+  // Entreno con el equipo (fútbol): mismas respuestas guardadas, preguntas adaptadas
+  const esFutbol = tipoActividad === 'futbol'
   const [fb, setFb] = useState(() => {
     const base = initial ? { ...emptyFeedback(), ...initial } : emptyFeedback()
-    return { ...base, pain: hydratePain(base.pain) }
+    return { ...base, futbol: { contenidos: [], ...(base.futbol || {}) }, pain: hydratePain(base.pain) }
   })
 
   const set = (path, value) => setFb(f => {
@@ -227,7 +232,12 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
     }
   }
 
-  const motivosBC = [
+  const motivosBC = esFutbol ? [
+    'Falta de tiempo', 'Trabajo o estudios', 'Fatiga acumulada', 'Molestia o dolor',
+    'Se suspendió el entreno',
+    status === 'partial' ? 'Preferí bajar la intensidad' : 'Preferí descansar',
+    'Otro motivo',
+  ] : [
     'Falta de tiempo', 'Fatiga acumulada', 'Molestia o dolor',
     'Dificultad técnica con algún ejercicio', 'No tenía material disponible',
     'No entendí algún ejercicio',
@@ -300,9 +310,9 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
 
       {/* ── 1. ¿Completada? ── */}
       <Section>
-        <Q>¿Has completado la sesión?</Q>
+        <Q>{esFutbol ? '¿Fuiste al entreno?' : '¿Has completado la sesión?'}</Q>
         <div style={{ display: 'flex', gap: 6 }}>
-          {[['completed', 'Completa', '#16a34a'], ['partial', 'Parcialmente', '#d97706'], ['missed', 'No la hice', T.accent]].map(([k, l, c]) => (
+          {[['completed', esFutbol ? 'Sí, entero' : 'Completa', '#16a34a'], ['partial', esFutbol ? 'Solo una parte' : 'Parcialmente', '#d97706'], ['missed', esFutbol ? 'No fui' : 'No la hice', T.accent]].map(([k, l, c]) => (
             <button key={k} type="button" onClick={() => set('completion.status', k)}
               style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: `1.5px solid ${status === k ? c : T.line}`, background: status === k ? c + '16' : T.card, color: status === k ? c : T.ink2, fontWeight: status === k ? 700 : 500, fontSize: 13, cursor: 'pointer' }}>
               {l}
@@ -314,7 +324,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {/* ── 2. Motivo (partial / missed) ── */}
       {(status === 'partial' || status === 'missed') && (
         <Section>
-          <Q hint="Puedes marcar varios">{status === 'partial' ? '¿Por qué no la completaste?' : '¿Por qué no la hiciste?'}</Q>
+          <Q hint="Puedes marcar varios">{esFutbol ? (status === 'partial' ? '¿Por qué no hiciste el entreno entero?' : '¿Por qué no fuiste?') : status === 'partial' ? '¿Por qué no la completaste?' : '¿Por qué no la hiciste?'}</Q>
           <Chips>{motivosBC.map(m => <Chip key={m} active={has(m)} onClick={() => toggleReason(m)}>{m}</Chip>)}</Chips>
         </Section>
       )}
@@ -357,7 +367,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
         <Section>
           <Q>¿Qué parte no hiciste?{has('Otro motivo') ? ' Cuéntame también el motivo.' : ''}</Q>
           <TextArea value={fb.completion.partialDetails} onChange={v => set('completion.partialDetails', v)}
-            placeholder="Ej: no hice el último bloque, quité una serie…" />
+            placeholder={esFutbol ? 'Ej: no jugué el partidillo, me retiré a los 40 minutos…' : 'Ej: no hice el último bloque, quité una serie…'} />
         </Section>
       )}
 
@@ -365,21 +375,30 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {(status === 'completed' || status === 'partial') && (
         <>
           <Section>
-            <Q>¿Cómo de dura te ha parecido en global?</Q>
+            <Q>{esFutbol ? '¿Cómo de duro ha sido el entreno?' : '¿Cómo de dura te ha parecido en global?'}</Q>
             <Escala value={fb.rpe.value} onChange={v => set('rpe.value', v)} etiquetas={RPE_ETIQUETAS} extremos={['0 · Nada', 'Máximo · 10']} />
           </Section>
           <Section>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-              <p style={{ flex: '1 1 180px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0 }}>¿Cuánto tiempo te llevó?</p>
+              <p style={{ flex: '1 1 180px', fontSize: 13.5, fontWeight: 600, color: T.ink, margin: 0 }}>{esFutbol ? '¿Cuántos minutos entrenaste?' : '¿Cuánto tiempo te llevó?'}</p>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <input type="number" inputMode="numeric" min="1" max="240" value={fb.duration.minutes || ''} onChange={e => set('duration.minutes', e.target.value ? parseInt(e.target.value) : null)}
-                  placeholder="45"
+                  placeholder={esFutbol ? '90' : '45'}
                   style={{ width: 72, padding: '7px 10px', borderRadius: 9, border: `1.5px solid ${T.line}`, fontSize: 14, textAlign: 'center' }} />
                 <span style={{ fontSize: 13, color: T.ink2 }}>min</span>
               </div>
             </div>
             {fb.duration.minutes > 150 && <p style={{ fontSize: 11.5, color: T.accent, margin: '6px 0 0' }}>Es un tiempo bastante alto, ¿confirmas que es correcto?</p>}
           </Section>
+          {esFutbol && (
+            <Section>
+              <Q hint="Puedes marcar varios">¿Qué tipo de entreno fue?</Q>
+              <Chips>{CONTENIDOS_FUTBOL.map(c => {
+                const sel = fb.futbol.contenidos.includes(c)
+                return <Chip key={c} active={sel} onClick={() => set('futbol.contenidos', sel ? fb.futbol.contenidos.filter(x => x !== c) : [...fb.futbol.contenidos, c])}>{c}</Chip>
+              })}</Chips>
+            </Section>
+          )}
         </>
       )}
 
@@ -387,7 +406,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {status && (
         <Section>
           <FilaSiNo
-            pregunta={status === 'missed' ? '¿Tuviste alguna molestia o dolor ese día?' : '¿Alguna molestia o dolor durante la sesión?'}
+            pregunta={status === 'missed' ? '¿Tuviste alguna molestia o dolor ese día?' : esFutbol ? '¿Alguna molestia o dolor durante el entreno?' : '¿Alguna molestia o dolor durante la sesión?'}
             value={fb.pain.hasPain}
             onNo={() => set('pain.hasPain', false)}
             onSi={() => setPain(p => ({ ...p, hasPain: true, entries: p.entries.length > 0 ? p.entries : [newEntry()] }))} />
@@ -420,7 +439,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
                     </div>
                     <Escala value={entry.intensity} onChange={v => upd({ intensity: v })} extremos={['0 · Mínima', 'Máxima · 10']} />
                     <div style={{ marginTop: 6 }}>
-                      <TextArea value={entry.details} onChange={v => upd({ details: v })} placeholder="¿Qué notaste y dónde? Ej: Aquiles derecho al correr…" />
+                      <TextArea value={entry.details} onChange={v => upd({ details: v })} placeholder={esFutbol ? '¿Qué notaste, dónde y en qué acción? Ej: isquio derecho en un sprint…' : '¿Qué notaste y dónde? Ej: Aquiles derecho al correr…'} />
                     </div>
                   </div>
                 )
@@ -435,7 +454,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       )}
 
       {/* ── 5. Dificultad ── */}
-      {(status === 'completed' || status === 'partial') && (tipoEditor === 'carrera' || (!has('Dificultad técnica con algún ejercicio') && !has('No entendí algún ejercicio'))) && (
+      {!esFutbol && (status === 'completed' || status === 'partial') && (tipoEditor === 'carrera' || (!has('Dificultad técnica con algún ejercicio') && !has('No entendí algún ejercicio'))) && (
         <Section>
           <FilaSiNo
             pregunta={tipoEditor === 'carrera' ? '¿Alguna parte te costó completar según lo previsto?' : '¿Algún ejercicio difícil de hacer o de entender?'}
@@ -455,7 +474,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {status && (
         <Section>
           <Q>Algo más que quieras contarme <span style={{ fontWeight: 400, color: T.ink3 }}>(opcional)</span></Q>
-          <TextArea value={fb.generalComments} onChange={v => set('generalComments', v)} placeholder="Lo que te ha gustado, lo que no, dudas…" />
+          <TextArea value={fb.generalComments} onChange={v => set('generalComments', v)} placeholder={esFutbol ? 'Cómo te encontraste, qué tal las piernas, si jugaste el partidillo…' : 'Lo que te ha gustado, lo que no, dudas…'} />
         </Section>
       )}
 

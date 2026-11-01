@@ -701,6 +701,7 @@ function TabSeguimiento({ feedbacks }) {
                       {d.tqr?.value   != null && <span>TQR <strong>{d.tqr.value}</strong>/10</span>}
                       {d.sueno?.value != null && <span>Sueño <strong>{d.sueno.value}</strong>/5</span>}
                       {d.duration?.minutes    && <span><strong>{d.duration.minutes}</strong> min</span>}
+                      {d.futbol?.contenidos?.length > 0 && <span>⚽ {d.futbol.contenidos.join(', ')}</span>}
                     </div>
                     {d.generalComments && (
                       <div style={{ fontSize: 12.5, color: 'var(--text2)', marginTop: 4, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
