@@ -23,7 +23,24 @@ export const RPE_INFO = [
   { titulo: 'Máximo',                  desc: 'El esfuerzo más duro que hayas hecho nunca. No podrías seguir.' },
 ]
 const RPE_LABELS = RPE_INFO.map(x => x.titulo)
-const TQR_ANCHORS = { 0: 'Nada recuperado/a', 3: 'Poco recuperado/a', 5: 'Moderadamente recuperado/a', 7: 'Bastante recuperado/a', 10: 'Totalmente recuperado/a' }
+// Recuperación percibida antes de la sesión, 0-10. Basada en la escala TQR de
+// Kenttä y Hassmén (1998, original 6-20, anclas: muy muy mala, muy mala, mala,
+// razonable, buena, muy buena, muy muy buena recuperación) y en la PRS 0-10 de
+// Laurent et al. (2011). Se mantiene 0-10 para no romper los datos anteriores.
+export const TQR_INFO = [
+  { titulo: 'Nada recuperado/a',          desc: 'Agotado/a, sin energía.' },
+  { titulo: 'Muy, muy mal recuperado/a',  desc: 'Muy cansado/a, te cuesta ponerte en marcha.' },
+  { titulo: 'Muy mal recuperado/a',       desc: 'Bastante cansado/a y con las piernas pesadas.' },
+  { titulo: 'Mal recuperado/a',           desc: 'Cansado/a, aún notas mucho la carga de los días anteriores.' },
+  { titulo: 'Poco recuperado/a',          desc: 'Todavía arrastras cansancio de los días anteriores.' },
+  { titulo: 'Recuperación razonable',     desc: 'Ni bien ni mal: algo de cansancio, pero puedes entrenar.' },
+  { titulo: 'Recuperación aceptable',     desc: 'Te notas bien para entrenar con normalidad.' },
+  { titulo: 'Bien recuperado/a',          desc: 'Con energía, apenas notas cansancio.' },
+  { titulo: 'Muy bien recuperado/a',      desc: 'Fresco/a y con ganas de entrenar.' },
+  { titulo: 'Muy, muy bien recuperado/a', desc: 'Muy fresco/a y con mucha energía.' },
+  { titulo: 'Totalmente recuperado/a',    desc: 'Como nuevo/a, con la máxima energía.' },
+]
+const TQR_ANCHORS = Object.fromEntries(TQR_INFO.map((x, n) => [n, x.titulo]))
 const SUENO_LABELS = ['Muy mal', 'Mal', 'Regular', 'Bien', 'Muy bien']
 
 // ── Estructura canónica ────────────────────────────────────────────────────────
@@ -50,7 +67,7 @@ function emptyFeedback() {
     equipment:  { missingEquipment: false, details: '' },
     understanding: { unclearExercise: false, details: '' },
     postSessionFeeling: null,
-    futbol:     { contenidos: [] },   // solo entrenos de fútbol
+    futbol:     { tareas: '' },   // solo entrenos de fútbol
     generalComments: '',
     submittedAt: null,
   }
@@ -219,14 +236,12 @@ const TQR_ETIQUETAS = TQR_ANCHORS
 const RPE_ETIQUETAS = Object.fromEntries(RPE_LABELS.map((l, n) => [n, l]))
 
 // ── Componente principal ──────────────────────────────────────────────────────
-const CONTENIDOS_FUTBOL = ['Técnico / rondos', 'Táctico', 'Físico / intensidad alta', 'Partidillo o juego real', 'Suave / recuperación']
-
 export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor, tipoActividad, submitLabel }) {
   // Entreno con el equipo (fútbol): mismas respuestas guardadas, preguntas adaptadas
   const esFutbol = tipoActividad === 'futbol'
   const [fb, setFb] = useState(() => {
     const base = initial ? { ...emptyFeedback(), ...initial } : emptyFeedback()
-    return { ...base, futbol: { contenidos: [], ...(base.futbol || {}) }, pain: hydratePain(base.pain) }
+    return { ...base, futbol: { tareas: '', ...(base.futbol || {}) }, pain: hydratePain(base.pain) }
   })
 
   const set = (path, value) => setFb(f => {
@@ -269,6 +284,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
 
   function puedeEnviar() {
     if (!status) return false
+    if (esFutbol && (status === 'partial' || status === 'missed') && reasons.length === 0) return false
     if (status === 'completed' || status === 'partial') {
       if (fb.rpe.value == null) return false
       if (!fb.duration.minutes) return false
@@ -287,6 +303,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
 
   // Qué falta por responder (texto bajo el botón)
   function faltaParaEnviar() {
+    if (esFutbol && (status === 'partial' || status === 'missed') && reasons.length === 0) return 'Falta: el motivo'
     if ((status === 'completed' || status === 'partial') && fb.rpe.value == null) return 'Falta: cómo de dura te ha parecido'
     if ((status === 'completed' || status === 'partial') && !fb.duration.minutes) return 'Falta: cuánto tiempo te llevó'
     if (hayIncoherencia) return 'Revisa la pregunta de molestias'
@@ -324,14 +341,14 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
         </div>
 
         <Q>¿Cómo de recuperado/a te notabas antes de empezar?</Q>
-        <Escala value={fb.tqr.value} onChange={v => set('tqr.value', v)} etiquetas={TQR_ETIQUETAS} invertir extremos={['0 · Nada', 'Totalmente · 10']} />
+        <Escala value={fb.tqr.value} onChange={v => set('tqr.value', v)} etiquetas={TQR_ETIQUETAS} descripciones={TQR_INFO.map(x => x.desc)} invertir extremos={['0 · Nada', '5 · Razonable', 'Totalmente · 10']} />
       </div>
 
       {/* ── 1. ¿Completada? ── */}
       <Section>
-        <Q>{esFutbol ? '¿Fuiste al entreno?' : '¿Has completado la sesión?'}</Q>
+        <Q>{esFutbol ? '¿Completaste el entreno?' : '¿Has completado la sesión?'}</Q>
         <div style={{ display: 'flex', gap: 6 }}>
-          {[['completed', esFutbol ? 'Sí, entero' : 'Completa', '#16a34a'], ['partial', esFutbol ? 'Solo una parte' : 'Parcialmente', '#d97706'], ['missed', esFutbol ? 'No fui' : 'No la hice', T.accent]].map(([k, l, c]) => (
+          {[['completed', esFutbol ? 'Sí, al 100%' : 'Completa', '#16a34a'], ['partial', esFutbol ? 'Solo una parte' : 'Parcialmente', '#d97706'], ['missed', esFutbol ? 'Nada' : 'No la hice', T.accent]].map(([k, l, c]) => (
             <button key={k} type="button" onClick={() => set('completion.status', k)}
               style={{ flex: 1, padding: '9px 6px', borderRadius: 10, border: `1.5px solid ${status === k ? c : T.line}`, background: status === k ? c + '16' : T.card, color: status === k ? c : T.ink2, fontWeight: status === k ? 700 : 500, fontSize: 13, cursor: 'pointer' }}>
               {l}
@@ -343,7 +360,7 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
       {/* ── 2. Motivo (partial / missed) ── */}
       {(status === 'partial' || status === 'missed') && (
         <Section>
-          <Q hint="Puedes marcar varios">{esFutbol ? (status === 'partial' ? '¿Por qué no hiciste el entreno entero?' : '¿Por qué no fuiste?') : status === 'partial' ? '¿Por qué no la completaste?' : '¿Por qué no la hiciste?'}</Q>
+          <Q hint="Puedes marcar varios">{esFutbol ? (status === 'partial' ? '¿Por qué no hiciste el entreno completo?' : '¿Por qué no entrenaste?') : status === 'partial' ? '¿Por qué no la completaste?' : '¿Por qué no la hiciste?'}</Q>
           <Chips>{motivosBC.map(m => <Chip key={m} active={has(m)} onClick={() => toggleReason(m)}>{m}</Chip>)}</Chips>
         </Section>
       )}
@@ -411,11 +428,9 @@ export default function FeedbackForm({ onSubmit, submitting, initial, tipoEditor
           </Section>
           {esFutbol && (
             <Section>
-              <Q hint="Puedes marcar varios">¿Qué tipo de entreno fue?</Q>
-              <Chips>{CONTENIDOS_FUTBOL.map(c => {
-                const sel = fb.futbol.contenidos.includes(c)
-                return <Chip key={c} active={sel} onClick={() => set('futbol.contenidos', sel ? fb.futbol.contenidos.filter(x => x !== c) : [...fb.futbol.contenidos, c])}>{c}</Chip>
-              })}</Chips>
+              <Q>¿Qué tareas hicisteis?</Q>
+              <TextArea value={fb.futbol.tareas || ''} onChange={v => set('futbol.tareas', v)}
+                placeholder="Escribe brevemente qué tareas hicisteis durante el entreno en campo y, si metisteis algo extra de fuerza o trabajo fuera del campo, en qué consistió, de manera general." />
             </Section>
           )}
         </>
