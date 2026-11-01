@@ -115,6 +115,7 @@ body {
 .main {
   margin-left: 220px;
   flex: 1;
+  min-width: 0; /* que un contenido ancho (timeline, editor al lado) no ensanche toda la página */
   padding: 32px;
   min-height: 100vh;
 }
