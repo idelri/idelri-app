@@ -192,10 +192,6 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
   const [modalNotaCal, setModalNotaCal] = useState(false)
   const [formNotaCal, setFormNotaCal] = useState({ texto: '', fecha: '' })
   const [editandoNota, setEditandoNota] = useState(null)
-  const [packs, setPacks] = useState([])
-  const [modalPack, setModalPack] = useState(null)
-  const [formPack, setFormPack] = useState({ nombre: '', fecha_inicio: '', fecha_fin: '', descripcion: '' })
-  const [savingPack, setSavingPack] = useState(false)
   const [feedbacks, setFeedbacks] = useState({}) // { sesion_id: feedback_data }
   useEffect(() => { cargarClientes() }, [])
   useEffect(() => { if (clienteSeleccionado) cargarSesiones() }, [clienteSeleccionado])
@@ -461,13 +457,12 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
 
   async function cargarSesiones() {
     setLoading(true)
-    const [{ data: ses }, { data: nots }, { data: comps }, { data: ctrls }, { data: plan }, { data: pks }] = await Promise.all([
+    const [{ data: ses }, { data: nots }, { data: comps }, { data: ctrls }, { data: plan }] = await Promise.all([
       supabase.from('sesiones').select('*').eq('cliente_id', clienteSeleccionado).order('fecha', { ascending: true }).order('orden', { ascending: true }),
       supabase.from('sesion_notas').select('*').eq('cliente_id', clienteSeleccionado).order('fecha'),
       supabase.from('competiciones').select('*').eq('cliente_id', clienteSeleccionado).order('fecha'),
       supabase.from('controles').select('*').eq('cliente_id', clienteSeleccionado).order('fecha'),
       supabase.from('planificaciones').select('id, fecha_inicio').eq('cliente_id', clienteSeleccionado).order('fecha_inicio', { ascending: false }).limit(1).maybeSingle(),
-      supabase.from('packs_flexibles').select('*').eq('cliente_id', clienteSeleccionado).order('fecha_inicio'),
     ])
     setSesiones(ses || [])
     // Cargar feedbacks de las sesiones de este cliente
@@ -483,7 +478,6 @@ const [modalDuplicar, setModalDuplicar] = useState(null)
     setNotas(nots || [])
     setCompeticionesCal(comps || [])
     setControlesCal(ctrls || [])
-    setPacks(pks || [])
     if (sesionInicialId === 'nueva' && !sesionInicialCargada.current) {
       sesionInicialCargada.current = true
       if (fechaNuevaSesion) {
@@ -912,22 +906,6 @@ async function guardarSesion() {
     }
     setSaving(false)
     cargarSesiones()
-  }
-
-  async function guardarPack() {
-    setSavingPack(true)
-    if (modalPack?.id) {
-      await supabase.from('packs_flexibles').update({ nombre: formPack.nombre, fecha_inicio: formPack.fecha_inicio, fecha_fin: formPack.fecha_fin, descripcion: formPack.descripcion || null }).eq('id', modalPack.id)
-    } else {
-      await supabase.from('packs_flexibles').insert({ cliente_id: clienteSeleccionado, nombre: formPack.nombre, fecha_inicio: formPack.fecha_inicio, fecha_fin: formPack.fecha_fin, descripcion: formPack.descripcion || null })
-    }
-    setSavingPack(false); setModalPack(null); cargarSesiones()
-  }
-
-  function copiarEnlacePack(pack) {
-    const url = `${window.location.origin}/pack/${pack.token_publico}`
-    navigator.clipboard.writeText(url).catch(() => {})
-    alert(`Enlace del pack copiado:\n${url}`)
   }
 
   return (
@@ -2038,17 +2016,10 @@ async function guardarSesion() {
             </div>
             <div className="form-group"><label className="form-label">Título *</label><input className="form-input" value={formSesion.titulo} onChange={e => setFormSesion(f => ({ ...f, titulo: e.target.value }))} placeholder="Ej: Sesión 5 - Fuerza general" autoFocus /></div>
             <div className="form-group">
-              <label className="form-label">Fecha</label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <input className="form-input" type="date" value={formSesion.fecha} disabled={formSesion.sinFecha} style={{ flex: 1, opacity: formSesion.sinFecha ? 0.4 : 1 }} onChange={e => setFormSesion(f => ({ ...f, fecha: e.target.value }))} />
-                <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--text2)', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  <input type="checkbox" checked={!!formSesion.sinFecha} onChange={e => {
-                    const checked = e.target.checked
-                    setFormSesion(f => ({ ...f, sinFecha: checked, fecha: checked ? '' : f.fecha, tipo_sesion: checked ? (f.tipo_sesion === 'programada' ? 'flexible' : f.tipo_sesion) : (f.tipo_sesion === 'flexible' ? 'programada' : f.tipo_sesion) }))
-                  }} />
-                  Sin fecha asignada
-                </label>
-              </div>
+              <label className="form-label">Fecha{formSesion.sinFecha ? '' : ' *'}</label>
+              {formSesion.sinFecha
+                ? <div style={{ fontSize: 12.5, color: 'var(--text2)', padding: '6px 0' }}>📚 Recurso: sin fecha, el cliente lo tiene siempre a mano.</div>
+                : <input className="form-input" type="date" value={formSesion.fecha} onChange={e => setFormSesion(f => ({ ...f, fecha: e.target.value }))} />}
             </div>
             <div className="form-group">
               <label className="form-label">Tipo de sesión</label>
@@ -2269,39 +2240,6 @@ async function guardarSesion() {
           </div>
         </div>
       )}
-      {modalPack && (
-        <div className="modal-backdrop" onClick={() => setModalPack(null)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <span className="modal-title">{modalPack === 'nuevo' ? 'Nuevo pack flexible' : 'Editar pack'}</span>
-              <button className="btn btn-ghost btn-sm" onClick={() => setModalPack(null)}><X size={14} /></button>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Nombre del pack *</label>
-              <input className="form-input" value={formPack.nombre} onChange={e => setFormPack(f => ({ ...f, nombre: e.target.value }))} placeholder="Ej: Plan de vacaciones" autoFocus />
-            </div>
-            <div className="form-row">
-              <div className="form-group">
-                <label className="form-label">Fecha inicio *</label>
-                <input className="form-input" type="date" value={formPack.fecha_inicio} onChange={e => setFormPack(f => ({ ...f, fecha_inicio: e.target.value }))} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Fecha fin *</label>
-                <input className="form-input" type="date" value={formPack.fecha_fin} onChange={e => setFormPack(f => ({ ...f, fecha_fin: e.target.value }))} />
-              </div>
-            </div>
-            <div className="form-group">
-              <label className="form-label">Descripción para el cliente</label>
-              <textarea className="form-input" value={formPack.descripcion} onChange={e => setFormPack(f => ({ ...f, descripcion: e.target.value }))} placeholder="Ej: Durante estos días puedes realizar estas sesiones de forma flexible según disponibilidad..." rows={3} style={{ resize: 'vertical' }} />
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setModalPack(null)}>Cancelar</button>
-              <button className="btn btn-primary" disabled={savingPack || !formPack.nombre || !formPack.fecha_inicio || !formPack.fecha_fin} onClick={guardarPack}>{savingPack ? 'Guardando...' : 'Guardar'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {modalBiblioteca && (() => {
         const textoBib = busquedaBiblioteca.toLowerCase()
         const bibFiltrada = !biblioteca ? [] : biblioteca.filter(item => (item.carpeta || 'fuerza') === carpetaBib && (!textoBib || item.nombre.toLowerCase().includes(textoBib)))

@@ -114,7 +114,7 @@ export default function Agenda({ setPage, setSesionesContext, setClientePlanific
 
     const clienteIds = clientesList.map(c => c.id)
     const [{ data: todasSes }, { data: csems }] = await Promise.all([
-      supabase.from('sesiones').select('id, cliente_id, fecha, titulo, tipo_sesion, modalidad, pack_id, lista, publicada').in('cliente_id', clienteIds).gte('fecha', semIni).lte('fecha', semFin),
+      supabase.from('sesiones').select('id, cliente_id, fecha, titulo, tipo_sesion, modalidad, lista, publicada').in('cliente_id', clienteIds).gte('fecha', semIni).lte('fecha', semFin),
       supabase.from('cliente_semana').select('*').in('cliente_id', clienteIds).eq('semana_fecha', semIni),
     ])
 
@@ -314,19 +314,19 @@ export default function Agenda({ setPage, setSesionesContext, setClientePlanific
       const diaStrHoy = DIAS_SEMANA[dowHoy]
 
       // 1. Día disponible hoy sin sesión creada
-      const tieneSesionHoy = cSes.some(s => s.fecha === hoy && !s.pack_id)
+      const tieneSesionHoy = cSes.some(s => s.fecha === hoy)
       if (diasDisp.includes(diaStrHoy) && !tieneSesionHoy) {
         alertas.push({ urgencia: 0, icono: '❗', texto: 'Día disponible sin sesión creada', cliente: nombre, clienteId: c.id, etiqueta: 'Hoy', color: '#ef4444' })
       }
 
       // 2. Sesión hoy u mañana aún oculta al cliente
-      cSes.filter(s => (s.fecha === hoy || s.fecha === mañana) && s.publicada === false && !s.pack_id).forEach(s => {
+      cSes.filter(s => (s.fecha === hoy || s.fecha === mañana) && s.publicada === false).forEach(s => {
         const esHoy = s.fecha === hoy
         alertas.push({ urgencia: esHoy ? 0 : 1, icono: '🔒', texto: `Sesión ${esHoy ? 'de hoy' : 'de mañana'} oculta al cliente`, cliente: nombre, clienteId: c.id, sesionId: s.id, etiqueta: esHoy ? 'Hoy' : 'Mañana', color: '#94a3b8' })
       })
 
       // 3. Sesión hoy u mañana sin marcar como lista
-      cSes.filter(s => (s.fecha === hoy || s.fecha === mañana) && s.publicada !== false && !s.lista && !s.pack_id).forEach(s => {
+      cSes.filter(s => (s.fecha === hoy || s.fecha === mañana) && s.publicada !== false && !s.lista).forEach(s => {
         const esHoy = s.fecha === hoy
         alertas.push({ urgencia: esHoy ? 0 : 1, icono: '📝', texto: `Sesión ${esHoy ? 'de hoy' : 'de mañana'} en preparación`, cliente: nombre, clienteId: c.id, sesionId: s.id, etiqueta: esHoy ? 'Hoy' : 'Mañana', color: '#ef9f27' })
       })
@@ -828,14 +828,14 @@ export default function Agenda({ setPage, setSesionesContext, setClientePlanific
 
   // ── STATS SEMANA ────────────────────────────────────────────────────────
   const statsSesiones = Object.values(clienteData).flatMap(cd =>
-    (cd.sesiones || []).filter(s => s.fecha && s.fecha >= semIni && s.fecha <= semFin && !s.pack_id)
+    (cd.sesiones || []).filter(s => s.fecha && s.fecha >= semIni && s.fecha <= semFin)
   )
   const statsListas = statsSesiones.filter(s => s.lista && s.publicada !== false)
   const statsPreparacion = statsSesiones.filter(s => !s.lista && s.publicada !== false)
   let statsPendientes = 0
   clientes.forEach(c => {
     const cd = clienteData[c.id] || {}
-    const cSes = (cd.sesiones || []).filter(s => s.fecha && !s.pack_id)
+    const cSes = (cd.sesiones || []).filter(s => s.fecha)
     const diasDisp = cd.semanaRec?.dias_disponibles || []
     diasDisp.forEach(diaStr => {
       const idx = DIAS_SEMANA.indexOf(diaStr)
@@ -850,7 +850,7 @@ export default function Agenda({ setPage, setSesionesContext, setClientePlanific
     if (filtroGlobal.cliente && c.id !== filtroGlobal.cliente) return false
     if (!filtroGlobal.estado) return true
     const cd = clienteData[c.id] || {}
-    const cSes = (cd.sesiones || []).filter(s => s.fecha && s.fecha >= semIni && s.fecha <= semFin && !s.pack_id)
+    const cSes = (cd.sesiones || []).filter(s => s.fecha && s.fecha >= semIni && s.fecha <= semFin)
     if (filtroGlobal.estado === 'lista') return cSes.some(s => s.lista && s.publicada !== false)
     if (filtroGlobal.estado === 'preparacion') return cSes.some(s => !s.lista && s.publicada !== false)
     if (filtroGlobal.estado === 'pendiente') {
@@ -1191,22 +1191,21 @@ export default function Agenda({ setPage, setSesionesContext, setClientePlanific
                 {[...clientesVisibles].sort((a, b) => {
                   const cdA = clienteData[a.id] || {}
                   const cdB = clienteData[b.id] || {}
-                  const dispA = (cdA.semanaRec?.dias_disponibles || []).length + (cdA.sesiones || []).filter(s => s.fecha && !s.pack_id).length
-                  const dispB = (cdB.semanaRec?.dias_disponibles || []).length + (cdB.sesiones || []).filter(s => s.fecha && !s.pack_id).length
+                  const dispA = (cdA.semanaRec?.dias_disponibles || []).length + (cdA.sesiones || []).filter(s => s.fecha).length
+                  const dispB = (cdB.semanaRec?.dias_disponibles || []).length + (cdB.sesiones || []).filter(s => s.fecha).length
                   return (dispA > 0 ? 0 : 1) - (dispB > 0 ? 0 : 1)
                 }).map(c => {
                   const cd = clienteData[c.id] || {}
                   const { sesiones: cSes = [], semanaRec } = cd
                   const diasDisp = semanaRec?.dias_disponibles || []
                   const sesPorDia = {}
-                  cSes.filter(s => s.fecha && !s.pack_id).forEach(s => {
+                  cSes.filter(s => s.fecha).forEach(s => {
                     if (!sesPorDia[s.fecha]) sesPorDia[s.fecha] = []
                     sesPorDia[s.fecha].push(s)
                   })
-                  const packSes = cSes.filter(s => s.pack_id)
 
                   // Estado automático calculado
-                  const sesConFecha = cSes.filter(s => s.fecha && !s.pack_id)
+                  const sesConFecha = cSes.filter(s => s.fecha)
                   const sesLista = sesConFecha.filter(s => s.lista && s.publicada !== false)
                   const totalEsperados = Math.max(diasDisp.length, sesConFecha.length)
                   const listaCount = sesLista.length
@@ -1285,9 +1284,6 @@ export default function Agenda({ setPage, setSesionesContext, setClientePlanific
                               </div>
                             )
                           })}
-                          {packSes.length > 0 && (
-                            <span style={{ fontSize: 9, color: 'var(--text3)', marginLeft: 2, whiteSpace: 'nowrap' }}>+{packSes.length}📦</span>
-                          )}
                         </div>
                       </td>
                       {/* Progreso */}

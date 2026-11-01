@@ -136,8 +136,6 @@ export default function ClientePortal({ token }) {
   const [notas, setNotas] = useState([])
   const [competiciones, setCompeticiones] = useState([])
   const [controles, setControles] = useState([])
-  const [packs, setPacks] = useState([])
-  const [packSesiones, setPackSesiones] = useState([])
   const [recursos, setRecursos] = useState([])
   const [comoAbierto, setComoAbierto] = useState(false)
   const [recursoGrupos, setRecursoGrupos] = useState([])
@@ -218,11 +216,6 @@ export default function ClientePortal({ token }) {
     const grupoDe = Object.fromEntries((recMapa || []).map(x => [x.id, x.recurso_grupo_id]))
     setRecursos((recs || []).map(r => ({ ...r, recurso_grupo_id: grupoDe[r.id] || null })))
     setRecursoGrupos(recGrupos || [])
-
-    const { data: pks } = await supabase.rpc('get_packs_por_token_cliente', { p_token: token })
-    setPacks(pks || [])
-    const { data: pkSes } = await supabase.rpc('get_sesiones_packs_por_token_cliente', { p_token: token })
-    setPackSesiones(pkSes || [])
 
     // Estado de conexión Strava — RPC SECURITY DEFINER, nunca expone tokens
     const { data: stravaData } = await supabase.rpc('get_strava_estado_conexion', { p_token: token })
@@ -467,13 +460,6 @@ export default function ClientePortal({ token }) {
       return fv && parseISO(fv) >= lunNav && parseISO(fv) <= domNav
     })
 
-    const packsSemana = packs.filter(p => {
-      if (!p.fecha_inicio || !p.fecha_fin) return false
-      const pi = parseISO(p.fecha_inicio + 'T12:00:00')
-      const pf = parseISO(p.fecha_fin + 'T12:00:00')
-      return pi <= domNav && pf >= lunNav
-    })
-
     // Extras (competiciones, controles) de la semana navegada — sin notas, van integradas en cada día
     const extrasNav = [
       ...competiciones.map(x => ({ ...x, _tipo: 'comp' })),
@@ -556,75 +542,14 @@ export default function ClientePortal({ token }) {
           {!isDesktop && <HeroSemana />}
           {!isDesktop && <NotaEntrenadora />}
 
-          {/* Sesiones por día + packs flexibles integrados cronológicamente */}
+          {/* Sesiones por día */}
           <div>
             <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.6px', textTransform: 'uppercase', color: T.ink3, marginBottom: 7 }}>Sesiones</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
               {(() => {
-                const coveredByPack = {}
-                packsSemana.forEach(pack => {
-                  const pi = startOfDay(parseISO(pack.fecha_inicio))
-                  const pf = startOfDay(parseISO(pack.fecha_fin))
-                  diasSemana.forEach((dia, i) => {
-                    if (dia >= pi && dia <= pf) coveredByPack[i] = pack
-                  })
-                })
-                const renderItems = []
-                const addedPacks = new Set()
-                diasSemana.forEach((dia, idx) => {
-                  packsSemana.forEach(pack => {
-                    if (addedPacks.has(pack.id)) return
-                    const pi = startOfDay(parseISO(pack.fecha_inicio))
-                    const effectiveStart = pi < lunNav ? lunNav : pi
-                    if (isSameDay(effectiveStart, dia)) {
-                      addedPacks.add(pack.id)
-                      renderItems.push({ type: 'pack', pack })
-                    }
-                  })
-                  if (!coveredByPack[idx]) renderItems.push({ type: 'day', idx, dia })
-                })
+                const renderItems = diasSemana.map((dia, idx) => ({ idx, dia }))
 
                 return renderItems.map((item) => {
-                  if (item.type === 'pack') {
-                    const { pack } = item
-                    const pi = startOfDay(parseISO(pack.fecha_inicio))
-                    const pf = startOfDay(parseISO(pack.fecha_fin))
-                    const sesPack = packSesiones.filter(s => s.pack_id === pack.id)
-                    const diasPack = diasSemana.filter(d => d >= pi && d <= pf)
-                    return (
-                      <div key={`pack-${pack.id}`} style={{ ...card, border: `1px solid ${colNav}55`, borderLeft: `4px solid ${colNav}` }}>
-                        <div style={{ padding: '10px 13px', borderBottom: `1px solid ${T.bg2}` }}>
-                          <div style={{ fontFamily: T.mono, fontSize: 9, letterSpacing: '.5px', textTransform: 'uppercase', color: colNav, marginBottom: 4 }}>📦 Pack flexible</div>
-                          <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{pack.nombre}</div>
-                          {pack.descripcion && <div style={{ fontSize: 12, color: T.ink2, marginBottom: 6, lineHeight: 1.4 }}>{pack.descripcion}</div>}
-                          <div style={{ fontFamily: T.mono, fontSize: 10, color: T.ink3, marginBottom: 8 }}>Haz las sesiones cuando puedas · {format(pi, 'd MMM', { locale: es })}–{format(pf, 'd MMM', { locale: es })}</div>
-                          <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                            {diasPack.map((d, di) => {
-                              const esHoy = isToday(d)
-                              return (
-                                <div key={di} style={{ fontSize: 10, padding: '3px 9px', borderRadius: 20, fontFamily: T.mono, background: esHoy ? colNav : T.bg2, color: esHoy ? '#fff' : T.ink2, fontWeight: esHoy ? 600 : 400 }}>
-                                  {format(d, 'EEE d', { locale: es })}
-                                </div>
-                              )
-                            })}
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
-                          {sesPack.map((s, si) => (
-                            <div key={s.id} onClick={() => abrirSesion(s)}
-                              style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 13px', borderBottom: si < sesPack.length - 1 ? `1px solid ${T.bg2}` : 'none', cursor: s.token_publico ? 'pointer' : 'default' }}>
-                              <div style={{ width: 32, height: 32, borderRadius: 7, background: `${colNav}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 }}>{iconoSesion(s)}</div>
-                              <div style={{ flex: 1, minWidth: 0 }}>
-                                <div style={{ fontSize: 12, fontWeight: 500 }}>{s.titulo}</div>
-                                {s.duracion_min && <div style={{ fontFamily: T.mono, fontSize: 10, color: T.ink3, marginTop: 1 }}>{s.duracion_min} min</div>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )
-                  }
-
                   const { idx, dia } = item
                   const sesDia = sesNav.filter(s => { const fv = fechaVisualSesion(s); return fv && isSameDay(parseISO(fv), dia) })
                   const notasDia = notasNavSem.filter(x => isSameDay(parseISO(x.fecha), dia))
