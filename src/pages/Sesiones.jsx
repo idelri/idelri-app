@@ -912,10 +912,10 @@ async function guardarSesion() {
     <>
     <div className={'ses-editor' + (lateral ? ' ses-lateral' : '')}>
       <div className="page-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1, flexBasis: lateral ? '100%' : undefined }}>
           {sesionAbierta && (
             <>
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 220 }}>{sesionAbierta.titulo}</span>
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: lateral ? undefined : 220, minWidth: 0 }}>{sesionAbierta.titulo}</span>
               {sesionAbierta.fecha && (
                 <span style={{ fontSize: 11, color: 'var(--text3)', whiteSpace: 'nowrap' }}>
                   {new Date(sesionAbierta.fecha + 'T12:00:00').toLocaleDateString('es-ES', { weekday: 'short', day: 'numeric', month: 'short' })}
