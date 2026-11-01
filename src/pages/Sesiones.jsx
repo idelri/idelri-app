@@ -932,7 +932,7 @@ async function guardarSesion() {
 
   return (
     <>
-    <div>
+    <div className={'ses-editor' + (lateral ? ' ses-lateral' : '')}>
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, flex: 1 }}>
           {sesionAbierta && (
@@ -957,15 +957,15 @@ async function guardarSesion() {
         {sesionAbierta && (() => {
           const btnIcon = { width: 30, height: 30, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer', fontSize: 14, color: 'var(--text2)' }
           return (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', justifyContent: 'flex-end', marginLeft: 'auto' }}>
               <div title="Biblioteca de ejercicios de la sesión: se aplica a todos los bloques (cada bloque se puede cambiar)"
                 style={{ display: 'flex', alignItems: 'center', background: 'var(--bg2)', borderRadius: 8, padding: 2, gap: 2, marginRight: 4 }}>
                 {BIBLIOTECAS.map(o => {
                   const activa = (sesionAbierta.biblioteca || 'fuerza') === o.key
                   return (
-                    <button key={o.key} onClick={() => aplicarBibliotecaSesion(o.key)}
+                    <button key={o.key} onClick={() => aplicarBibliotecaSesion(o.key)} title={lateral ? o.label : undefined}
                       style={{ padding: '4px 9px', fontSize: 11, fontWeight: activa ? 700 : 400, borderRadius: 6, border: 'none', cursor: 'pointer', background: activa ? 'var(--accent)' : 'transparent', color: activa ? '#fff' : 'var(--text3)', whiteSpace: 'nowrap' }}>
-                      {o.icono} {o.label}
+                      {lateral && !activa ? o.icono : `${o.icono} ${o.label}`}
                     </button>
                   )
                 })}
@@ -1795,7 +1795,7 @@ async function guardarSesion() {
                   const nombreMetodo = (METODOS_SESION.find(m => m.id === (b.metodo || 'individual'))?.nombre || b.metodo || 'Individual').toUpperCase()
                   return (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 10px', borderBottom: '0.5px solid var(--border)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: lateral ? 6 : 12, flexWrap: lateral ? 'wrap' : 'nowrap', rowGap: 4, padding: lateral ? '6px 8px' : '7px 10px', borderBottom: '0.5px solid var(--border)' }}>
                         <span style={{ color: 'var(--text4)', cursor: 'grab', fontSize: 13, userSelect: 'none', flexShrink: 0 }}>⠿</span>
                         <div
                           title="Cambiar color del bloque"
@@ -1809,7 +1809,7 @@ async function guardarSesion() {
                           style={{ fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 99, background: `${bc}18`, color: bc, border: `1px solid ${bc}33`, flexShrink: 0, fontFamily: "'JetBrains Mono', monospace", letterSpacing: '.05em', cursor: 'pointer' }}>
                           {nombreMetodo}
                         </span>}
-                        <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ flex: 1, minWidth: lateral ? 110 : 0 }}>
                           <InlineInput value={b.nombre} placeholder={`Bloque ${idx + 1}`} fontSize={13}
                             style={{ fontWeight: 600, fontFamily: "'Inter', system-ui, sans-serif" }}
                             onSave={v => actualizarBloque(b.id, 'nombre', v)} />
