@@ -8,6 +8,8 @@
  */
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useSeleccionRecuadro, imagenDeBloque } from '../lib/seleccionRecuadro'
+import { TIPOS_COM, comentariosDeFeedback } from '../lib/comentariosFeedback'
+import { mostrarPopupSesion, ocultarPopupSesion, PopupSesionHost } from './PopupSesion'
 import { format, parseISO, addDays, addWeeks, startOfWeek, differenceInCalendarDays, isSameDay, isSameMonth, startOfMonth, endOfMonth, addMonths, eachDayOfInterval, startOfDay } from 'date-fns'
 import { es } from 'date-fns/locale'
 import { textoPlano, tituloTexto } from './TextoEstructurado'
@@ -20,36 +22,6 @@ const GRUPOS = {
   pla: { label: 'Planificación',   color: '#c18f05', bg: '#fdf5dc', soft: '#fffbec', icono: '▤' },
   pro: { label: 'Programación',    color: '#2f9e63', bg: '#e7f5ed', soft: '#f3faf6', icono: '◉' },
   not: { label: 'Notas',           color: '#64748b', bg: '#eef1f5', soft: '#f7f8fa', icono: '✎' },
-}
-
-// Comentarios del cliente: de dónde sale cada uno (feedback o añadido a mano)
-const TIPOS_COM = {
-  no_completada: { label: 'No completada', icono: '⛔', color: '#b91c1c' },
-  parcial:       { label: 'Parcial',       icono: '◐', color: '#d97706' },
-  molestia:      { label: 'Molestia',      icono: '🔴', color: '#dc2626' },
-  tecnica:       { label: 'Técnica',       icono: '🟣', color: '#7c3aed' },
-  material:      { label: 'Material',      icono: '🧰', color: '#92400e' },
-  comprension:   { label: 'No entendió',   icono: '❓', color: '#0e7490' },
-  general:       { label: 'General',       icono: '💭', color: '#64748b' },
-}
-// Saca del feedback de una sesión los comentarios escritos (los números van a la fila de carga)
-function comentariosDeFeedback(fb, s) {
-  const d = fb?.data || {}; const out = []
-  const t = x => (typeof x === 'string' ? x.trim() : '')
-  const base = { sesion: s, fecha: String(s.fecha).slice(0, 10), origen: 'feedback' }
-  const c = d.completion || {}
-  if (c.status === 'partial' || c.status === 'missed') {
-    const motivos = (c.reasons || []).filter(Boolean)
-    const texto = [motivos.join(' · '), t(c.partialDetails)].filter(Boolean).join(' — ')
-    out.push({ ...base, tipo: c.status === 'missed' ? 'no_completada' : 'parcial', texto: texto || (c.status === 'missed' ? 'No la hizo' : 'La hizo en parte') })
-  }
-  ;((d.pain && d.pain.entries) || []).forEach(e => { if (t(e.details) || e.intensity != null) out.push({ ...base, tipo: 'molestia', texto: t(e.details) || 'Molestia', intensidad: e.intensity }) })
-  const tec = d.technical || {}
-  ;[tec.mainTechnicalDetails, tec.additionalTechnicalDetails].map(t).filter(Boolean).forEach(x => out.push({ ...base, tipo: 'tecnica', texto: x }))
-  if (t(d.equipment?.details)) out.push({ ...base, tipo: 'material', texto: t(d.equipment.details) })
-  if (t(d.understanding?.details)) out.push({ ...base, tipo: 'comprension', texto: t(d.understanding.details) })
-  if (t(d.generalComments)) out.push({ ...base, tipo: 'general', texto: t(d.generalComments) })
-  return out
 }
 
 const VARS = [
@@ -958,7 +930,7 @@ export default function TimelinePlan({
     ...regSel(tipo, item),
     draggable: true,
     onDragStart: e => {
-      e.stopPropagation()
+      e.stopPropagation(); ocultarPopupSesion(true)
       const varios = sel.size > 1 && sel.has(claveSel(tipo, item.id))
       arrRef.current = varios ? { clase: 'items', items: [...sel.values()], ancla: { ...item, _tipo: tipo } } : { clase: 'items', items: [{ ...item, _tipo: tipo }] }
       e.dataTransfer.effectAllowed = 'copyMove'; try { e.dataTransfer.setData('text/plain', item.id) } catch {}
@@ -1246,6 +1218,7 @@ export default function TimelinePlan({
   return (
     <div className="card" style={{ padding: 0, overflow: 'visible', fontFamily: 'var(--font)' }}>
       {Toolbar}
+      <PopupSesionHost />
       <div ref={contRef} style={{ padding: '6px 0 14px' }}>
         {vision === 'macro' && <VistaMacro />}
         {vision === 'meso' && <VistaSemanas semanas={3} />}
@@ -1396,7 +1369,7 @@ export default function TimelinePlan({
                           title={`${format(parseISO(String(c.fecha).slice(0, 10)), 'EEE d', { locale: es })} · 🏆 ${c.nombre}${c.resultado ? ' · ' + c.resultado : ''}${c.notas ? '\n' + c.notas : ''}`}
                           style={{ boxShadow: estaSel('competicion', c.id) ? '0 0 0 2px var(--accent)' : 'none', width: 13, height: 15, borderRadius: 4, background: '#fef3c7', border: '1px solid #d9770699', fontSize: 8.5, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: editableCal ? 'grab' : 'pointer' }}>🏆</span>)}
                       {lista.length <= caben
-                        ? lista.map(z => <span key={z.id} {...arrastrableItem(z, 'sesion')} onClick={e => { e.stopPropagation(); if (!clicSeleccion(e, z, 'sesion')) onAbrirSesion?.(z) }} title={`${format(parseISO(String(z.fecha).slice(0, 10)), 'EEE d', { locale: es })} · ${z.titulo || 'Sesión'}`}
+                        ? lista.map(z => <span key={z.id} {...arrastrableItem(z, 'sesion')} onClick={e => { e.stopPropagation(); if (!clicSeleccion(e, z, 'sesion')) onAbrirSesion?.(z) }} onMouseEnter={e => mostrarPopupSesion(e, z, { fb: fbMap.get(z.id), onAbrir: onAbrirSesion })} onMouseLeave={() => ocultarPopupSesion()}
                             style={{ boxShadow: estaSel('sesion', z.id) ? '0 0 0 2px var(--accent)' : 'none', width: 13, height: 15, borderRadius: 4, background: z.tipo_sesion === 'opcional' ? 'transparent' : GRUPOS.pro.color + '22', border: `1px ${z.tipo_sesion === 'opcional' ? 'dashed' : 'solid'} ${GRUPOS.pro.color}66`, fontSize: 8.5, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: editableCal ? 'grab' : 'pointer' }}>{iconoSesion(z)}</span>)
                         : lista.length > 0 && <span style={{ minWidth: 20, height: 20, padding: '0 4px', borderRadius: 6, background: GRUPOS.pro.color + 'cc', color: '#fff', fontSize: 10.5, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{lista.length}</span>}
                     </div>
@@ -2133,7 +2106,7 @@ export default function TimelinePlan({
     const est = estadoColor(s, fb)
     const opc = s.tipo_sesion === 'opcional'
     return (
-      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={e => { if (!clicSeleccion(e, s, 'sesion')) onAbrirSesion?.(s) }} title={[[s.titulo, s.duracion_min ? s.duracion_min + ' min' : null, opc ? 'Opcional' : null].filter(Boolean).join(' · '), s._prevista ? `↩ Hecha este día · estaba prevista el ${format(parseISO(s._prevista), "EEEE d 'de' MMMM", { locale: es })}` : null, s.indicaciones ? '\n👁 ' + textoPlano(s.indicaciones).slice(0, 220) : null, s.notas_entrenador ? '\n🔒 ' + textoPlano(s.notas_entrenador).slice(0, 220) : null, editableCal ? '\nArrastra para mover (Alt: copiar) · Ctrl/⌘+clic para seleccionar varias' : null].filter(Boolean).join('\n')}
+      <div className="tl-tarj" {...arrastrableItem(s, 'sesion')} onClick={e => { if (!clicSeleccion(e, s, 'sesion')) onAbrirSesion?.(s) }} onMouseEnter={e => mostrarPopupSesion(e, s, { fb: fbMap.get(s.id), onAbrir: onAbrirSesion })} onMouseLeave={() => ocultarPopupSesion()}
         style={{ position: 'relative', height: alto, flexShrink: 0, borderRadius: 8, background: estaSel('sesion', s.id) ? 'var(--accent-light, #e7f5ed)' : '#fff', border: `1px ${opc ? 'dashed' : 'solid'} ${GRUPOS.pro.color}${opc ? '88' : '55'}`, boxShadow: estaSel('sesion', s.id) ? '0 0 0 2px var(--accent)' : '0 1px 2px rgba(0,0,0,.05)', padding: micro ? '7px 9px' : '5px 6px', cursor: 'pointer', overflow: 'hidden', boxSizing: 'border-box', opacity: opc ? .85 : 1 }}>
         {est && <span style={{ position: 'absolute', top: 5, right: 5, width: 7, height: 7, borderRadius: 4, background: est }} />}
         {s._prevista && <span style={{ position: 'absolute', top: 1, right: est ? 13 : 4, fontSize: 9, color: 'var(--text3)', lineHeight: 1 }}>↩</span>}
