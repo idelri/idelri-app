@@ -399,6 +399,7 @@ export default function TimelinePlan({
   useEffect(() => { setRango({ ini: planIni, fin: planFin }) }, [planIni, planFin])
   const semanaInicial = () => (hoy >= rango.ini && hoy <= rango.fin) ? lunes(hoy) : lunes(rango.ini)
   const [cursor, setCursor] = useState(semanaInicial)
+  const mesoScroll = useRef({ sem: 0, cursor: null })
   useEffect(() => { setCursor(semanaInicial()) }, [rango.ini.getTime(), rango.fin.getTime()])
 
   // Ancho disponible (para repartir columnas)
@@ -1180,7 +1181,7 @@ export default function TimelinePlan({
           </div>
         </div>
       )}
-      <button onClick={() => { setCursor(lunes(hoy)); if (hoy < rango.ini || hoy > rango.fin) setRango({ ini: planIni < hoy ? planIni : lunes(hoy), fin: planFin > hoy ? planFin : addDays(lunes(hoy), 27) }) }}
+      <button onClick={() => { mesoScroll.current.cursor = null; setCursor(lunes(hoy)); if (hoy < rango.ini || hoy > rango.fin) setRango({ ini: planIni < hoy ? planIni : lunes(hoy), fin: planFin > hoy ? planFin : addDays(lunes(hoy), 27) }) }}
         style={{ height: 34, padding: '0 14px', borderRadius: 9, border: 'none', background: 'var(--text2)', color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', fontFamily: 'inherit' }}>Hoy</button>
       <SelectorPeriodo rango={rango} onCambiar={setRango} planIni={planIni} planFin={planFin} />
       <div style={{ display: 'flex', padding: 3, gap: 2, borderRadius: 11, border: '1px solid var(--border)', background: 'var(--bg)' }}>
@@ -1540,7 +1541,7 @@ export default function TimelinePlan({
                       <div key={k(d)} className="tl-celda-ses" {...destinoItems(() => k(d))} style={{ width: COL, borderLeft: i ? '1px solid rgba(0,0,0,.05)' : 'none', padding: 3, boxSizing: 'border-box', display: 'flex', flexDirection: 'column', gap: 3, background: isSameDay(d, hoy) ? 'rgba(45,106,79,.06)' : 'transparent' }}>
                         {ns.map(n => (
                           <div key={n.id} {...arrastrableItem(n, 'nota')} onClick={ev => { if (!clicSeleccion(ev, n, 'nota')) editarNotaDia(ev, n) }} title={`${cli ? '👁 La ve el cliente' : '🔒 Nota interna'}\n\n${n.texto}\n\nClic para editar · arrastra para mover`}
-                            style={{ fontSize: micro ? 11 : 9.5, lineHeight: 1.3, color: 'var(--text2)', background: '#fff', border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: 5, padding: '3px 5px', cursor: 'pointer', boxShadow: estaSel('nota', n.id) ? '0 0 0 2px var(--accent)' : 'none', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor(((micro ? 40 : 34) + ex(clave) / Math.max(1, ns.length) - 8) / (micro ? 14 : 12.5))), WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{n.texto}</div>
+                            style={{ fontSize: micro ? 11 : 9, lineHeight: 1.3, color: 'var(--text2)', background: '#fff', border: `1px solid ${color}40`, borderLeft: `3px solid ${color}`, borderRadius: 5, padding: '3px 5px', cursor: 'pointer', boxShadow: estaSel('nota', n.id) ? '0 0 0 2px var(--accent)' : 'none', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor(((micro ? 40 : 34) + ex(clave) / Math.max(1, ns.length) - 8) / (micro ? 14 : 12.5))), WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{n.texto}</div>
                         ))}
                         <button className="tl-mas" onClick={ev => nuevaNotaDia(ev, d, vis)} title={`Nueva nota ${cli ? 'para el cliente' : 'interna'}`}
                           style={{ marginTop: 'auto', alignSelf: 'center', border: `1px dashed ${color}88`, background: 'transparent', color, borderRadius: 6, fontSize: 12, width: 24, height: 18, cursor: 'pointer', lineHeight: 1 }}>+</button>
@@ -1574,7 +1575,7 @@ export default function TimelinePlan({
     const de = c.origen === 'feedback' ? `Feedback · ${c.sesion?.titulo || 'sesión'}` : '💬 Añadido a mano'
     return (
       <div onClick={ev => { ev.stopPropagation(); abrirComentario(ev, c) }} title={`${x.icono} ${x.label}${c.intensidad != null ? ` · ${c.intensidad}/10` : ''}\n${de}\n\n${c.texto}\n\n${c.origen === 'feedback' ? 'Clic para abrir la sesión' : 'Clic para editar'}`}
-        style={{ fontSize: micro ? 11 : 9.5, lineHeight: 1.3, color: 'var(--text2)', background: fuerte ? '#fee2e2' : '#fff', border: `1px solid ${x.color}${fuerte ? '88' : '40'}`, borderLeft: `3px solid ${x.color}`, borderRadius: 5, padding: '2px 5px 3px', cursor: 'pointer', overflow: 'hidden' }}>
+        style={{ fontSize: micro ? 11 : 9, lineHeight: 1.3, color: 'var(--text2)', background: fuerte ? '#fee2e2' : '#fff', border: `1px solid ${x.color}${fuerte ? '88' : '40'}`, borderLeft: `3px solid ${x.color}`, borderRadius: 5, padding: '2px 5px 3px', cursor: 'pointer', overflow: 'hidden' }}>
         <div style={{ fontSize: micro ? 9.5 : 8.5, fontWeight: 700, color: x.color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{x.icono} {x.label}{c.intensidad != null ? ` ${c.intensidad}/10` : ''}{c.origen === 'manual' ? ' · 💬' : ''}</div>
         <div style={{ overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: lineas, WebkitBoxOrient: 'vertical', overflowWrap: 'anywhere' }}>{c.texto}</div>
       </div>
@@ -1890,11 +1891,15 @@ export default function TimelinePlan({
   }
 
   // ════════════════════════════ MESO / MICRO ════════════════════════════
-  function VistaSemanas({ semanas: nSem, micro }) {
-    const lunesList = Array.from({ length: nSem }, (_, i) => addWeeks(cursor, i))
+  function VistaSemanas({ semanas: nSemVis, micro }) {
+    // Meso: todas las semanas del rango en una tira con scroll horizontal; micro: solo la del cursor
+    const iniTira = lunes(rango.ini)
+    const nTira = Math.max(1, differenceInCalendarDays(lunes(rango.fin), iniTira) / 7 + 1)
+    const lunesList = micro ? [cursor] : Array.from({ length: nTira }, (_, i) => addWeeks(iniTira, i))
+    const nSem = lunesList.length
     const GAP = micro ? 0 : 14
-    const disponible = ancho - LABEL_W - 50 - GAP * (nSem - 1)
-    const COL = Math.max(micro ? 120 : 56, Math.floor(disponible / (7 * nSem)))
+    const disponible = ancho - LABEL_W - 50 - GAP * (nSemVis - 1)
+    const COL = micro ? Math.max(120, Math.floor(disponible / 7)) : Math.max(64, Math.min(84, Math.floor(disponible / (7 * 2.3))))
     const WS = COL * 7
     const W = WS * nSem + GAP * (nSem - 1)
     const dias = lunesList.flatMap(l => Array.from({ length: 7 }, (_, i) => addDays(l, i)))
@@ -1918,13 +1923,30 @@ export default function TimelinePlan({
       </div>
     )
 
+    const paso = WS + GAP
+    // El scroll horizontal se guarda fuera (la vista se vuelve a montar en cada render) y se lleva al cursor cuando cambia
+    const refScroll = el => {
+      if (!el || micro) return
+      const m = mesoScroll.current
+      // se guarda en semanas (no en píxeles) para que no se descuadre si cambia el ancho de las columnas
+      if (m.cursor !== k(cursor)) { m.cursor = k(cursor); m.sem = Math.max(0, lunesList.findIndex(l => isSameDay(l, cursor))) }
+      const left = Math.round(m.sem * paso)
+      if (Math.abs(el.scrollLeft - left) > 1) el.scrollLeft = left
+    }
+    const irSemana = delta => {
+      if (micro) { setCursor(c => addWeeks(c, delta)); return }
+      const i = Math.round(mesoScroll.current.sem)
+      const j = Math.max(0, Math.min(nSem - 1, i + delta))
+      mesoScroll.current.cursor = null
+      setCursor(lunesList[j])
+    }
     return (
-      <div style={{ overflowX: 'auto' }}>
+      <div ref={refScroll} onScroll={e => { if (!micro) mesoScroll.current.sem = e.currentTarget.scrollLeft / paso }} style={{ overflowX: 'auto' }}>
         <div style={{ minWidth: LABEL_W + W + 8 }}>
           {/* Navegación + cabecera de semanas */}
           <div style={{ display: 'flex', alignItems: 'center', marginBottom: 2 }}>
             <div style={{ width: LABEL_W, minWidth: LABEL_W, display: 'flex', justifyContent: 'flex-end', paddingRight: 8, position: 'sticky', left: 0, background: 'var(--surface)', zIndex: 5 }}>
-              <button onClick={() => setCursor(c => addWeeks(c, -1))} style={btnFlecha} title="Semana anterior">‹</button>
+              <button onClick={() => irSemana(-1)} style={btnFlecha} title="Semana anterior">‹</button>
             </div>
             <div style={{ display: 'flex', gap: GAP, width: W, alignItems: 'center' }}>
               {lunesList.map(l => {
@@ -1949,7 +1971,7 @@ export default function TimelinePlan({
                 )
               })}
             </div>
-            <button onClick={() => setCursor(c => addWeeks(c, 1))} style={{ ...btnFlecha, marginLeft: 6 }} title="Semana siguiente">›</button>
+            <button onClick={() => irSemana(1)} style={{ ...btnFlecha, marginLeft: 6, position: micro ? 'static' : 'sticky', right: 0, zIndex: 5 }} title="Semana siguiente">›</button>
           </div>
 
           {/* Calendarización: fecha y eventos */}
@@ -2122,7 +2144,7 @@ export default function TimelinePlan({
           </div>
         ) : (<>
           <div style={{ fontSize: 11, lineHeight: 1 }}>{iconoSesion(s)}</div>
-          <div style={{ fontSize: 9.5, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, marginTop: 2, display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor((alto - 34) / 11.5)), WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', hyphens: 'auto' }} lang="es">{s.titulo}</div>
+          <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text)', lineHeight: 1.2, marginTop: 2, display: '-webkit-box', WebkitLineClamp: Math.max(2, Math.floor((alto - 30) / 11)), WebkitBoxOrient: 'vertical', overflow: 'hidden', overflowWrap: 'anywhere', hyphens: 'auto' }} lang="es">{s.titulo}</div>
         </>)}
         <div style={{ fontSize: micro ? 10.5 : 9.5, color: 'var(--text3)', marginTop: 2, fontFamily: 'var(--mono)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {[s.hora_inicio ? String(s.hora_inicio).slice(0, 5) : null, s.duracion_min ? s.duracion_min + "'" : null, opc && micro ? '☆ opcional' : opc ? '☆' : null].filter(Boolean).join(' · ')}
