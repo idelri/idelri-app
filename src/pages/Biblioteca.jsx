@@ -3,6 +3,7 @@ import { supabase } from '../lib/supabase'
 import { Search, Plus, X, Pencil, Trash2, ChevronDown, ChevronUp, LayoutGrid, List, Table2, Check, Play } from 'lucide-react'
 import BibliotecaSesiones from './BibliotecaSesiones'
 import EditorTareaCampo, { DiagramaCampo } from '../components/TareaCampo'
+import { normalizarYoutube } from '../lib/youtube'
 import CategoriasEditor, { useCategorias, SelectorEtiquetas, ChipEtiqueta } from '../components/Categorias'
 
 function ytId(url) {
@@ -305,8 +306,8 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
     setSaving(true)
     const datos = {
       nombre: form.nombre.trim(), descripcion: form.descripcion || null,
-      media_tipo: form.media_tipo || null, media_url: form.media_url || null,
-      video_url: form.video_url || null, notas: form.notas || null,
+      media_tipo: form.media_tipo || null, media_url: normalizarYoutube(form.media_url) || null,
+      video_url: normalizarYoutube(form.video_url) || null, notas: form.notas || null,
       carpeta: form.carpeta || 'fuerza',
     }
     const { data: guardado, error } = modal === 'nuevo'
@@ -711,7 +712,7 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                     ) : form.media_tipo === 'video' ? (
                       <video src={form.media_url} controls style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
                     ) : form.media_tipo === 'youtube' ? (() => {
-                      const yId = form.media_url.match(/(?:v=|youtu\.be\/)([^&?]+)/)?.[1]
+                      const yId = form.media_url.match(/(?:v=|youtu\.be\/|shorts\/)([^&?/]+)/)?.[1]
                       return yId
                         ? <iframe src={`https://www.youtube.com/embed/${yId}`} style={{ width: '100%', height: '100%', border: 'none' }} title="preview" allowFullScreen />
                         : <span style={{ fontSize: 11, color: '#475569', padding: 12, textAlign: 'center' }}>URL de YouTube no válida</span>
@@ -733,8 +734,9 @@ export default function Biblioteca({ setPage, setSesionesContext }) {
                         <div style={{ display: 'flex', gap: 6, marginBottom: 4 }}>
                           <input className="form-input" value={form.media_url}
                             onChange={e => {
-                              fd('media_url', e.target.value)
-                              if (form.media_tipo === 'youtube') comprobarVideoConflicto(e.target.value, modal?.id)
+                              const v = normalizarYoutube(e.target.value)
+                              fd('media_url', v)
+                              if (form.media_tipo === 'youtube') comprobarVideoConflicto(v, modal?.id)
                             }}
                             placeholder={form.media_tipo === 'youtube' ? 'https://youtube.com/...' : 'https://...'}
                             style={{ flex: 1, fontSize: 12, borderColor: videoConflicto ? '#f59e0b' : undefined }} />
