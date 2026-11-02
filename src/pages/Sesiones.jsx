@@ -9,6 +9,7 @@ import { format, parseISO } from 'date-fns'
 import EmojiPicker from '../components/EmojiPicker'
 import ModalComentarioEntrenadora from '../components/ModalComentarioEntrenadora'
 import { es } from 'date-fns/locale'
+import { normalizarYoutube } from '../lib/youtube'
 import { Plus, X, Trash2, Copy, Play } from 'lucide-react'
 
 const COLORES = ['#E29A2E', '#4C82E8', '#2FAE76', '#8B6CE0', '#34AEB8', '#DD6F97']
@@ -1348,7 +1349,8 @@ async function guardarSesion() {
                                 </select>
                                 <div style={{ flex: 1 }}>
                                   <InlineInput value={e.media_url} placeholder={e.media_tipo === 'youtube' ? 'Enlace de YouTube...' : 'URL de la media...'} fontSize={11}
-                                    onSave={async v => {
+                                    onSave={async v0 => {
+                                      const v = normalizarYoutube(v0)
                                       await actualizarEjercicio(b.id, e.id, 'media_url', v)
                                       if (e.media_tipo === 'youtube' && v && !e.nombre) {
                                         const titulo = await ytTitulo(v)
