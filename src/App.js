@@ -32,20 +32,42 @@ export default function App() {
   const [clientePlanificacion, setClientePlanificacion] = useState(null)
   const [clienteFichaId, setClienteFichaId] = useState(null)
   const [sesionesContext, setSesionesContext] = useState({ clienteId: null, sesionId: null })
-  // Pantalla dividida: planificación a la izquierda, editor de sesión a la derecha
-  const [lateral, setLateral] = useState(null) // { clienteId, sesionId, fechaNueva? }
-  const [anchoLateral, setAnchoLateral] = useState(() => { try { return Number(localStorage.getItem('anchoLateral')) || 50 } catch { return 50 } })
+  // Pantalla dividida: planificación a la izquierda y, a la derecha, el editor de
+  // una sesión o de dos a la vez (para comparar). Al abrir una tercera, sustituye a
+  // la que llevaba más tiempo abierta.
+  const [laterales, setLaterales] = useState([]) // [{ uid, clienteId, sesionId, fechaNueva? }]
+  const lateral = laterales.length > 0
+  const doble = laterales.length > 1
+  const leerAncho = (k, d) => { try { return Number(localStorage.getItem(k)) || d } catch { return d } }
+  const [anchoLateral, setAnchoLateral] = useState(() => leerAncho('anchoLateral', 50))
+  const [anchoDoble, setAnchoDoble] = useState(() => leerAncho('anchoLateral2', 66))
+  const ancho = doble ? anchoDoble : anchoLateral
   const ctxRef = useRef(sesionesContext)
   const setCtxPlan = c => { ctxRef.current = c; setSesionesContext(c) }
-  const setPagePlan = p => { if (p === 'sesiones' && window.innerWidth >= 1100) { setLateral({ ...ctxRef.current }); return } setLateral(null); setPage(p) }
-  const irAPagina = p => { setLateral(null); setPage(p) }
+  const nuevoLateral = c => ({ ...c, uid: `${Date.now()}-${Math.random()}` })
+  function abrirLateral(c) {
+    setLaterales(ls => {
+      if (c.sesionId && ls.some(l => l.sesionId === c.sesionId)) return ls
+      const n = nuevoLateral(c)
+      if (window.innerWidth < 1280) return [n] // no caben tres columnas: sustituye
+      return ls.length >= 2 ? [ls[1], n] : [...ls, n]
+    })
+  }
+  const cerrarLateral = uid => setLaterales(ls => ls.filter(l => l.uid !== uid))
+  const setPagePlan = p => { if (p === 'sesiones' && window.innerWidth >= 1100) { abrirLateral({ ...ctxRef.current }); return } setLaterales([]); setPage(p) }
+  const irAPagina = p => { setLaterales([]); setPage(p) }
   function arrastrarDivisor(e) {
     e.preventDefault()
     const cont = e.currentTarget.parentElement.getBoundingClientRect()
-    const mover = ev => { const pct = Math.min(75, Math.max(25, 100 - ((ev.clientX - cont.left) / cont.width) * 100)); setAnchoLateral(pct) }
-    const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); document.body.style.userSelect = ''; setAnchoLateral(a => { try { localStorage.setItem('anchoLateral', String(Math.round(a))) } catch {} return a }) }
+    const [setA, clave, min, max] = doble ? [setAnchoDoble, 'anchoLateral2', 40, 82] : [setAnchoLateral, 'anchoLateral', 25, 75]
+    const mover = ev => { const pct = Math.min(max, Math.max(min, 100 - ((ev.clientX - cont.left) / cont.width) * 100)); setA(pct) }
+    const soltar = () => { window.removeEventListener('mousemove', mover); window.removeEventListener('mouseup', soltar); document.body.style.userSelect = ''; setA(a => { try { localStorage.setItem(clave, String(Math.round(a))) } catch {} return a }) }
     document.body.style.userSelect = 'none'
     window.addEventListener('mousemove', mover); window.addEventListener('mouseup', soltar)
+  }
+  function anchoPorDefecto() {
+    const [setA, clave, v] = doble ? [setAnchoDoble, 'anchoLateral2', 66] : [setAnchoLateral, 'anchoLateral', 50]
+    setA(v); try { localStorage.setItem(clave, String(v)) } catch {}
   }
   const [recargarPlan, setRecargarPlan] = useState(0)
   const [planificacionFechaInicial, setPlanificacionFechaInicial] = useState(null)
@@ -180,25 +202,29 @@ export default function App() {
         {page === 'planificacion' && (
           // Misma estructura con o sin editor al lado: la planificación no se vuelve a montar al abrir/cerrar
           <div style={lateral ? { display: 'flex', height: '100vh', margin: -32, position: 'relative' } : undefined}>
-            <div style={lateral ? { width: `${100 - anchoLateral}%`, minWidth: 0, overflow: 'auto', padding: '24px 18px 24px 28px', boxSizing: 'border-box' } : undefined}>
+            <div style={lateral ? { width: `${100 - ancho}%`, minWidth: 0, overflow: 'auto', padding: '24px 18px 24px 28px', boxSizing: 'border-box' } : undefined}>
               <Planificacion setPage={setPagePlan} setClientePlanificacion={setClientePlanificacion} clientePlanificacion={clientePlanificacion} setSesionesContext={setCtxPlan} recargarPlan={recargarPlan} planificacionFechaInicial={planificacionFechaInicial} setPlanificacionFechaInicial={setPlanificacionFechaInicial} />
             </div>
             {lateral && (<>
-              <div onMouseDown={arrastrarDivisor} onDoubleClick={() => { setAnchoLateral(50); try { localStorage.setItem('anchoLateral', '50') } catch {} }} title="Arrastra para cambiar el reparto · doble clic: mitad y mitad"
+              <div onMouseDown={arrastrarDivisor} onDoubleClick={anchoPorDefecto} title={doble ? 'Arrastra para cambiar el reparto · doble clic: un tercio cada uno' : 'Arrastra para cambiar el reparto · doble clic: mitad y mitad'}
                 style={{ width: 8, flexShrink: 0, cursor: 'col-resize', background: 'var(--bg2)', borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <span style={{ width: 3, height: 40, borderRadius: 3, background: 'var(--border2, #cbd5e1)' }} />
               </div>
-              <div style={{ width: `${anchoLateral}%`, minWidth: 0, overflow: 'auto', padding: '24px 22px', boxSizing: 'border-box', background: 'var(--bg)' }}>
-                <Sesiones key={lateral.sesionId + '|' + (lateral.fechaNueva || '')} lateral clienteInicial={lateral.clienteId} sesionInicialId={lateral.sesionId} fechaNuevaSesion={lateral.fechaNueva} esPlantilla={lateral.esPlantilla}
-                  setPage={irAPagina} setClientePlanificacion={setClientePlanificacion} setRecargarPlan={setRecargarPlan}
-                  onCerrarLateral={() => setLateral(null)}
-                  onSoloSesion={id => { setSesionesContext({ ...lateral, sesionId: id || lateral.sesionId }); setLateral(null); setPage('sesiones') }} />
+              <div style={{ width: `${ancho}%`, minWidth: 0, display: 'flex' }}>
+                {laterales.map((l, i) => (
+                  <div key={l.uid} style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: doble ? '20px 16px' : '24px 22px', boxSizing: 'border-box', background: 'var(--bg)', borderLeft: i > 0 ? '2px solid var(--border)' : 'none' }}>
+                    <Sesiones lateral clienteInicial={l.clienteId} sesionInicialId={l.sesionId} fechaNuevaSesion={l.fechaNueva} esPlantilla={l.esPlantilla}
+                      setPage={irAPagina} setClientePlanificacion={setClientePlanificacion} setRecargarPlan={setRecargarPlan}
+                      onCerrarLateral={() => cerrarLateral(l.uid)}
+                      onSoloSesion={id => { setSesionesContext({ ...l, sesionId: id || l.sesionId }); setLaterales([]); setPage('sesiones') }} />
+                  </div>
+                ))}
               </div>
             </>)}
           </div>
         )}
         {page === 'sesiones'       && <Sesiones clienteInicial={sesionesContext.clienteId} sesionInicialId={sesionesContext.sesionId} fechaNuevaSesion={sesionesContext.fechaNueva} esPlantilla={sesionesContext.esPlantilla} setPage={setPage} setClientePlanificacion={setClientePlanificacion} setRecargarPlan={setRecargarPlan}
-          onDividir={c => { setClientePlanificacion(c.clienteId); setLateral(c); setPage('planificacion') }} />}
+          onDividir={c => { setClientePlanificacion(c.clienteId); setLaterales([nuevoLateral(c)]); setPage('planificacion') }} />}
         {page === 'biblioteca'     && <Biblioteca setPage={setPage} setSesionesContext={setSesionesContext} />}
         {page === 'agenda'         && <Agenda setPage={setPage} setSesionesContext={setSesionesContext} setClientePlanificacion={setClientePlanificacion} setPlanificacionFechaInicial={setPlanificacionFechaInicial} />}
       </main>
